@@ -1285,37 +1285,37 @@ INSERT INTO hris.leave_types (code, name, max_credits, is_cumulative, is_convert
 Mark each phase with `[X]` when completed.
 
 ### Phase 1 — Foundation & Database Schema
-- [ ] **Status:** Not Started
+- [X] **Status:** Completed
 - **Model:** `claude-opus-4-6`
 - **Rationale:** Architecture decisions, complex SQL schema with 16+ tables, RLS policies with security implications, enum design, trigger functions, and seed data. This phase sets the foundation everything else depends on — mistakes here cascade through every module. Opus's stronger reasoning catches edge cases in FK relationships, RLS policy gaps, and schema normalization.
 - **Key Outputs:** Next.js project, full PostgreSQL schema, RLS policies, seed data, TypeScript types
 
 ### Phase 1.1b — Layout Design (`/frontend-design` skill)
-- [ ] **Status:** Not Started
+- [X] **Status:** Completed
 - **Model:** `claude-opus-4-6`
 - **Rationale:** The `/frontend-design` skill produces the best results with Opus. This generates the entire application shell (sidebar, header, dashboard layout, login page) with production-grade design quality. A polished first layout sets the visual standard for all subsequent module pages. Doing this cheaply leads to a generic look that's hard to fix later.
 - **Key Outputs:** Authenticated layout, login page, dashboard skeleton, design tokens, color scheme
 
 ### Phase 2 — Authentication & User Management
-- [ ] **Status:** Not Started
+- [X] **Status:** Completed
 - **Model:** `claude-opus-4-6`
 - **Rationale:** Security-critical phase. Google OAuth integration, email-based access gating, session management, RLS enforcement at the application layer, and role-based route protection. Auth bugs are the most costly — a flaw here can expose the entire system. Opus is better at reasoning about auth edge cases (race conditions, session hijacking, email spoofing).
 - **Key Outputs:** Google OAuth login, email access control, user CRUD (super admin), role-based sidebar
 
 ### Phase 3 — Employee Management & 201 Files
-- [ ] **Status:** Not Started
+- [X] **Status:** Completed
 - **Model:** `claude-sonnet-4-6`
 - **Rationale:** Standard CRUD patterns following the `<DataTable>`, shadcn `Form`, and layout patterns established in Phases 1-2. Employee list, profile tabs, create/edit forms, document uploads. Well-defined requirements with no ambiguity. Sonnet handles repetitive CRUD generation efficiently and follows established patterns reliably.
 - **Key Outputs:** Employee CRUD, `<DataTable>` with filters, tabbed profile, 201 file upload, service record generation
 
 ### Phase 4 — NOSI & NOSA Modules
-- [ ] **Status:** Not Started
+- [X] **Status:** Completed
 - **Model:** `claude-sonnet-4-6`
 - **Rationale:** Moderately complex business logic (NOSI eligibility detection based on 3-year rule, salary grade table lookups) but well-scoped. Approval workflows follow a repeatable pattern (draft → pending → approved/rejected). PDF generation is template work. Sonnet handles this level of business logic well, especially since the approval pattern is defined once and reused.
 - **Key Outputs:** NOSI auto-detection, NOSI/NOSA CRUD with approval workflow, PDF generation, salary history updates
 
 ### Phase 5 — Leave Management
-- [ ] **Status:** Not Started
+- [X] **Status:** Completed
 - **Model:** `claude-sonnet-4-6`
 - **Rationale:** Leave credit calculations (1.25/month, carry-over, cap checks) and the three-step approval workflow (Employee → Dept Head → HR) follow patterns already built in Phase 4. CSC leave rules are well-documented. Date arithmetic and credit deduction logic are straightforward. Sonnet is efficient here.
 - **Key Outputs:** Leave application form, credit tracking, three-step approval, CSC Form 6 PDF, leave ledger
