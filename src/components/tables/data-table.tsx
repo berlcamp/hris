@@ -29,13 +29,13 @@ import { DataTablePagination } from "./data-table-pagination";
 import { DataTableToolbar } from "./data-table-toolbar";
 
 export interface DataTableFilterableColumn<TData> {
-  id: keyof TData & string;
+  id: string;
   title: string;
   options: { label: string; value: string; icon?: React.ComponentType<{ className?: string }> }[];
 }
 
 export interface DataTableSearchableColumn<TData> {
-  id: keyof TData & string;
+  id: string;
   title: string;
 }
 

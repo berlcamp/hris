@@ -41,7 +41,7 @@ export async function getEmployees() {
   let query = supabase
     .schema("hris")
     .from("employees")
-    .select("*, departments(name, code), positions(title, item_number)")
+    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number)")
     .order("created_at", { ascending: false });
 
   // Role-based filtering
@@ -60,7 +60,7 @@ export async function getEmployeeById(id: string) {
   const { data, error } = await supabase
     .schema("hris")
     .from("employees")
-    .select("*, departments(name, code), positions(title, item_number)")
+    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number)")
     .eq("id", id)
     .single();
 

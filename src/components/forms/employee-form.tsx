@@ -109,7 +109,8 @@ export function EmployeeForm({
     watch,
     formState: { errors },
   } = useForm<EmployeeFormValues>({
-    resolver: zodResolver(employeeFormSchema),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: zodResolver(employeeFormSchema) as any,
     defaultValues: defaultValues ?? {
       user_profile_id: null,
       first_name: "",
@@ -147,12 +148,13 @@ export function EmployeeForm({
     : positions;
 
   // When a position is selected, auto-fill salary grade
-  const handlePositionChange = (positionId: string) => {
-    setValue("position_id", positionId === "none" ? null : positionId, {
+  const handlePositionChange = (positionId: string | null) => {
+    const pid = positionId ?? "none";
+    setValue("position_id", pid === "none" ? null : pid, {
       shouldValidate: true,
     });
-    if (positionId !== "none") {
-      const position = positions.find((p) => p.id === positionId);
+    if (pid !== "none") {
+      const position = positions.find((p) => p.id === pid);
       if (position) {
         setValue("salary_grade", position.salary_grade, {
           shouldValidate: true,
@@ -230,18 +232,20 @@ export function EmployeeForm({
           <div className="space-y-2">
             <Label>User Profile (Optional)</Label>
             <Popover open={profileOpen} onOpenChange={setProfileOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  role="combobox"
-                  aria-expanded={profileOpen}
-                  className="w-full justify-between"
-                >
-                  {selectedProfile
-                    ? `${selectedProfile.full_name} (${selectedProfile.email})`
-                    : "Select a user profile..."}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={profileOpen}
+                    className="w-full justify-between"
+                  />
+                }
+              >
+                {selectedProfile
+                  ? `${selectedProfile.full_name} (${selectedProfile.email})`
+                  : "Select a user profile..."}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </PopoverTrigger>
               <PopoverContent className="w-full p-0" align="start">
                 <Command>
@@ -353,19 +357,21 @@ export function EmployeeForm({
             <div className="space-y-2">
               <Label>Birth Date</Label>
               <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !watchBirthDate && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {watchBirthDate
-                      ? format(new Date(watchBirthDate), "MMMM d, yyyy")
-                      : "Select date"}
-                  </Button>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !watchBirthDate && "text-muted-foreground"
+                      )}
+                    />
+                  }
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {watchBirthDate
+                    ? format(new Date(watchBirthDate), "MMMM d, yyyy")
+                    : "Select date"}
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
@@ -602,19 +608,21 @@ export function EmployeeForm({
             <div className="space-y-2">
               <Label>Hire Date *</Label>
               <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !watchHireDate && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {watchHireDate
-                      ? format(new Date(watchHireDate), "MMMM d, yyyy")
-                      : "Select date"}
-                  </Button>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !watchHireDate && "text-muted-foreground"
+                      )}
+                    />
+                  }
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {watchHireDate
+                    ? format(new Date(watchHireDate), "MMMM d, yyyy")
+                    : "Select date"}
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
                   <Calendar
@@ -647,22 +655,24 @@ export function EmployeeForm({
               <div className="space-y-2">
                 <Label>End of Contract</Label>
                 <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !watchEndOfContract && "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {watchEndOfContract
-                        ? format(
-                            new Date(watchEndOfContract),
-                            "MMMM d, yyyy"
-                          )
-                        : "Select date"}
-                    </Button>
+                  <PopoverTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !watchEndOfContract && "text-muted-foreground"
+                        )}
+                      />
+                    }
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {watchEndOfContract
+                      ? format(
+                          new Date(watchEndOfContract),
+                          "MMMM d, yyyy"
+                        )
+                      : "Select date"}
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
                     <Calendar

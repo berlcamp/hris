@@ -28,10 +28,10 @@ export default function DashboardLayout({
             </BreadcrumbList>
           </Breadcrumb>
           <div className="ml-auto hidden lg:flex items-center gap-3">
-            <Image src="/logo1.png" alt="Logo 1" width={36} height={36} />
-            <Image src="/logo2.png" alt="Logo 2" width={36} height={36} />
-            <Image src="/logo3.png" alt="Logo 3" width={36} height={36} />
-            <Image src="/logo4.png" alt="Logo 4" width={36} height={36} />
+            <Image src="/logo1.png" alt="Logo 1" width={40} height={40} className="h-10 w-auto" />
+            <Image src="/logo2.png" alt="Logo 2" width={40} height={40} className="h-10 w-auto" />
+            <Image src="/logo3.png" alt="Logo 3" width={40} height={40} className="h-10 w-auto" />
+            <Image src="/logo4.png" alt="Logo 4" width={40} height={40} className="h-10 w-auto" />
           </div>
         </header>
         <main className="flex-1 p-6">{children}</main>

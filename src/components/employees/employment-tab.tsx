@@ -21,7 +21,7 @@ function InfoRow({
 }: {
   label: string;
   value?: string | null;
-  badge?: { text: string; variant?: "default" | "secondary" | "outline" };
+  badge?: { text: string; variant?: "default" | "secondary" | "outline" | "destructive" };
 }) {
   return (
     <div className="grid grid-cols-3 gap-4 py-2">

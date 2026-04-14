@@ -16,6 +16,7 @@ import {
   LogOut,
   TrendingUp,
   ClipboardList,
+  CreditCard,
   Building2,
   Landmark,
   User,
@@ -91,6 +92,7 @@ const navGroups: NavGroup[] = [
     roles: allRoles,
     items: [
       { title: "Leave Management", href: "/leaves", icon: CalendarDays, roles: allRoles },
+      { title: "Leave Credits", href: "/leaves/credits", icon: CreditCard, roles: adminRoles },
       { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: allRoles },
     ],
   },
@@ -106,6 +108,7 @@ const navGroups: NavGroup[] = [
     roles: adminRoles,
     items: [
       { title: "Reports", href: "/reports", icon: BarChart3, roles: adminRoles },
+      { title: "Leave Ledger", href: "/reports/leave-ledger", icon: FileText, roles: adminRoles },
     ],
   },
   {
