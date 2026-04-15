@@ -96,6 +96,19 @@ export async function getEligibleForNosi(): Promise<EligibleEmployee[]> {
     const yearsInStep = (now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
 
     if (yearsInStep >= 3) {
+      // Check IPCR eligibility — must have at least Satisfactory rating
+      const { data: ipcrCheck } = await supabase
+        .schema("hris")
+        .from("ipcr_records")
+        .select("id, numerical_rating")
+        .eq("employee_id", emp.id)
+        .eq("status", "approved")
+        .gte("numerical_rating", 2.5)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (!ipcrCheck || ipcrCheck.length === 0) continue;
+
       // Supabase may return joined relations as arrays or objects
       const dept = Array.isArray(emp.departments) ? emp.departments[0] ?? null : emp.departments;
       const pos = Array.isArray(emp.positions) ? emp.positions[0] ?? null : emp.positions;

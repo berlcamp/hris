@@ -113,10 +113,11 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Administration",
-    roles: ["super_admin"],
+    roles: ["super_admin", "hr_admin"],
     items: [
       { title: "User Management", href: "/admin/users", icon: UserPlus, roles: ["super_admin"] },
       { title: "Salary Grades", href: "/admin/salary-grades", icon: Building2, roles: ["super_admin"] },
+      { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin", "hr_admin"] },
       { title: "Settings", href: "/admin/settings", icon: Settings, roles: ["super_admin"] },
     ],
   },
