@@ -20,7 +20,8 @@ import {
   AlertDialogTitle,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { Landmark, Shield, Loader2 } from "lucide-react";
+import { Shield, Loader2 } from "lucide-react";
+import Image from "next/image";
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -86,9 +87,6 @@ function LoginForm() {
       <div className="relative z-10 w-full max-w-md px-4">
         {/* Top branding */}
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[oklch(0.75_0.12_75)] shadow-lg shadow-[oklch(0.75_0.12_75)]/20">
-            <Landmark className="h-8 w-8 text-[oklch(0.18_0.02_255)]" />
-          </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">
             LGU HRIS
           </h1>
@@ -99,6 +97,19 @@ function LoginForm() {
 
         <Card className="border-0 shadow-2xl shadow-black/20">
           <CardHeader className="text-center pb-2">
+            <div className="mb-4 flex items-center justify-center gap-3">
+              {[1, 2, 3, 4].map((n) => (
+                <div key={n} className="flex h-14 w-14 items-center justify-center p-1">
+                  <Image
+                    src={`/logo${n}.png`}
+                    alt={`Logo ${n}`}
+                    width={52}
+                    height={52}
+                    className="object-contain"
+                  />
+                </div>
+              ))}
+            </div>
             <CardTitle className="text-lg">Welcome Back</CardTitle>
             <CardDescription>
               Sign in with your government Google account to access the system.

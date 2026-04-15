@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -20,14 +19,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   parseDahuaFile,
   matchAndPreviewImport,
@@ -176,9 +167,9 @@ export function DahuaImportDialog() {
 
         {/* Step: Preview */}
         {step === "preview" && (
-          <>
+          <div className="flex flex-col gap-3">
             {/* Summary badges */}
-            <div className="flex flex-wrap gap-3 px-1">
+            <div className="flex flex-wrap gap-3 px-1 shrink-0">
               <div className="flex items-center gap-1.5">
                 <Badge variant="outline">{previewRows.length} punches</Badge>
               </div>
@@ -209,66 +200,14 @@ export function DahuaImportDialog() {
             </div>
 
             {/* File info */}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground px-1 shrink-0">
               <FileText className="h-3.5 w-3.5" />
               {fileName}
             </div>
 
-            {/* Preview table */}
-            <ScrollArea className="flex-1 max-h-[40vh] border rounded-md">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Employee No.</TableHead>
-                    <TableHead className="text-xs">Name</TableHead>
-                    <TableHead className="text-xs">Date</TableHead>
-                    <TableHead className="text-xs">Time</TableHead>
-                    <TableHead className="text-xs">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {previewRows.map((row, i) => (
-                    <TableRow
-                      key={i}
-                      className={
-                        !row.matched
-                          ? "bg-destructive/5"
-                          : row.hasConflict
-                          ? "bg-yellow-50 dark:bg-yellow-950/20"
-                          : ""
-                      }
-                    >
-                      <TableCell className="text-xs font-mono">
-                        {row.employeeNo}
-                      </TableCell>
-                      <TableCell className="text-xs">{row.employeeName}</TableCell>
-                      <TableCell className="text-xs">{row.date}</TableCell>
-                      <TableCell className="text-xs font-mono">{row.time}</TableCell>
-                      <TableCell>
-                        {!row.matched ? (
-                          <Badge variant="destructive" className="text-xs">
-                            Not Found
-                          </Badge>
-                        ) : row.hasConflict ? (
-                          <Badge variant="secondary" className="text-xs">
-                            <AlertTriangle className="h-3 w-3 mr-1" />
-                            Existing
-                          </Badge>
-                        ) : (
-                          <Badge variant="default" className="text-xs">
-                            Ready
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-
             {/* Overwrite toggle */}
             {conflictCount > 0 && (
-              <div className="flex items-center gap-3 rounded-lg border p-3 bg-muted/50">
+              <div className="flex items-center gap-3 rounded-lg border p-3 bg-muted/50 shrink-0">
                 <Switch
                   id="overwrite"
                   checked={overwrite}
@@ -280,7 +219,7 @@ export function DahuaImportDialog() {
                 </Label>
               </div>
             )}
-          </>
+          </div>
         )}
 
         {/* Step: Importing */}
