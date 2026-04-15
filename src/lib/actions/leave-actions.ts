@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { logAudit } from "@/lib/audit";
 
 export interface LeaveTypeRow {
   id: string;
@@ -499,6 +500,15 @@ export async function approveLeave(id: string) {
         .update({ used_credits: Number(credit.used_credits) + Number(app.days_applied) })
         .eq("id", credit.id);
     }
+
+    await logAudit({
+      userId: user.id,
+      userEmail: user.email,
+      action: "approve_leave",
+      tableName: "leave_applications",
+      recordId: id,
+      newValues: { status: "approved", approved_by: user.email },
+    });
 
     revalidatePath(`/leaves/${id}`);
     revalidatePath("/leaves");

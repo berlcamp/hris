@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { logAudit } from "@/lib/audit";
 import type { EmployeeFormValues } from "@/lib/validations/employee-schema";
 
 export interface EmployeeWithRelations {
@@ -187,6 +188,16 @@ export async function createEmployee(input: EmployeeFormValues) {
     reason: "initial",
   });
 
+  const user = await getCurrentUser();
+  await logAudit({
+    userId: user?.id,
+    userEmail: user?.email,
+    action: "create",
+    tableName: "employees",
+    recordId: data.id,
+    newValues: { employee_no: data.employee_no, first_name: input.first_name, last_name: input.last_name },
+  });
+
   revalidatePath("/employees");
   return { data };
 }
@@ -229,6 +240,16 @@ export async function updateEmployee(
     }
     return { error: error.message };
   }
+
+  const currentUser = await getCurrentUser();
+  await logAudit({
+    userId: currentUser?.id,
+    userEmail: currentUser?.email,
+    action: "update",
+    tableName: "employees",
+    recordId: id,
+    newValues: { first_name: input.first_name, last_name: input.last_name },
+  });
 
   revalidatePath("/employees");
   revalidatePath(`/employees/${id}`);

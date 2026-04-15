@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { logAudit } from "@/lib/audit";
 
 // --- Types ---
 
@@ -490,6 +491,14 @@ export async function importDahuaAttendance(
       errors++;
     }
   }
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "import_attendance",
+    tableName: "attendance_logs",
+    newValues: { imported, skipped, errors, overwriteExisting, totalRows: previewRows.length },
+  });
 
   revalidatePath("/attendance");
   return { imported, skipped, errors };

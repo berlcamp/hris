@@ -1,0 +1,21 @@
+import { Skeleton } from "@/components/ui/skeleton";
+import { DataTableSkeleton } from "@/components/tables/data-table-skeleton";
+
+export default function AttendanceLoading() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-9 w-28" />
+          <Skeleton className="h-9 w-32" />
+          <Skeleton className="h-9 w-28" />
+        </div>
+      </div>
+      <DataTableSkeleton columns={8} rows={10} />
+    </div>
+  );
+}
