@@ -38,7 +38,12 @@ export function DataTableFacetedFilter<TData, TValue>({
   title,
   options,
 }: DataTableFacetedFilterProps<TData, TValue>) {
-  const facets = column?.getFacetedUniqueValues();
+  let facets: Map<unknown, number> | undefined;
+  try {
+    facets = column?.getFacetedUniqueValues();
+  } catch {
+    // Column may not support faceted values (e.g., no accessor)
+  }
   const selectedValues = new Set(column?.getFilterValue() as string[]);
 
   return (

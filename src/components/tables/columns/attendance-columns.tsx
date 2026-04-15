@@ -89,6 +89,13 @@ export function createAttendanceColumns(
     },
     {
       id: "status",
+      accessorFn: (row) => {
+        if (row.is_absent) return "absent";
+        const parts: string[] = [];
+        if (row.is_late) parts.push("late");
+        if (row.is_undertime) parts.push("undertime");
+        return parts.length > 0 ? parts.join(",") : "on_time";
+      },
       header: "Status",
       cell: ({ row }) => {
         const { is_absent, is_late, is_undertime, late_minutes, undertime_minutes } =
@@ -116,14 +123,10 @@ export function createAttendanceColumns(
           </div>
         );
       },
-      filterFn: (row, id, value) => {
+      filterFn: (row, id, value: string[]) => {
         if (!value || value.length === 0) return true;
-        const { is_absent, is_late, is_undertime } = row.original;
-        if (value.includes("absent") && is_absent) return true;
-        if (value.includes("late") && is_late) return true;
-        if (value.includes("undertime") && is_undertime) return true;
-        if (value.includes("on_time") && !is_absent && !is_late && !is_undertime) return true;
-        return false;
+        const status = row.getValue<string>(id);
+        return value.some((v) => status.includes(v));
       },
     },
     {

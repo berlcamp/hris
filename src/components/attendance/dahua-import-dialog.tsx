@@ -29,7 +29,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  parseDahuaCsv,
+  parseDahuaFile,
   matchAndPreviewImport,
   importDahuaAttendance,
 } from "@/lib/actions/attendance-actions";
@@ -71,10 +71,10 @@ export function DahuaImportDialog() {
 
     try {
       const text = await file.text();
-      const parsed = await parseDahuaCsv(text);
+      const parsed = await parseDahuaFile(text);
 
       if (parsed.length === 0) {
-        toast.error("No valid records found in the CSV file");
+        toast.error("No valid records found in the file");
         setLoading(false);
         return;
       }
@@ -83,7 +83,7 @@ export function DahuaImportDialog() {
       setPreviewRows(preview);
       setStep("preview");
     } catch (err) {
-      toast.error("Failed to parse CSV file");
+      toast.error("Failed to parse file");
     } finally {
       setLoading(false);
     }
@@ -136,7 +136,7 @@ export function DahuaImportDialog() {
         <DialogHeader>
           <DialogTitle>Import Dahua Attendance Data</DialogTitle>
           <DialogDescription>
-            Upload the CSV file exported from your Dahua face recognition device via USB.
+            Upload the file exported from your Dahua face recognition device via USB.
           </DialogDescription>
         </DialogHeader>
 
@@ -152,23 +152,23 @@ export function DahuaImportDialog() {
             </div>
             <div className="text-center">
               <p className="text-sm font-medium">
-                {loading ? "Parsing file..." : "Select a CSV file from your Dahua device"}
+                {loading ? "Parsing file..." : "Select a file from your Dahua device"}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Supported format: Dahua face recognition attendance export (CSV)
+                Supported format: Dahua face recognition attendance export (XML or CSV)
               </p>
             </div>
             <label>
               <input
                 type="file"
-                accept=".csv,.txt"
+                accept=".xml,.csv,.txt"
                 onChange={handleFileUpload}
                 className="hidden"
                 disabled={loading}
               />
               <Button variant="default" size="sm" disabled={loading} render={<span />}>
                 <Upload className="h-4 w-4" />
-                Choose CSV File
+                Choose File
               </Button>
             </label>
           </div>
