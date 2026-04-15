@@ -417,16 +417,18 @@ export async function matchAndPreviewImport(
 
   const supabase = createAdminClient();
 
-  // Get all employee IDs mapped by employee_no
+  // Get all employee IDs mapped by biometric_no
   const uniqueNos = [...new Set(parsedRows.map((r) => r.employeeNo))];
+  // Parse as integers since biometric_no is a number column
+  const numericNos = uniqueNos.map(Number).filter((n) => !isNaN(n));
   const { data: employees } = await supabase
     .schema("hris")
     .from("employees")
-    .select("id, employee_no")
-    .in("employee_no", uniqueNos);
+    .select("id, biometric_no")
+    .in("biometric_no", numericNos);
 
   const empMap = new Map(
-    (employees ?? []).map((e) => [e.employee_no, e.id])
+    (employees ?? []).map((e) => [String(e.biometric_no), e.id])
   );
 
   // Get existing attendance records for the date range

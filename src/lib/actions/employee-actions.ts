@@ -9,6 +9,7 @@ import type { EmployeeFormValues } from "@/lib/validations/employee-schema";
 export interface EmployeeWithRelations {
   id: string;
   employee_no: string;
+  biometric_no: number;
   first_name: string;
   middle_name: string | null;
   last_name: string;
