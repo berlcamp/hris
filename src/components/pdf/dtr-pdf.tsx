@@ -249,7 +249,9 @@ export function DtrPdf({ entries, summary, employee, month, year }: DtrPdfProps)
         </View>
         <View style={styles.colRemarks}>
           <Text style={styles.cellText}>
-            {entry.is_absent && !isWeekend
+            {entry.leave_type && !entry.is_absent
+              ? entry.leave_type
+              : entry.is_absent && !isWeekend
               ? "ABSENT"
               : isWeekend
               ? ""
@@ -395,6 +397,14 @@ export function DtrPdf({ entries, summary, employee, month, year }: DtrPdfProps)
             <Text style={styles.summaryValue}>
               {summary.total_days_absent}
             </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Total Days on Leave:</Text>
+            <Text style={styles.summaryValue}>
+              {summary.total_days_on_leave}
+            </Text>
+            <Text style={styles.summaryLabel}> </Text>
+            <Text style={styles.summaryValue}> </Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>

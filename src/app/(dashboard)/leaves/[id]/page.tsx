@@ -44,10 +44,10 @@ export default async function LeaveDetailPage({
   const emp = leave.employees;
   const fullName = emp ? `${emp.first_name} ${emp.last_name}` : "—";
 
-  // Get leave credits for PDF generation
+  // Get leave credits for PDF generation and display
   const year = new Date(leave.start_date).getFullYear();
-  const credits = await getEmployeeLeaveCredits(leave.employee_id, year);
-  const credit = credits.find((c) => c.leave_type_id === leave.leave_type_id);
+  const allCredits = await getEmployeeLeaveCredits(leave.employee_id, year);
+  const credit = allCredits.find((c) => c.leave_type_id === leave.leave_type_id);
 
   const timeline = [
     { label: "Submitted", done: true, date: leave.created_at },
@@ -77,9 +77,7 @@ export default async function LeaveDetailPage({
         <div className="flex gap-2">
           <LeavePdfButton
             leave={leave}
-            totalCredits={credit ? Number(credit.total_credits) : 0}
-            usedCredits={credit ? Number(credit.used_credits) : 0}
-            balance={credit ? Number(credit.balance) : 0}
+            credits={allCredits}
           />
           <LeaveApprovalActions
             leaveId={leave.id}
@@ -109,9 +107,17 @@ export default async function LeaveDetailPage({
           <CardHeader><CardTitle className="text-base">Leave Details</CardTitle></CardHeader>
           <CardContent className="divide-y">
             <InfoRow label="Leave Type" value={leave.leave_types ? `${leave.leave_types.name} (${leave.leave_types.code})` : null} />
-            <InfoRow label="Start Date" value={format(new Date(leave.start_date), "MMMM d, yyyy")} />
-            <InfoRow label="End Date" value={format(new Date(leave.end_date), "MMMM d, yyyy")} />
+            <InfoRow
+              label="Inclusive Dates"
+              value={
+                leave.leave_dates && leave.leave_dates.length > 0
+                  ? leave.leave_dates.map((d: string) => format(new Date(d + "T00:00:00"), "MMM d, yyyy")).join(", ")
+                  : `${format(new Date(leave.start_date), "MMM d, yyyy")} to ${format(new Date(leave.end_date), "MMM d, yyyy")}`
+              }
+            />
             <InfoRow label="Days Applied" value={`${leave.days_applied} day(s)`} />
+            {leave.details_of_leave && <InfoRow label="Details of Leave" value={leave.details_of_leave} />}
+            <InfoRow label="Commutation" value={leave.commutation_requested ? "Requested" : "Not Requested"} />
             {leave.reason && <InfoRow label="Reason" value={leave.reason} />}
           </CardContent>
         </Card>

@@ -44,11 +44,13 @@ export interface DtrEntry {
   undertime_minutes: number;
   is_absent: boolean;
   remarks: string | null;
+  leave_type: string | null;
 }
 
 export interface DtrSummary {
   total_days_present: number;
   total_days_absent: number;
+  total_days_on_leave: number;
   total_late_count: number;
   total_late_minutes: number;
   total_undertime_count: number;
@@ -639,19 +641,54 @@ export async function getDtrData(
   const lastDay = new Date(year, month, 0).getDate();
   const endDate = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-  // Fetch attendance logs for the month
-  const { data: logs } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("*")
-    .eq("employee_id", employeeId)
-    .gte("date", startDate)
-    .lte("date", endDate)
-    .order("date", { ascending: true });
+  // Fetch attendance logs and approved leaves for the month in parallel
+  const [{ data: logs }, { data: approvedLeaves }] = await Promise.all([
+    supabase
+      .schema("hris")
+      .from("attendance_logs")
+      .select("*")
+      .eq("employee_id", employeeId)
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("date", { ascending: true }),
+    supabase
+      .schema("hris")
+      .from("leave_applications")
+      .select("start_date, end_date, leave_dates, leave_types(code)")
+      .eq("employee_id", employeeId)
+      .eq("status", "approved")
+      .lte("start_date", endDate)
+      .gte("end_date", startDate),
+  ]);
 
   const logMap = new Map(
     (logs ?? []).map((l: Record<string, unknown>) => [l.date as string, l])
   );
+
+  // Build a date-to-leave-code map from approved leaves
+  const leaveMap = new Map<string, string>();
+  for (const leave of (approvedLeaves ?? []) as { start_date: string; end_date: string; leave_dates: string[] | null; leave_types: { code: string } | null }[]) {
+    const code = leave.leave_types?.code ?? "Leave";
+    const dates = leave.leave_dates;
+    if (dates && dates.length > 0) {
+      // Use specific dates when available
+      for (const dateStr of dates) {
+        leaveMap.set(dateStr, code);
+      }
+    } else {
+      // Fallback: expand range for older records without leave_dates
+      const d = new Date(leave.start_date + "T00:00:00");
+      const end = new Date(leave.end_date + "T00:00:00");
+      while (d <= end) {
+        const dow = d.getDay();
+        if (dow !== 0 && dow !== 6) {
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          leaveMap.set(key, code);
+        }
+        d.setDate(d.getDate() + 1);
+      }
+    }
+  }
 
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -659,6 +696,7 @@ export async function getDtrData(
   const entries: DtrEntry[] = [];
   let totalPresent = 0;
   let totalAbsent = 0;
+  let totalOnLeave = 0;
   let totalLateCount = 0;
   let totalLateMinutes = 0;
   let totalUndertimeCount = 0;
@@ -669,6 +707,7 @@ export async function getDtrData(
     const date = new Date(year, month - 1, day);
     const dayOfWeek = dayNames[date.getDay()];
     const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+    const leaveCode = leaveMap.get(dateStr) ?? null;
 
     const log = logMap.get(dateStr) as Record<string, unknown> | undefined;
 
@@ -692,6 +731,7 @@ export async function getDtrData(
         undertime_minutes: undertimeMins,
         is_absent: isAbsent,
         remarks: log.remarks as string | null,
+        leave_type: leaveCode,
       });
 
       if (!isAbsent) totalPresent++;
@@ -704,6 +744,24 @@ export async function getDtrData(
         totalUndertimeCount++;
         totalUndertimeMinutes += undertimeMins;
       }
+    } else if (!isWeekend && leaveCode) {
+      // On approved leave — not absent
+      entries.push({
+        date: dateStr,
+        day_of_week: dayOfWeek,
+        time_in_am: null,
+        time_out_am: null,
+        time_in_pm: null,
+        time_out_pm: null,
+        is_late: false,
+        late_minutes: 0,
+        is_undertime: false,
+        undertime_minutes: 0,
+        is_absent: false,
+        remarks: leaveCode,
+        leave_type: leaveCode,
+      });
+      totalOnLeave++;
     } else {
       entries.push({
         date: dateStr,
@@ -718,6 +776,7 @@ export async function getDtrData(
         undertime_minutes: 0,
         is_absent: !isWeekend,
         remarks: isWeekend ? "Weekend" : null,
+        leave_type: null,
       });
       if (!isWeekend) totalAbsent++;
     }
@@ -728,6 +787,7 @@ export async function getDtrData(
     summary: {
       total_days_present: totalPresent,
       total_days_absent: totalAbsent,
+      total_days_on_leave: totalOnLeave,
       total_late_count: totalLateCount,
       total_late_minutes: totalLateMinutes,
       total_undertime_count: totalUndertimeCount,
@@ -757,17 +817,52 @@ export async function getDtrSummaryExport(
   const lastDay = new Date(year, month, 0).getDate();
   const endDate = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
 
-  // Get all attendance for the month with employee info
-  const { data: logs } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select(
-      "employee_id, date, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, employees!attendance_logs_employee_id_fkey(employee_no, first_name, last_name)"
-    )
-    .gte("date", startDate)
-    .lte("date", endDate)
-    .order("employee_id")
-    .order("date");
+  // Get attendance and approved leaves for the month in parallel
+  const [{ data: logs }, { data: allLeaves }] = await Promise.all([
+    supabase
+      .schema("hris")
+      .from("attendance_logs")
+      .select(
+        "employee_id, date, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, employees!attendance_logs_employee_id_fkey(employee_no, first_name, last_name)"
+      )
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("employee_id")
+      .order("date"),
+    supabase
+      .schema("hris")
+      .from("leave_applications")
+      .select("employee_id, start_date, end_date, leave_dates")
+      .eq("status", "approved")
+      .lte("start_date", endDate)
+      .gte("end_date", startDate),
+  ]);
+
+  // Build set of employee+date that are on approved leave
+  const leaveSet = new Set<string>();
+  const leaveDaysByEmployee = new Map<string, number>();
+  for (const leave of (allLeaves ?? []) as { employee_id: string; start_date: string; end_date: string; leave_dates: string[] | null }[]) {
+    const dates = leave.leave_dates;
+    if (dates && dates.length > 0) {
+      for (const dateStr of dates) {
+        leaveSet.add(`${leave.employee_id}_${dateStr}`);
+        leaveDaysByEmployee.set(leave.employee_id, (leaveDaysByEmployee.get(leave.employee_id) ?? 0) + 1);
+      }
+    } else {
+      // Fallback: expand range for older records
+      const d = new Date(leave.start_date + "T00:00:00");
+      const end = new Date(leave.end_date + "T00:00:00");
+      while (d <= end) {
+        const dow = d.getDay();
+        if (dow !== 0 && dow !== 6) {
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          leaveSet.add(`${leave.employee_id}_${key}`);
+          leaveDaysByEmployee.set(leave.employee_id, (leaveDaysByEmployee.get(leave.employee_id) ?? 0) + 1);
+        }
+        d.setDate(d.getDate() + 1);
+      }
+    }
+  }
 
   // Group by employee
   const grouped = new Map<
@@ -777,6 +872,7 @@ export async function getDtrSummaryExport(
       name: string;
       present: number;
       absent: number;
+      onLeave: number;
       lateCount: number;
       lateMinutes: number;
       undertimeCount: number;
@@ -795,6 +891,7 @@ export async function getDtrSummaryExport(
         name: `${emp.last_name}, ${emp.first_name}`,
         present: 0,
         absent: 0,
+        onLeave: 0,
         lateCount: 0,
         lateMinutes: 0,
         undertimeCount: 0,
@@ -818,12 +915,21 @@ export async function getDtrSummaryExport(
     }
   }
 
+  // Apply leave days: subtract from absent, add to onLeave
+  for (const [empId, leaveDays] of leaveDaysByEmployee) {
+    const entry = grouped.get(empId);
+    if (entry) {
+      entry.onLeave = leaveDays;
+    }
+  }
+
   // Build CSV
   const headers = [
     "Employee No",
     "Name",
     "Days Present",
     "Days Absent",
+    "Days on Leave",
     "Late Count",
     "Total Late (mins)",
     "Undertime Count",
@@ -836,6 +942,7 @@ export async function getDtrSummaryExport(
       `"${e.name}"`,
       e.present,
       e.absent,
+      e.onLeave,
       e.lateCount,
       e.lateMinutes,
       e.undertimeCount,

@@ -189,7 +189,9 @@ export function AppSidebar() {
                   const isActive =
                     pathname === item.href ||
                     (item.href !== "/dashboard" &&
-                      pathname.startsWith(item.href));
+                      item.href !== "/leaves" &&
+                      pathname.startsWith(item.href)) ||
+                    (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits"))));
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton

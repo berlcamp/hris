@@ -40,6 +40,9 @@ export interface LeaveApplicationWithRelations {
   end_date: string;
   days_applied: number;
   reason: string | null;
+  details_of_leave: string | null;
+  commutation_requested: boolean;
+  leave_dates: string[];
   status: string;
   department_head_id: string | null;
   hr_reviewer_id: string | null;
@@ -52,6 +55,8 @@ export interface LeaveApplicationWithRelations {
     employee_no: string;
     first_name: string;
     last_name: string;
+    middle_name: string | null;
+    salary_grade: number;
     department_id: string | null;
     departments: { name: string; code: string } | null;
     positions: { title: string } | null;
@@ -307,7 +312,7 @@ export async function getLeaveApplicationById(id: string) {
     .select(`
       *,
       employees(
-        employee_no, first_name, last_name, department_id,
+        employee_no, first_name, last_name, middle_name, salary_grade, department_id,
         departments!employees_department_id_fkey(name, code),
         positions(title)
       ),
@@ -326,6 +331,9 @@ export async function createLeaveApplication(input: {
   end_date: string;
   days_applied: number;
   reason: string | null;
+  details_of_leave?: string | null;
+  commutation_requested?: boolean;
+  leave_dates?: string[];
 }) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
@@ -347,19 +355,39 @@ export async function createLeaveApplication(input: {
     return { error: `Insufficient leave credits. Available: ${credit.balance} days` };
   }
 
-  // Check for overlapping approved/pending leave
-  const { data: overlapping } = await supabase
-    .schema("hris")
-    .from("leave_applications")
-    .select("id")
-    .eq("employee_id", input.employee_id)
-    .in("status", ["pending", "approved"])
-    .lte("start_date", input.end_date)
-    .gte("end_date", input.start_date)
-    .limit(1);
+  // Check for overlapping approved/pending leave using specific dates
+  const leaveDates = input.leave_dates ?? [];
+  if (leaveDates.length > 0) {
+    const { data: existingApps } = await supabase
+      .schema("hris")
+      .from("leave_applications")
+      .select("leave_dates")
+      .eq("employee_id", input.employee_id)
+      .in("status", ["pending", "approved"])
+      .lte("start_date", input.end_date)
+      .gte("end_date", input.start_date);
 
-  if (overlapping && overlapping.length > 0) {
-    return { error: "Leave dates overlap with an existing application" };
+    const existingDates = new Set(
+      (existingApps ?? []).flatMap((a) => (a.leave_dates as string[]) ?? [])
+    );
+    const conflicting = leaveDates.filter((d) => existingDates.has(d));
+    if (conflicting.length > 0) {
+      return { error: `Leave dates overlap with an existing application (${conflicting[0]})` };
+    }
+  } else {
+    // Fallback: range-based overlap check for apps without leave_dates
+    const { data: overlapping } = await supabase
+      .schema("hris")
+      .from("leave_applications")
+      .select("id")
+      .eq("employee_id", input.employee_id)
+      .in("status", ["pending", "approved"])
+      .lte("start_date", input.end_date)
+      .gte("end_date", input.start_date)
+      .limit(1);
+    if (overlapping && overlapping.length > 0) {
+      return { error: "Leave dates overlap with an existing application" };
+    }
   }
 
   // Validate maternity leave minimum days

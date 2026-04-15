@@ -176,13 +176,13 @@ export function DtrViewClient({
       <div className="flex flex-wrap gap-3 items-end">
         {/* Employee selector */}
         {isAdmin ? (
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-muted-foreground">
               Employee
             </label>
             <Popover open={empOpen} onOpenChange={setEmpOpen}>
               <PopoverTrigger
-                render={<Button variant="outline" role="combobox" className="w-[280px] justify-between font-normal" />}
+                render={<Button variant="outline" role="combobox" className="w-[280px] h-9 justify-between font-normal" />}
               >
                 {selectedEmployee
                   ? `${selectedEmployee.last_name}, ${selectedEmployee.first_name}`
@@ -351,7 +351,8 @@ export function DtrViewClient({
                       key={entry.date}
                       className={cn(
                         isWeekend && "bg-muted/50",
-                        entry.is_absent && !isWeekend && "bg-destructive/5"
+                        entry.leave_type && !isWeekend && "bg-blue-50/50 dark:bg-blue-950/20",
+                        entry.is_absent && !isWeekend && !entry.leave_type && "bg-destructive/5"
                       )}
                     >
                       <TableCell className="text-xs font-mono">
@@ -391,7 +392,11 @@ export function DtrViewClient({
                         )}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {entry.is_absent && !isWeekend ? (
+                        {entry.leave_type && !entry.is_absent ? (
+                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">
+                            {entry.leave_type}
+                          </Badge>
+                        ) : entry.is_absent && !isWeekend ? (
                           <Badge variant="destructive" className="text-xs">
                             Absent
                           </Badge>
@@ -408,13 +413,21 @@ export function DtrViewClient({
 
           {/* Summary Card */}
           {summary && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
               <Card>
                 <CardContent className="pt-4 pb-3 px-4">
                   <p className="text-2xl font-bold text-green-600">
                     {summary.total_days_present}
                   </p>
                   <p className="text-xs text-muted-foreground">Days Present</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-4 pb-3 px-4">
+                  <p className="text-2xl font-bold text-blue-600">
+                    {summary.total_days_on_leave}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Days on Leave</p>
                 </CardContent>
               </Card>
               <Card>
