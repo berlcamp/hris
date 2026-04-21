@@ -667,7 +667,7 @@ export async function getDtrData(
 
   // Build a date-to-leave-code map from approved leaves
   const leaveMap = new Map<string, string>();
-  for (const leave of (approvedLeaves ?? []) as { start_date: string; end_date: string; leave_dates: string[] | null; leave_types: { code: string } | null }[]) {
+  for (const leave of (approvedLeaves ?? []) as unknown as { start_date: string; end_date: string; leave_dates: string[] | null; leave_types: { code: string } | null }[]) {
     const code = leave.leave_types?.code ?? "Leave";
     const dates = leave.leave_dates;
     if (dates && dates.length > 0) {
