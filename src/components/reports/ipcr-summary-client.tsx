@@ -30,7 +30,7 @@ interface IpcrRow {
   numerical_rating: number | null;
   adjectival_rating: string | null;
   status: string;
-  employees: { employee_no: string; first_name: string; last_name: string; departments: { name: string } | null } | null;
+  employees: { first_name: string; last_name: string; departments: { name: string } | null } | null;
   ipcr_periods: { name: string } | null;
 }
 
@@ -69,11 +69,10 @@ export function IpcrSummaryClient({ periods }: IpcrSummaryClientProps) {
   }, [periodId]);
 
   const toCsv = () => {
-    const headers = ["Employee No.", "Name", "Department", "Rating", "Adjectival", "Status", "Period"];
+    const headers = ["Name", "Department", "Rating", "Adjectival", "Status", "Period"];
     const rows = data.map((r) => {
       const emp = r.employees;
       return [
-        emp?.employee_no ?? "",
         emp ? `"${emp.last_name}, ${emp.first_name}"` : "",
         emp?.departments?.name ?? "",
         r.numerical_rating?.toFixed(2) ?? "",
@@ -148,7 +147,6 @@ export function IpcrSummaryClient({ periods }: IpcrSummaryClientProps) {
                     <TableRow key={r.id}>
                       <TableCell className="text-xs">
                         {emp ? `${emp.last_name}, ${emp.first_name}` : "—"}
-                        <br /><span className="text-muted-foreground font-mono">{emp?.employee_no}</span>
                       </TableCell>
                       <TableCell className="text-xs">{emp?.departments?.name ?? "—"}</TableCell>
                       <TableCell className="text-xs text-center font-mono font-medium">

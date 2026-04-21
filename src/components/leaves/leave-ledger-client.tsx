@@ -76,7 +76,7 @@ export function LeaveLedgerClient({
                 render={<Button variant="outline" role="combobox" className="w-full justify-between" />}
               >
                 {selectedEmp
-                  ? `${selectedEmp.last_name}, ${selectedEmp.first_name} (${selectedEmp.employee_no})`
+                  ? `${selectedEmp.last_name}, ${selectedEmp.first_name}`
                   : "Select employee..."}
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </PopoverTrigger>
@@ -89,7 +89,7 @@ export function LeaveLedgerClient({
                       {employees.map((emp) => (
                         <CommandItem
                           key={emp.id}
-                          value={`${emp.last_name} ${emp.first_name} ${emp.employee_no}`}
+                          value={`${emp.last_name} ${emp.first_name}`}
                           onSelect={() => {
                             setEmpId(emp.id);
                             setEmpOpen(false);
@@ -98,7 +98,6 @@ export function LeaveLedgerClient({
                           <Check className={cn("mr-2 h-4 w-4", empId === emp.id ? "opacity-100" : "opacity-0")} />
                           <div>
                             <p className="font-medium">{emp.last_name}, {emp.first_name}</p>
-                            <p className="text-xs text-muted-foreground">{emp.employee_no}</p>
                           </div>
                         </CommandItem>
                       ))}
@@ -130,7 +129,7 @@ export function LeaveLedgerClient({
           {ledgerData.length > 0 && (
             <ExportCsvButton
               data={ledgerData}
-              filename={`leave-ledger-${selectedEmp?.employee_no ?? "emp"}-${selectedYear}`}
+              filename={`leave-ledger-${selectedYear}`}
               columns={[
                 { key: "leave_type", header: "Leave Type" },
                 { key: "leave_code", header: "Code" },

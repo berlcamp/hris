@@ -25,7 +25,6 @@ export interface LeaveCreditRow {
   balance: number;
   leave_types: { code: string; name: string } | null;
   employees: {
-    employee_no: string;
     first_name: string;
     last_name: string;
     departments: { name: string; code: string } | null;
@@ -52,7 +51,6 @@ export interface LeaveApplicationWithRelations {
   created_at: string;
   updated_at: string;
   employees: {
-    employee_no: string;
     first_name: string;
     last_name: string;
     middle_name: string | null;
@@ -92,7 +90,7 @@ export async function getLeaveCreditsForYear(year: number): Promise<LeaveCreditR
       *,
       leave_types(code, name),
       employees(
-        employee_no, first_name, last_name,
+        first_name, last_name,
         departments!employees_department_id_fkey(name, code)
       )
     `)
@@ -271,7 +269,7 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
     .select(`
       *,
       employees(
-        employee_no, first_name, last_name, department_id,
+        first_name, last_name, department_id,
         departments!employees_department_id_fkey(name, code),
         positions(title)
       ),
@@ -312,7 +310,7 @@ export async function getLeaveApplicationById(id: string) {
     .select(`
       *,
       employees(
-        employee_no, first_name, last_name, middle_name, salary_grade, department_id,
+        first_name, last_name, middle_name, salary_grade, department_id,
         departments!employees_department_id_fkey(name, code),
         positions(title)
       ),

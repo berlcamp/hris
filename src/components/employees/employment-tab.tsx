@@ -49,7 +49,6 @@ export function EmploymentTab({
           <CardTitle className="text-base">Employment Details</CardTitle>
         </CardHeader>
         <CardContent className="divide-y">
-          <InfoRow label="Employee No" value={employee.employee_no} />
           <InfoRow
             label="Employment Type"
             badge={{

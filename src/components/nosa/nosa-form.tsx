@@ -116,7 +116,7 @@ export function NosaForm({ employees }: NosaFormProps) {
                 render={<Button variant="outline" role="combobox" className="w-full justify-between" />}
               >
                 {selectedEmp
-                  ? `${selectedEmp.last_name}, ${selectedEmp.first_name} (${selectedEmp.employee_no})`
+                  ? `${selectedEmp.last_name}, ${selectedEmp.first_name}`
                   : "Select an employee..."}
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </PopoverTrigger>
@@ -129,13 +129,13 @@ export function NosaForm({ employees }: NosaFormProps) {
                       {employees.map((emp) => (
                         <CommandItem
                           key={emp.id}
-                          value={`${emp.last_name} ${emp.first_name} ${emp.employee_no}`}
+                          value={`${emp.last_name} ${emp.first_name}`}
                           onSelect={() => handleSelectEmployee(emp)}
                         >
                           <Check className={cn("mr-2 h-4 w-4", selectedEmp?.id === emp.id ? "opacity-100" : "opacity-0")} />
                           <div>
                             <p className="font-medium">{emp.last_name}, {emp.first_name}</p>
-                            <p className="text-xs text-muted-foreground">{emp.employee_no} — SG {emp.salary_grade} Step {emp.step_increment}</p>
+                            <p className="text-xs text-muted-foreground">SG {emp.salary_grade} Step {emp.step_increment}</p>
                           </div>
                         </CommandItem>
                       ))}

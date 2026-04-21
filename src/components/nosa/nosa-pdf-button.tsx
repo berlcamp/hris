@@ -21,7 +21,6 @@ export function NosaPdfButton({ nosa, employeeName }: NosaPdfButtonProps) {
       const blob = await pdf(
         <NosaPdf
           employeeName={employeeName}
-          employeeNo={nosa.employees?.employee_no ?? ""}
           position={nosa.employees?.positions?.title ?? ""}
           department={nosa.employees?.departments?.name ?? ""}
           previousSalaryGrade={nosa.previous_salary_grade}
@@ -38,7 +37,7 @@ export function NosaPdfButton({ nosa, employeeName }: NosaPdfButtonProps) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `NOSA-${nosa.employees?.employee_no ?? "record"}-${nosa.effective_date}.pdf`;
+      link.download = `NOSA-${nosa.effective_date}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch {

@@ -88,7 +88,7 @@ export function ManualEntryForm({ employees }: ManualEntryFormProps) {
                 render={<Button variant="outline" role="combobox" className="w-full justify-between font-normal" />}
               >
                 {selectedEmployee
-                  ? `${selectedEmployee.last_name}, ${selectedEmployee.first_name} (${selectedEmployee.employee_no})`
+                  ? `${selectedEmployee.last_name}, ${selectedEmployee.first_name}`
                   : "Select employee..."}
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </PopoverTrigger>
@@ -101,7 +101,7 @@ export function ManualEntryForm({ employees }: ManualEntryFormProps) {
                       {employees.map((emp) => (
                         <CommandItem
                           key={emp.id}
-                          value={`${emp.last_name} ${emp.first_name} ${emp.employee_no}`}
+                          value={`${emp.last_name} ${emp.first_name}`}
                           onSelect={() => {
                             setEmployeeId(emp.id);
                             setEmpOpen(false);
@@ -120,7 +120,6 @@ export function ManualEntryForm({ employees }: ManualEntryFormProps) {
                               {emp.last_name}, {emp.first_name}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {emp.employee_no} •{" "}
                               {emp.departments?.name ?? "No Dept"}
                             </p>
                           </div>

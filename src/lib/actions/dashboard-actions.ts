@@ -34,7 +34,6 @@ export interface PendingApprovalItem {
   id: string;
   type: "leave" | "nosi" | "nosa";
   employee_name: string;
-  employee_no: string;
   detail: string;
   created_at: string;
 }
@@ -42,7 +41,6 @@ export interface PendingApprovalItem {
 export interface UpcomingIncrementItem {
   employee_id: string;
   employee_name: string;
-  employee_no: string;
   department: string;
   current_step: number;
   salary_grade: number;
@@ -227,7 +225,7 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
   let leaveQuery = supabase
     .schema("hris")
     .from("leave_applications")
-    .select("id, created_at, days_applied, employees!inner(first_name, last_name, employee_no, department_id), leave_types!inner(name)")
+    .select("id, created_at, days_applied, employees!inner(first_name, last_name, department_id), leave_types!inner(name)")
     .eq("status", "pending")
     .order("created_at", { ascending: false })
     .limit(10);
@@ -238,14 +236,13 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
 
   const { data: leaves } = await leaveQuery;
   for (const l of leaves ?? []) {
-    const emp = l.employees as unknown as { first_name: string; last_name: string; employee_no: string } | null;
+    const emp = l.employees as unknown as { first_name: string; last_name: string } | null;
     const lt = l.leave_types as unknown as { name: string } | null;
     if (!emp) continue;
     items.push({
       id: l.id,
       type: "leave",
       employee_name: `${emp.last_name}, ${emp.first_name}`,
-      employee_no: emp.employee_no,
       detail: `${lt?.name ?? "Leave"} — ${l.days_applied} day(s)`,
       created_at: l.created_at,
     });
@@ -256,19 +253,18 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
     const { data: nosis } = await supabase
       .schema("hris")
       .from("nosi_records")
-      .select("id, created_at, current_step, new_step, employees!inner(first_name, last_name, employee_no)")
+      .select("id, created_at, current_step, new_step, employees!inner(first_name, last_name)")
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(5);
 
     for (const n of nosis ?? []) {
-      const emp = n.employees as unknown as { first_name: string; last_name: string; employee_no: string } | null;
+      const emp = n.employees as unknown as { first_name: string; last_name: string } | null;
       if (!emp) continue;
       items.push({
         id: n.id,
         type: "nosi",
         employee_name: `${emp.last_name}, ${emp.first_name}`,
-        employee_no: emp.employee_no,
         detail: `Step ${n.current_step} → ${n.new_step}`,
         created_at: n.created_at,
       });
@@ -278,19 +274,18 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
     const { data: nosas } = await supabase
       .schema("hris")
       .from("nosa_records")
-      .select("id, created_at, reason, employees!inner(first_name, last_name, employee_no)")
+      .select("id, created_at, reason, employees!inner(first_name, last_name)")
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(5);
 
     for (const n of nosas ?? []) {
-      const emp = n.employees as unknown as { first_name: string; last_name: string; employee_no: string } | null;
+      const emp = n.employees as unknown as { first_name: string; last_name: string } | null;
       if (!emp) continue;
       items.push({
         id: n.id,
         type: "nosa",
         employee_name: `${emp.last_name}, ${emp.first_name}`,
-        employee_no: emp.employee_no,
         detail: (n.reason as string).replace(/_/g, " "),
         created_at: n.created_at,
       });
@@ -416,7 +411,7 @@ export async function getReportPlantilla() {
     .select(`
       id, title, item_number, salary_grade, is_filled,
       departments!positions_department_id_fkey(name, code),
-      employees!employees_position_id_fkey(id, first_name, last_name, employee_no, status)
+      employees!employees_position_id_fkey(id, first_name, last_name, status)
     `)
     .order("salary_grade", { ascending: false });
 
@@ -432,7 +427,7 @@ export async function getReportNosiSummary(startDate?: string, endDate?: string)
     .select(`
       id, effective_date, current_salary_grade, current_step, new_step,
       current_salary, new_salary, status,
-      employees!inner(employee_no, first_name, last_name,
+      employees!inner(first_name, last_name,
         departments!employees_department_id_fkey(name))
     `)
     .order("effective_date", { ascending: false });
@@ -453,7 +448,7 @@ export async function getReportNosaSummary(startDate?: string, endDate?: string)
     .select(`
       id, effective_date, previous_salary_grade, previous_step, new_salary_grade, new_step,
       previous_salary, new_salary, reason, status,
-      employees!inner(employee_no, first_name, last_name,
+      employees!inner(first_name, last_name,
         departments!employees_department_id_fkey(name))
     `)
     .order("effective_date", { ascending: false });
@@ -473,7 +468,7 @@ export async function getReportIpcrSummary(periodId?: string) {
     .from("ipcr_records")
     .select(`
       id, numerical_rating, adjectival_rating, status,
-      employees!inner(employee_no, first_name, last_name,
+      employees!inner(first_name, last_name,
         departments!employees_department_id_fkey(name)),
       ipcr_periods!inner(name)
     `)

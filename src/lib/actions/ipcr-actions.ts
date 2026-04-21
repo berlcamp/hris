@@ -29,7 +29,6 @@ export interface IpcrRecordWithRelations {
   created_at: string;
   updated_at: string;
   employees: {
-    employee_no: string;
     first_name: string;
     last_name: string;
     department_id: string | null;
@@ -228,7 +227,7 @@ export async function getIpcrRecords(periodId?: string): Promise<IpcrRecordWithR
     .select(
       `*,
        employees!ipcr_records_employee_id_fkey(
-         employee_no, first_name, last_name, department_id,
+         first_name, last_name, department_id,
          departments!employees_department_id_fkey(name, code),
          positions(title)
        ),
@@ -282,7 +281,7 @@ export async function getIpcrRecordById(id: string): Promise<IpcrRecordWithRelat
     .select(
       `*,
        employees!ipcr_records_employee_id_fkey(
-         employee_no, first_name, last_name, department_id,
+         first_name, last_name, department_id,
          departments!employees_department_id_fkey(name, code),
          positions(title)
        ),
@@ -498,7 +497,7 @@ export async function getEmployeeIpcrHistory(employeeId: string): Promise<IpcrRe
     .select(
       `*,
        employees!ipcr_records_employee_id_fkey(
-         employee_no, first_name, last_name, department_id,
+         first_name, last_name, department_id,
          departments!employees_department_id_fkey(name, code),
          positions(title)
        ),

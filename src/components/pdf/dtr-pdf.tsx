@@ -177,7 +177,6 @@ interface DtrPdfProps {
   entries: DtrEntry[];
   summary: DtrSummary;
   employee: {
-    employee_no: string;
     first_name: string;
     last_name: string;
     middle_name: string | null;
@@ -286,10 +285,6 @@ export function DtrPdf({ entries, summary, employee, month, year }: DtrPdfProps)
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Name:</Text>
               <Text style={styles.infoValue}>{fullName}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Employee No:</Text>
-              <Text style={styles.infoValue}>{employee.employee_no}</Text>
             </View>
           </View>
           <View style={styles.infoCol}>

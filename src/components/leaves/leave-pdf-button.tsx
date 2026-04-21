@@ -31,7 +31,6 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
       const blob = await pdf(
         <LeaveForm6Pdf
           employeeName={employeeName}
-          employeeNo={emp?.employee_no ?? ""}
           middleName={emp?.middle_name ?? ""}
           position={emp?.positions?.title ?? ""}
           department={emp?.departments?.name ?? ""}
@@ -59,7 +58,7 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `Leave-Form6-${emp?.employee_no ?? "record"}-${leave.start_date}.pdf`;
+      link.download = `Leave-Form6-${leave.start_date}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch {

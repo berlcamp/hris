@@ -26,7 +26,6 @@ export interface NosaWithRelations {
   created_at: string;
   updated_at: string;
   employees: {
-    employee_no: string;
     first_name: string;
     last_name: string;
     salary_grade: number;
@@ -49,7 +48,7 @@ export async function getNosaRecords() {
     .select(`
       *,
       employees(
-        employee_no, first_name, last_name, salary_grade, step_increment, position_id,
+        first_name, last_name, salary_grade, step_increment, position_id,
         departments!employees_department_id_fkey(name, code),
         positions(title)
       )
@@ -80,7 +79,7 @@ export async function getNosaById(id: string) {
     .select(`
       *,
       employees(
-        employee_no, first_name, last_name, salary_grade, step_increment, position_id,
+        first_name, last_name, salary_grade, step_increment, position_id,
         hire_date,
         departments!employees_department_id_fkey(name, code),
         positions(title)

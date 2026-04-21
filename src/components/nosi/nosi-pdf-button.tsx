@@ -21,7 +21,6 @@ export function NosiPdfButton({ nosi, employeeName }: NosiPdfButtonProps) {
       const blob = await pdf(
         <NosiPdf
           employeeName={employeeName}
-          employeeNo={nosi.employees?.employee_no ?? ""}
           position={nosi.employees?.positions?.title ?? ""}
           department={nosi.employees?.departments?.name ?? ""}
           currentSalaryGrade={nosi.current_salary_grade}
@@ -35,7 +34,7 @@ export function NosiPdfButton({ nosi, employeeName }: NosiPdfButtonProps) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `NOSI-${nosi.employees?.employee_no ?? "record"}-${nosi.effective_date}.pdf`;
+      link.download = `NOSI-${nosi.effective_date}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch {

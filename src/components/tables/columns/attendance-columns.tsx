@@ -37,9 +37,6 @@ export function createAttendanceColumns(
             <p className="font-medium">
               {emp.last_name}, {emp.first_name}
             </p>
-            <p className="text-xs text-muted-foreground font-mono">
-              {emp.employee_no}
-            </p>
           </div>
         ) : (
           <span className="text-muted-foreground">—</span>

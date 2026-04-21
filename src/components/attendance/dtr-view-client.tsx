@@ -89,7 +89,6 @@ export function DtrViewClient({
   const [entries, setEntries] = useState<DtrEntry[]>([]);
   const [summary, setSummary] = useState<DtrSummary | null>(null);
   const [employeeInfo, setEmployeeInfo] = useState<{
-    employee_no: string;
     first_name: string;
     last_name: string;
     middle_name: string | null;
@@ -198,7 +197,7 @@ export function DtrViewClient({
                       {employees.map((emp) => (
                         <CommandItem
                           key={emp.id}
-                          value={`${emp.last_name} ${emp.first_name} ${emp.employee_no}`}
+                          value={`${emp.last_name} ${emp.first_name}`}
                           onSelect={() => {
                             setEmployeeId(emp.id);
                             setEmpOpen(false);
@@ -215,9 +214,6 @@ export function DtrViewClient({
                           <div>
                             <p className="text-sm">
                               {emp.last_name}, {emp.first_name}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {emp.employee_no}
                             </p>
                           </div>
                         </CommandItem>

@@ -8,7 +8,6 @@ import type { EmployeeFormValues } from "@/lib/validations/employee-schema";
 
 export interface EmployeeWithRelations {
   id: string;
-  employee_no: string;
   biometric_no: number;
   first_name: string;
   middle_name: string | null;
@@ -116,41 +115,13 @@ export async function getUnlinkedUserProfiles() {
   return data;
 }
 
-export async function generateEmployeeNo() {
-  const supabase = createAdminClient();
-  const year = new Date().getFullYear();
-  const prefix = `LGU-${year}-`;
-
-  const { data } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select("employee_no")
-    .like("employee_no", `${prefix}%`)
-    .order("employee_no", { ascending: false })
-    .limit(1);
-
-  let nextNum = 1;
-  if (data && data.length > 0) {
-    const last = data[0].employee_no;
-    const numPart = parseInt(last.replace(prefix, ""), 10);
-    if (!isNaN(numPart)) {
-      nextNum = numPart + 1;
-    }
-  }
-
-  return `${prefix}${String(nextNum).padStart(4, "0")}`;
-}
-
 export async function createEmployee(input: EmployeeFormValues) {
   const supabase = createAdminClient();
-
-  const employeeNo = await generateEmployeeNo();
 
   const { data, error } = await supabase
     .schema("hris")
     .from("employees")
     .insert({
-      employee_no: employeeNo,
       user_profile_id: input.user_profile_id,
       first_name: input.first_name,
       middle_name: input.middle_name,
@@ -196,7 +167,7 @@ export async function createEmployee(input: EmployeeFormValues) {
     action: "create",
     tableName: "employees",
     recordId: data.id,
-    newValues: { employee_no: data.employee_no, first_name: input.first_name, last_name: input.last_name },
+    newValues: { first_name: input.first_name, last_name: input.last_name },
   });
 
   revalidatePath("/employees");

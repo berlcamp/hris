@@ -32,7 +32,7 @@ interface NosaRow {
   new_salary: number;
   reason: string;
   status: string;
-  employees: { employee_no: string; first_name: string; last_name: string; departments: { name: string } | null } | null;
+  employees: { first_name: string; last_name: string; departments: { name: string } | null } | null;
 }
 
 const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -70,11 +70,10 @@ export function NosaSummaryClient() {
   }, [startDate, endDate]);
 
   const toCsv = () => {
-    const headers = ["Employee No.", "Name", "Department", "From SG-Step", "To SG-Step", "Old Salary", "New Salary", "Reason", "Effective Date", "Status"];
+    const headers = ["Name", "Department", "From SG-Step", "To SG-Step", "Old Salary", "New Salary", "Reason", "Effective Date", "Status"];
     const rows = data.map((r) => {
       const emp = r.employees;
       return [
-        emp?.employee_no ?? "",
         emp ? `"${emp.last_name}, ${emp.first_name}"` : "",
         emp?.departments?.name ?? "",
         `${r.previous_salary_grade}-${r.previous_step}`,
@@ -157,7 +156,6 @@ export function NosaSummaryClient() {
                     <TableRow key={r.id}>
                       <TableCell className="text-xs">
                         {emp ? `${emp.last_name}, ${emp.first_name}` : "—"}
-                        <br /><span className="text-muted-foreground font-mono">{emp?.employee_no}</span>
                       </TableCell>
                       <TableCell className="text-xs">{emp?.departments?.name ?? "—"}</TableCell>
                       <TableCell className="text-xs text-center">SG{r.previous_salary_grade}-{r.previous_step}</TableCell>

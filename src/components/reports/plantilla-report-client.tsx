@@ -18,7 +18,7 @@ interface PlantillaItem {
   salary_grade: number;
   is_filled: boolean;
   departments: { name: string; code: string } | null;
-  employees: { id: string; first_name: string; last_name: string; employee_no: string; status: string }[] | null;
+  employees: { id: string; first_name: string; last_name: string; status: string }[] | null;
 }
 
 interface PlantillaReportClientProps {
@@ -27,7 +27,7 @@ interface PlantillaReportClientProps {
 
 export function PlantillaReportClient({ data }: PlantillaReportClientProps) {
   const toCsv = () => {
-    const headers = ["Item No.", "Position", "SG", "Department", "Status", "Incumbent", "Employee No."];
+    const headers = ["Item No.", "Position", "SG", "Department", "Status", "Incumbent"];
     const rows = data.map((p) => {
       const dept = Array.isArray(p.departments) ? p.departments[0] : p.departments;
       const emp = p.employees?.[0];
@@ -38,7 +38,6 @@ export function PlantillaReportClient({ data }: PlantillaReportClientProps) {
         dept?.name ?? "",
         p.is_filled ? "Filled" : "Vacant",
         emp ? `"${emp.last_name}, ${emp.first_name}"` : "",
-        emp?.employee_no ?? "",
       ].join(",");
     });
     return [headers.join(","), ...rows].join("\n");
@@ -110,9 +109,6 @@ export function PlantillaReportClient({ data }: PlantillaReportClientProps) {
                         <div>
                           <span className="font-medium">
                             {emp.last_name}, {emp.first_name}
-                          </span>
-                          <span className="text-muted-foreground ml-1 font-mono">
-                            ({emp.employee_no})
                           </span>
                         </div>
                       ) : (

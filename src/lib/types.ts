@@ -49,7 +49,6 @@ export interface Position {
 export interface Employee {
   id: string;
   user_profile_id: string | null;
-  employee_no: string;
   first_name: string;
   middle_name: string | null;
   last_name: string;
@@ -271,5 +270,22 @@ export interface ServiceRecord {
   separation_date: string | null;
   separation_cause: string | null;
   remarks: string | null;
+  salary_grade: number | null;
+  step_increment: number | null;
+  agency: string | null;
+  daily_salary: number | null;
+  created_by: string | null;
+  legacy_id: number | null;
   created_at: string;
+  updated_at: string;
+}
+
+export interface ServiceRecordActivityLogEntry {
+  id: string;
+  service_record_id: string;
+  user_id: string | null;
+  action: "created" | "updated" | "deleted";
+  description: string | null;
+  created_at: string;
+  user_profiles: { full_name: string; email: string } | null;
 }

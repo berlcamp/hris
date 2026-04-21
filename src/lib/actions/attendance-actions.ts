@@ -24,7 +24,6 @@ export interface AttendanceLogRow {
   source: string;
   created_at: string;
   employees: {
-    employee_no: string;
     first_name: string;
     last_name: string;
     departments: { name: string; code: string } | null;
@@ -148,7 +147,7 @@ export async function getAttendanceLogs(filters?: {
     .schema("hris")
     .from("attendance_logs")
     .select(
-      "*, employees!attendance_logs_employee_id_fkey(employee_no, first_name, last_name, departments!employees_department_id_fkey(name, code))"
+      "*, employees!attendance_logs_employee_id_fkey(first_name, last_name, departments!employees_department_id_fkey(name, code))"
     )
     .order("date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -616,7 +615,6 @@ export async function getDtrData(
   month: number,
   year: number
 ): Promise<{ entries: DtrEntry[]; summary: DtrSummary; employee: {
-  employee_no: string;
   first_name: string;
   last_name: string;
   middle_name: string | null;
@@ -632,7 +630,7 @@ export async function getDtrData(
   const { data: employee } = await supabase
     .schema("hris")
     .from("employees")
-    .select("employee_no, first_name, last_name, middle_name, departments!employees_department_id_fkey(name), positions(title)")
+    .select("first_name, last_name, middle_name, departments!employees_department_id_fkey(name), positions(title)")
     .eq("id", employeeId)
     .maybeSingle();
 
@@ -823,7 +821,7 @@ export async function getDtrSummaryExport(
       .schema("hris")
       .from("attendance_logs")
       .select(
-        "employee_id, date, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, employees!attendance_logs_employee_id_fkey(employee_no, first_name, last_name)"
+        "employee_id, date, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, employees!attendance_logs_employee_id_fkey(first_name, last_name)"
       )
       .gte("date", startDate)
       .lte("date", endDate)
@@ -868,7 +866,6 @@ export async function getDtrSummaryExport(
   const grouped = new Map<
     string,
     {
-      employeeNo: string;
       name: string;
       present: number;
       absent: number;
@@ -881,13 +878,12 @@ export async function getDtrSummaryExport(
   >();
 
   for (const log of logs ?? []) {
-    const emp = log.employees as unknown as { employee_no: string; first_name: string; last_name: string } | null;
+    const emp = log.employees as unknown as { first_name: string; last_name: string } | null;
     if (!emp) continue;
 
     const key = log.employee_id;
     if (!grouped.has(key)) {
       grouped.set(key, {
-        employeeNo: emp.employee_no,
         name: `${emp.last_name}, ${emp.first_name}`,
         present: 0,
         absent: 0,
@@ -925,7 +921,6 @@ export async function getDtrSummaryExport(
 
   // Build CSV
   const headers = [
-    "Employee No",
     "Name",
     "Days Present",
     "Days Absent",
@@ -938,7 +933,6 @@ export async function getDtrSummaryExport(
 
   const rows = [...grouped.values()].map((e) =>
     [
-      e.employeeNo,
       `"${e.name}"`,
       e.present,
       e.absent,

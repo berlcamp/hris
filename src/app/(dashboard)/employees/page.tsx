@@ -56,7 +56,6 @@ export default async function EmployeesPage() {
         columns={employeeColumns}
         data={employees ?? []}
         searchableColumns={[
-          { id: "employee_no", title: "employee no" },
           { id: "full_name", title: "name" },
         ]}
         filterableColumns={[
@@ -91,7 +90,6 @@ export default async function EmployeesPage() {
             data={employees ?? []}
             filename="employees"
             columns={[
-              { key: "employee_no", header: "Employee No" },
               { key: "last_name", header: "Last Name" },
               { key: "first_name", header: "First Name" },
               { key: "middle_name", header: "Middle Name" },

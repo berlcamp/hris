@@ -6,7 +6,6 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 
 export interface EligibleEmployee {
   id: string;
-  employee_no: string;
   first_name: string;
   last_name: string;
   salary_grade: number;
@@ -39,7 +38,6 @@ export interface NosiWithRelations {
   created_at: string;
   updated_at: string;
   employees: {
-    employee_no: string;
     first_name: string;
     last_name: string;
     salary_grade: number;
@@ -58,7 +56,7 @@ export async function getEligibleForNosi(): Promise<EligibleEmployee[]> {
   const { data: employees, error } = await supabase
     .schema("hris")
     .from("employees")
-    .select("id, employee_no, first_name, last_name, salary_grade, step_increment, department_id, departments!employees_department_id_fkey(name, code), positions(title)")
+    .select("id, first_name, last_name, salary_grade, step_increment, department_id, departments!employees_department_id_fkey(name, code), positions(title)")
     .eq("status", "active")
     .eq("employment_type", "plantilla")
     .lt("step_increment", 8);
@@ -114,7 +112,6 @@ export async function getEligibleForNosi(): Promise<EligibleEmployee[]> {
       const pos = Array.isArray(emp.positions) ? emp.positions[0] ?? null : emp.positions;
       eligible.push({
         id: emp.id,
-        employee_no: emp.employee_no,
         first_name: emp.first_name,
         last_name: emp.last_name,
         salary_grade: emp.salary_grade,
@@ -143,7 +140,7 @@ export async function getNosisRecords() {
     .select(`
       *,
       employees(
-        employee_no, first_name, last_name, salary_grade, step_increment,
+        first_name, last_name, salary_grade, step_increment,
         departments!employees_department_id_fkey(name, code),
         positions(title)
       )
@@ -175,7 +172,7 @@ export async function getNosiById(id: string) {
     .select(`
       *,
       employees(
-        employee_no, first_name, last_name, salary_grade, step_increment,
+        first_name, last_name, salary_grade, step_increment,
         hire_date,
         departments!employees_department_id_fkey(name, code),
         positions(title)

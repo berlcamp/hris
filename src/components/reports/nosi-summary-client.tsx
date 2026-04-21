@@ -30,7 +30,7 @@ interface NosiRow {
   current_salary: number;
   new_salary: number;
   status: string;
-  employees: { employee_no: string; first_name: string; last_name: string; departments: { name: string } | null } | null;
+  employees: { first_name: string; last_name: string; departments: { name: string } | null } | null;
 }
 
 const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -68,11 +68,10 @@ export function NosiSummaryClient() {
   }, [startDate, endDate]);
 
   const toCsv = () => {
-    const headers = ["Employee No.", "Name", "Department", "SG", "From Step", "To Step", "Old Salary", "New Salary", "Effective Date", "Status"];
+    const headers = ["Name", "Department", "SG", "From Step", "To Step", "Old Salary", "New Salary", "Effective Date", "Status"];
     const rows = data.map((r) => {
       const emp = r.employees;
       return [
-        emp?.employee_no ?? "",
         emp ? `"${emp.last_name}, ${emp.first_name}"` : "",
         emp?.departments?.name ?? "",
         r.current_salary_grade,
@@ -160,8 +159,6 @@ export function NosiSummaryClient() {
                     <TableRow key={r.id}>
                       <TableCell className="text-xs">
                         {emp ? `${emp.last_name}, ${emp.first_name}` : "—"}
-                        <br />
-                        <span className="text-muted-foreground font-mono">{emp?.employee_no}</span>
                       </TableCell>
                       <TableCell className="text-xs">{emp?.departments?.name ?? "—"}</TableCell>
                       <TableCell className="text-xs text-center">{r.current_salary_grade}</TableCell>

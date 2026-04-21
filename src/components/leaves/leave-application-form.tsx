@@ -212,7 +212,7 @@ export function LeaveApplicationForm({
                             {employees.map((emp) => (
                               <CommandItem
                                 key={emp.id}
-                                value={`${emp.last_name} ${emp.first_name} ${emp.employee_no}`}
+                                value={`${emp.last_name} ${emp.first_name}`}
                                 onSelect={() => {
                                   setSelectedEmpId(emp.id);
                                   setEmpOpen(false);
@@ -223,7 +223,6 @@ export function LeaveApplicationForm({
                                 <Check className={cn("mr-2 h-4 w-4", selectedEmpId === emp.id ? "opacity-100" : "opacity-0")} />
                                 <div>
                                   <p className="font-medium">{emp.last_name}, {emp.first_name}</p>
-                                  <p className="text-xs text-muted-foreground">{emp.employee_no}</p>
                                 </div>
                               </CommandItem>
                             ))}

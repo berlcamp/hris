@@ -8,7 +8,6 @@ import { EmployeeActionsCell } from "./employee-actions-cell";
 
 export type EmployeeRow = {
   id: string;
-  employee_no: string;
   biometric_no: number;
   first_name: string;
   middle_name: string | null;
@@ -61,15 +60,6 @@ export const employeeColumns: ColumnDef<EmployeeRow>[] = [
     ),
     enableSorting: false,
     enableHiding: false,
-  },
-  {
-    accessorKey: "employee_no",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Employee No" />
-    ),
-    cell: ({ row }) => (
-      <span className="font-mono text-sm">{row.getValue("employee_no")}</span>
-    ),
   },
   {
     accessorKey: "biometric_no",

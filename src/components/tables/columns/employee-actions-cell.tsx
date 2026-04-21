@@ -95,7 +95,7 @@ export function EmployeeActionsCell({ employee }: { employee: EmployeeRow }) {
             <AlertDialogTitle>Deactivate Employee</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to deactivate{" "}
-              <strong>{fullName}</strong> ({employee.employee_no})? This will
+              <strong>{fullName}</strong>? This will
               mark them as inactive in the system.
             </AlertDialogDescription>
           </AlertDialogHeader>

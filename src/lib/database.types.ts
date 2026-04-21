@@ -263,7 +263,6 @@ export type Database = {
           civil_status: string | null
           created_at: string | null
           department_id: string | null
-          employee_no: string
           employment_type: Database["hris"]["Enums"]["employment_type"]
           end_of_contract: string | null
           first_name: string
@@ -287,7 +286,6 @@ export type Database = {
           civil_status?: string | null
           created_at?: string | null
           department_id?: string | null
-          employee_no: string
           employment_type: Database["hris"]["Enums"]["employment_type"]
           end_of_contract?: string | null
           first_name: string
@@ -311,7 +309,6 @@ export type Database = {
           civil_status?: string | null
           created_at?: string | null
           department_id?: string | null
-          employee_no?: string
           employment_type?: Database["hris"]["Enums"]["employment_type"]
           end_of_contract?: string | null
           first_name?: string
