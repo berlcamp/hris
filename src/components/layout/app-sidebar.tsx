@@ -20,6 +20,7 @@ import {
   Building2,
   Landmark,
   User,
+  ScrollText,
 } from "lucide-react";
 
 import {
@@ -76,6 +77,7 @@ const navGroups: NavGroup[] = [
     roles: ["super_admin", "hr_admin", "department_head"],
     items: [
       { title: "Employees", href: "/employees", icon: Users, roles: ["super_admin", "hr_admin", "department_head"] },
+      { title: "Plantilla", href: "/plantilla", icon: ScrollText, roles: adminRoles },
       { title: "NOSI", href: "/nosi", icon: TrendingUp, roles: adminRoles },
       { title: "NOSA", href: "/nosa", icon: FileText, roles: adminRoles },
     ],

@@ -57,7 +57,11 @@ export function DtrSummaryClient() {
       <div className="flex flex-wrap gap-3 items-end">
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Month</label>
-          <Select value={month} onValueChange={(v) => v && setMonth(v)}>
+          <Select
+            value={month}
+            items={monthNames.map((m, i) => ({ value: String(i + 1), label: m }))}
+            onValueChange={(v) => v && setMonth(v)}
+          >
             <SelectTrigger className="w-[150px]">
               <SelectValue />
             </SelectTrigger>

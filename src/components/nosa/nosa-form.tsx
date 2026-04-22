@@ -197,7 +197,7 @@ export function NosaForm({ employees }: NosaFormProps) {
 
               <div className="space-y-2">
                 <Label>Reason *</Label>
-                <Select value={reason} onValueChange={(v) => setReason(v ?? "")}>
+                <Select value={reason} items={reasonOptions} onValueChange={(v) => setReason(v ?? "")}>
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select reason" />
                   </SelectTrigger>

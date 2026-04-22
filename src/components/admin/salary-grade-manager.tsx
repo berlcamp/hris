@@ -228,7 +228,14 @@ export function SalaryGradeManager({ initialGrades, tranches }: SalaryGradeManag
   return (
     <>
       <div className="flex items-center gap-3 flex-wrap">
-        <Select value={filterTranche} onValueChange={(v) => setFilterTranche(v ?? "all")}>
+        <Select
+          value={filterTranche}
+          items={[
+            { value: "all", label: "All Tranches" },
+            ...tranches.map((t) => ({ value: String(t.tranche), label: `Tranche ${t.tranche} (${t.effective_year})` })),
+          ]}
+          onValueChange={(v) => setFilterTranche(v ?? "all")}
+        >
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Filter by tranche" />
           </SelectTrigger>

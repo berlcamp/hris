@@ -115,7 +115,7 @@ export function AuditLogViewer() {
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Table</label>
-          <Select value={tableName} onValueChange={(v) => v && setTableName(v)}>
+          <Select value={tableName} items={tableOptions} onValueChange={(v) => v && setTableName(v)}>
             <SelectTrigger className="w-[160px]">
               <SelectValue />
             </SelectTrigger>

@@ -49,10 +49,7 @@ export interface NosiWithRelations {
 
 export async function getEligibleForNosi(): Promise<EligibleEmployee[]> {
   const supabase = createAdminClient();
-  const threeYearsAgo = new Date();
-  threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
 
-  // Get active plantilla employees not at max step (8)
   const { data: employees, error } = await supabase
     .schema("hris")
     .from("employees")
@@ -61,68 +58,100 @@ export async function getEligibleForNosi(): Promise<EligibleEmployee[]> {
     .eq("employment_type", "plantilla")
     .lt("step_increment", 8);
 
-  if (error || !employees) return [];
+  if (error || !employees || employees.length === 0) return [];
 
-  // For each employee, check last step_increment salary history
+  const ids = employees.map((e) => e.id);
+
+  // Batch all lookups in parallel. Basis-date priority:
+  //   1. Latest salary_history step_increment (most recent approved NOSI resets the clock)
+  //   2. plantilla.date_of_last_promotion_appointment
+  //   3. plantilla.date_of_original_appointment
+  //   4. salary_history initial
+  const [stepRes, plantillaRes, initialRes, ipcrRes] = await Promise.all([
+    supabase
+      .schema("hris")
+      .from("salary_history")
+      .select("employee_id, effective_date")
+      .in("employee_id", ids)
+      .eq("reason", "step_increment")
+      .order("effective_date", { ascending: false }),
+    supabase
+      .schema("hris")
+      .from("plantilla")
+      .select("employee_id, date_of_last_promotion_appointment, date_of_original_appointment")
+      .in("employee_id", ids),
+    supabase
+      .schema("hris")
+      .from("salary_history")
+      .select("employee_id, effective_date")
+      .in("employee_id", ids)
+      .eq("reason", "initial")
+      .order("effective_date", { ascending: false }),
+    supabase
+      .schema("hris")
+      .from("ipcr_records")
+      .select("employee_id, numerical_rating")
+      .in("employee_id", ids)
+      .eq("status", "approved")
+      .gte("numerical_rating", 2.5),
+  ]);
+
+  const latestStepByEmp = new Map<string, string>();
+  for (const row of stepRes.data ?? []) {
+    if (!latestStepByEmp.has(row.employee_id)) {
+      latestStepByEmp.set(row.employee_id, row.effective_date);
+    }
+  }
+
+  const plantillaByEmp = new Map<string, { date_of_last_promotion_appointment: string | null; date_of_original_appointment: string | null }>();
+  for (const row of plantillaRes.data ?? []) {
+    if (row.employee_id) plantillaByEmp.set(row.employee_id, row);
+  }
+
+  const initialByEmp = new Map<string, string>();
+  for (const row of initialRes.data ?? []) {
+    if (!initialByEmp.has(row.employee_id)) {
+      initialByEmp.set(row.employee_id, row.effective_date);
+    }
+  }
+
+  const eligibleIpcrIds = new Set<string>();
+  for (const row of ipcrRes.data ?? []) {
+    eligibleIpcrIds.add(row.employee_id);
+  }
+
+  const now = Date.now();
   const eligible: EligibleEmployee[] = [];
 
   for (const emp of employees) {
-    const { data: lastIncrement } = await supabase
-      .schema("hris")
-      .from("salary_history")
-      .select("effective_date")
-      .eq("employee_id", emp.id)
-      .eq("reason", "step_increment")
-      .order("effective_date", { ascending: false })
-      .limit(1);
+    const p = plantillaByEmp.get(emp.id);
+    const lastDate =
+      latestStepByEmp.get(emp.id) ??
+      p?.date_of_last_promotion_appointment ??
+      p?.date_of_original_appointment ??
+      initialByEmp.get(emp.id) ??
+      null;
 
-    // Also check initial hire date if no increment found
-    const { data: initial } = await supabase
-      .schema("hris")
-      .from("salary_history")
-      .select("effective_date")
-      .eq("employee_id", emp.id)
-      .eq("reason", "initial")
-      .order("effective_date", { ascending: false })
-      .limit(1);
-
-    const lastDate = lastIncrement?.[0]?.effective_date ?? initial?.[0]?.effective_date ?? null;
     if (!lastDate) continue;
 
-    const last = new Date(lastDate);
-    const now = new Date();
-    const yearsInStep = (now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    const yearsInStep = (now - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    if (yearsInStep < 3) continue;
+    if (!eligibleIpcrIds.has(emp.id)) continue;
 
-    if (yearsInStep >= 3) {
-      // Check IPCR eligibility — must have at least Satisfactory rating
-      const { data: ipcrCheck } = await supabase
-        .schema("hris")
-        .from("ipcr_records")
-        .select("id, numerical_rating")
-        .eq("employee_id", emp.id)
-        .eq("status", "approved")
-        .gte("numerical_rating", 2.5)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (!ipcrCheck || ipcrCheck.length === 0) continue;
-
-      // Supabase may return joined relations as arrays or objects
-      const dept = Array.isArray(emp.departments) ? emp.departments[0] ?? null : emp.departments;
-      const pos = Array.isArray(emp.positions) ? emp.positions[0] ?? null : emp.positions;
-      eligible.push({
-        id: emp.id,
-        first_name: emp.first_name,
-        last_name: emp.last_name,
-        salary_grade: emp.salary_grade,
-        step_increment: emp.step_increment,
-        department_id: emp.department_id,
-        departments: dept,
-        positions: pos,
-        last_increment_date: lastDate,
-        years_in_step: Math.floor(yearsInStep),
-      });
-    }
+    const dept = Array.isArray(emp.departments) ? emp.departments[0] ?? null : emp.departments;
+    const pos = Array.isArray(emp.positions) ? emp.positions[0] ?? null : emp.positions;
+    eligible.push({
+      id: emp.id,
+      first_name: emp.first_name,
+      last_name: emp.last_name,
+      salary_grade: emp.salary_grade,
+      step_increment: emp.step_increment,
+      department_id: emp.department_id,
+      departments: dept,
+      positions: pos,
+      last_increment_date: lastDate,
+      years_in_step: Math.floor(yearsInStep),
+    });
   }
 
   return eligible;

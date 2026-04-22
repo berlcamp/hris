@@ -99,7 +99,11 @@ export function IpcrSummaryClient({ periods }: IpcrSummaryClientProps) {
         <>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Period</label>
-            <Select value={periodId} onValueChange={(v) => v && setPeriodId(v)}>
+            <Select
+              value={periodId}
+              items={periods.map((p) => ({ value: p.id, label: `${p.name}${p.is_active ? " (Active)" : ""}` }))}
+              onValueChange={(v) => v && setPeriodId(v)}
+            >
               <SelectTrigger className="w-[250px]">
                 <SelectValue placeholder="Select period" />
               </SelectTrigger>

@@ -89,7 +89,11 @@ export function LeaveCreditAdjustmentDialog({
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>Leave Type</Label>
-            <Select value={leaveTypeId} onValueChange={(v) => setLeaveTypeId(v ?? "")}>
+            <Select
+              value={leaveTypeId}
+              items={leaveTypes.map((lt) => ({ value: lt.id, label: `${lt.name} (${lt.code})` }))}
+              onValueChange={(v) => setLeaveTypeId(v ?? "")}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select leave type" />
               </SelectTrigger>

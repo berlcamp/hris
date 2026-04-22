@@ -140,6 +140,7 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
             <Label>Role</Label>
             <Select
               value={watchRole}
+              items={roleOptions}
               onValueChange={(val) =>
                 setValue("role", val as UserFormValues["role"], {
                   shouldValidate: true,
@@ -167,6 +168,10 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
             <Label>Department</Label>
             <Select
               value={watchDepartment ?? "none"}
+              items={[
+                { value: "none", label: "No Department" },
+                ...departments.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })),
+              ]}
               onValueChange={(val) =>
                 setValue("department_id", val === "none" ? null : val, {
                   shouldValidate: true,

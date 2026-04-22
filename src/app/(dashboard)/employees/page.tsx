@@ -87,6 +87,7 @@ export default async function EmployeesPage() {
         ]}
         toolbar={
           <ExportCsvButton
+            key="export-csv"
             data={employees ?? []}
             filename="employees"
             columns={[

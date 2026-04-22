@@ -242,7 +242,7 @@ export function DtrViewClient({
           <label className="text-xs font-medium text-muted-foreground">
             Month
           </label>
-          <Select value={month} onValueChange={(v) => v && setMonth(v)}>
+          <Select value={month} items={months} onValueChange={(v) => v && setMonth(v)}>
             <SelectTrigger className="w-[150px]">
               <SelectValue />
             </SelectTrigger>

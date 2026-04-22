@@ -88,10 +88,7 @@ export default async function NosiPage() {
                     {eligible.map((emp) => (
                       <TableRow key={emp.id}>
                         <TableCell>
-                          <div>
-                            <p className="font-medium">{emp.last_name}, {emp.first_name}</p>
-                            <p className="text-xs text-muted-foreground font-mono">{emp.employee_no}</p>
-                          </div>
+                          <p className="font-medium">{emp.last_name}, {emp.first_name}</p>
                         </TableCell>
                         <TableCell>
                           {emp.departments ? (

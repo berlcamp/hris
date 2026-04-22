@@ -524,6 +524,10 @@ export function EmployeeForm({
               <Label>Department</Label>
               <Select
                 value={watchDepartment ?? "none"}
+                items={[
+                  { value: "none", label: "No Department" },
+                  ...departments.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })),
+                ]}
                 onValueChange={(val) => {
                   setValue("department_id", val === "none" ? null : val, {
                     shouldValidate: true,
@@ -550,6 +554,13 @@ export function EmployeeForm({
               <Label>Position</Label>
               <Select
                 value={watchPosition ?? "none"}
+                items={[
+                  { value: "none", label: "No Position" },
+                  ...filteredPositions.map((p) => ({
+                    value: p.id,
+                    label: `${p.title}${p.item_number ? ` (${p.item_number})` : ""}`,
+                  })),
+                ]}
                 onValueChange={handlePositionChange}
               >
                 <SelectTrigger className="w-full">

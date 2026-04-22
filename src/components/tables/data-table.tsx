@@ -47,6 +47,9 @@ interface DataTableProps<TData, TValue> {
   searchableColumns?: DataTableSearchableColumn<TData>[];
   isLoading?: boolean;
   toolbar?: React.ReactNode;
+  // When true, the table body scrolls inside a bounded parent instead of
+  // growing and causing page-level scroll. The parent must constrain height.
+  fillHeight?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -57,6 +60,7 @@ export function DataTable<TData, TValue>({
   searchableColumns = [],
   isLoading = false,
   toolbar,
+  fillHeight = false,
 }: DataTableProps<TData, TValue>) {
   const [rowSelection, setRowSelection] = React.useState({});
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
@@ -86,7 +90,13 @@ export function DataTable<TData, TValue>({
   });
 
   return (
-    <div className="space-y-4">
+    <div
+      className={
+        fillHeight
+          ? "flex flex-1 min-h-0 flex-col gap-4"
+          : "space-y-4"
+      }
+    >
       <DataTableToolbar
         table={table}
         filterableColumns={filterableColumns}
@@ -94,9 +104,21 @@ export function DataTable<TData, TValue>({
       >
         {toolbar}
       </DataTableToolbar>
-      <div className="rounded-md border">
+      <div
+        className={
+          fillHeight
+            ? "rounded-md border flex-1 min-h-0 overflow-auto"
+            : "rounded-md border"
+        }
+      >
         <Table>
-          <TableHeader>
+          <TableHeader
+            className={
+              fillHeight
+                ? "sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_hsl(var(--border))]"
+                : undefined
+            }
+          >
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (

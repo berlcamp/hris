@@ -9,6 +9,7 @@ import {
   FileText,
   FolderOpen,
   Calendar,
+  ClipboardList,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -31,12 +32,15 @@ import {
   getServiceRecords,
 } from "@/lib/actions/employee-actions";
 import { getDocuments } from "@/lib/actions/document-actions";
+import { getPlantillaByEmployee } from "@/lib/actions/plantilla-actions";
 import { PersonalInfoTab } from "@/components/employees/personal-info-tab";
 import { EmploymentTab } from "@/components/employees/employment-tab";
 import { SalaryHistoryTab } from "@/components/employees/salary-history-tab";
 import { ServiceRecordTab } from "@/components/employees/service-record-tab";
 import { DocumentsTab } from "@/components/employees/documents-tab";
 import { LeaveCreditsTab } from "@/components/employees/leave-credits-tab";
+import { PlantillaTab } from "@/components/employees/plantilla-tab";
+import { getCurrentUser } from "@/lib/actions/auth-actions";
 
 export default async function EmployeeProfilePage({
   params,
@@ -45,14 +49,22 @@ export default async function EmployeeProfilePage({
 }) {
   const { id } = await params;
 
-  const [employee, salaryHistory, leaveCredits, serviceRecords, documents] =
+  const [employee, salaryHistory, leaveCredits, serviceRecords, documents, currentUser] =
     await Promise.all([
       getEmployeeById(id).catch(() => null),
       getSalaryHistory(id),
       getLeaveCredits(id),
       getServiceRecords(id),
       getDocuments(id),
+      getCurrentUser(),
     ]);
+
+  const plantilla =
+    employee?.employment_type === "plantilla"
+      ? await getPlantillaByEmployee(id)
+      : null;
+
+  const canEditPlantilla = ["super_admin", "hr_admin"].includes(currentUser?.role ?? "");
 
   if (!employee) notFound();
 
@@ -155,6 +167,12 @@ export default async function EmployeeProfilePage({
             <Calendar className="h-4 w-4 mr-1.5" />
             Leave Credits
           </TabsTrigger>
+          {plantilla && (
+            <TabsTrigger value="plantilla">
+              <ClipboardList className="h-4 w-4 mr-1.5" />
+              Plantilla
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="personal">
@@ -187,6 +205,16 @@ export default async function EmployeeProfilePage({
         <TabsContent value="leave">
           <LeaveCreditsTab leaveCredits={leaveCredits ?? []} />
         </TabsContent>
+
+        {plantilla && (
+          <TabsContent value="plantilla">
+            <PlantillaTab
+              plantilla={plantilla}
+              employeeId={id}
+              canEdit={canEditPlantilla}
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );
