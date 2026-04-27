@@ -172,7 +172,7 @@ export function PlantillaTab({ plantilla: initial, employeeId, canEdit }: Planti
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
-            Official CSC plantilla record. Appointment dates are used as the NOSI step-increment basis.
+            Official CSC plantilla record. Salary history is the primary NOSI basis; these appointment dates are used only when no qualifying salary history exists.
           </p>
         </div>
         {canEdit && (
@@ -189,7 +189,7 @@ export function PlantillaTab({ plantilla: initial, employeeId, canEdit }: Planti
               <div className="space-y-6 py-2">
                 {/* Appointment Dates — most critical */}
                 <div>
-                  <h3 className="text-sm font-semibold mb-3">Appointment Dates (NOSI Basis)</h3>
+                  <h3 className="text-sm font-semibold mb-3">Appointment Dates (NOSI fallback)</h3>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <DatePickerField
                       label="Date of Original Appointment"
@@ -438,7 +438,7 @@ export function PlantillaTab({ plantilla: initial, employeeId, canEdit }: Planti
         <Card className="border-primary/20">
           <CardHeader>
             <CardTitle className="text-base">Appointment Dates</CardTitle>
-            <CardDescription>Used as the NOSI step-increment basis date</CardDescription>
+            <CardDescription>NOSI fallback when salary history has no basis record</CardDescription>
           </CardHeader>
           <CardContent className="divide-y">
             <InfoRow

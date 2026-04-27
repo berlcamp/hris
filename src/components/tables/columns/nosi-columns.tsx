@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
 import { Eye } from "lucide-react";
 import type { NosiWithRelations } from "@/lib/actions/nosi-actions";
+import { NosiDeleteDraft } from "@/components/nosi/nosi-delete-draft";
 
 const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   draft: "outline",
@@ -17,7 +18,11 @@ const statusVariant: Record<string, "default" | "secondary" | "outline" | "destr
   cancelled: "destructive",
 };
 
-export const nosiColumns: ColumnDef<NosiWithRelations>[] = [
+export function getNosiColumns(options: {
+  canDeleteDraft: boolean;
+}): ColumnDef<NosiWithRelations>[] {
+  const { canDeleteDraft } = options;
+  return [
   {
     id: "employee",
     accessorFn: (row) =>
@@ -68,12 +73,21 @@ export const nosiColumns: ColumnDef<NosiWithRelations>[] = [
   },
   {
     id: "actions",
-    cell: ({ row }) => (
-      <Link href={`/nosi/${row.original.id}`}>
-        <Button variant="ghost" size="icon-sm">
-          <Eye className="h-4 w-4" />
-        </Button>
-      </Link>
-    ),
+    cell: ({ row }) => {
+      const isDraft = row.original.status === "draft";
+      return (
+        <div className="flex items-center justify-end gap-0.5">
+          {canDeleteDraft && isDraft && (
+            <NosiDeleteDraft nosiId={row.original.id} presentation="icon" />
+          )}
+          <Link href={`/nosi/${row.original.id}`}>
+            <Button variant="ghost" size="icon-sm" aria-label="View NOSI">
+              <Eye className="h-4 w-4" />
+            </Button>
+          </Link>
+        </div>
+      );
+    },
   },
 ];
+}

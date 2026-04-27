@@ -21,6 +21,11 @@ export function NosaPdfButton({ nosa, employeeName }: NosaPdfButtonProps) {
       const blob = await pdf(
         <NosaPdf
           employeeName={employeeName}
+          employeeNo={
+            nosa.employees != null
+              ? String(nosa.employees.biometric_no)
+              : ""
+          }
           position={nosa.employees?.positions?.title ?? ""}
           department={nosa.employees?.departments?.name ?? ""}
           previousSalaryGrade={nosa.previous_salary_grade}

@@ -114,7 +114,10 @@ export default async function IpcrDetailPage({
           </CardHeader>
           <CardContent className="divide-y">
             <InfoRow label="Name" value={fullName} />
-            <InfoRow label="Employee No" value={emp?.employee_no} />
+            <InfoRow
+              label="Employee No"
+              value={emp != null ? String(emp.biometric_no) : undefined}
+            />
             <InfoRow label="Position" value={emp?.positions?.title} />
             <InfoRow
               label="Department"

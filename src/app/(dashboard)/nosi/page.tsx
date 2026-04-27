@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DataTable } from "@/components/tables/data-table";
-import { nosiColumns } from "@/components/tables/columns/nosi-columns";
-import { getEligibleForNosi, getNosisRecords } from "@/lib/actions/nosi-actions";
+import { NosiRecordsDataTable } from "@/components/nosi/nosi-records-data-table";
+import {
+  getEligibleForNosi,
+  getNosisRecords,
+  getUpcomingNosiIncrements,
+} from "@/lib/actions/nosi-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -18,13 +21,16 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { format } from "date-fns";
 
+const UPCOMING_DAYS_AHEAD = 30;
+
 export default async function NosiPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (user.role === "employee") redirect("/dashboard");
 
-  const [eligible, records] = await Promise.all([
+  const [eligible, upcoming, records] = await Promise.all([
     getEligibleForNosi(),
+    getUpcomingNosiIncrements(UPCOMING_DAYS_AHEAD),
     getNosisRecords(),
   ]);
 
@@ -56,6 +62,12 @@ export default async function NosiPage() {
             Eligible Employees
             {eligible.length > 0 && (
               <Badge variant="secondary" className="ml-2">{eligible.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="upcoming">
+            Upcoming Increments
+            {upcoming.length > 0 && (
+              <Badge variant="secondary" className="ml-2">{upcoming.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="records">NOSI Records</TabsTrigger>
@@ -128,23 +140,79 @@ export default async function NosiPage() {
           )}
         </TabsContent>
 
+        <TabsContent value="upcoming" className="mt-4">
+          {upcoming.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-muted-foreground">
+                No employees are due for a step increment in the next {UPCOMING_DAYS_AHEAD} days.
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-4">
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Employees whose next step increment becomes due within{" "}
+                  {UPCOMING_DAYS_AHEAD} days.
+                </p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Position</TableHead>
+                      <TableHead>Current SG/Step</TableHead>
+                      <TableHead>Next Step</TableHead>
+                      <TableHead>Eligible On</TableHead>
+                      <TableHead>In</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {upcoming.map((emp) => (
+                      <TableRow key={emp.id}>
+                        <TableCell>
+                          <p className="font-medium">
+                            {emp.last_name}, {emp.first_name}
+                          </p>
+                        </TableCell>
+                        <TableCell>
+                          {emp.departments ? (
+                            <span>
+                              <span className="font-mono text-xs text-muted-foreground mr-1">
+                                {emp.departments.code}
+                              </span>
+                              {emp.departments.name}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell>{emp.positions?.title ?? "—"}</TableCell>
+                        <TableCell>
+                          SG {emp.salary_grade} — Step {emp.step_increment}
+                        </TableCell>
+                        <TableCell>Step {emp.step_increment + 1}</TableCell>
+                        <TableCell>
+                          {format(new Date(emp.eligibility_date), "MMM d, yyyy")}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {emp.days_until_eligibility}{" "}
+                            {emp.days_until_eligibility === 1 ? "day" : "days"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
         <TabsContent value="records" className="mt-4">
-          <DataTable
-            columns={nosiColumns}
+          <NosiRecordsDataTable
             data={records ?? []}
-            filterableColumns={[
-              {
-                id: "status",
-                title: "Status",
-                options: [
-                  { label: "Draft", value: "draft" },
-                  { label: "Pending", value: "pending" },
-                  { label: "Approved", value: "approved" },
-                  { label: "Rejected", value: "rejected" },
-                ],
-              },
-            ]}
-            searchableColumns={[{ id: "employee", title: "employee" }]}
+            canDeleteDraft={canCreate}
           />
         </TabsContent>
       </Tabs>

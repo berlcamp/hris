@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -82,7 +83,12 @@ export const employeeColumns: ColumnDef<EmployeeRow>[] = [
       <DataTableColumnHeader column={column} title="Name" />
     ),
     cell: ({ row }) => (
-      <span className="font-medium">{row.getValue("full_name")}</span>
+      <Link
+        href={`/employees/${row.original.id}`}
+        className="font-medium text-primary hover:underline"
+      >
+        {row.getValue("full_name")}
+      </Link>
     ),
   },
   {

@@ -5,6 +5,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
 import type { EmployeeFormValues } from "@/lib/validations/employee-schema";
+import {
+  salaryHistoryEntrySchema,
+  salaryHistoryUpdateSchema,
+  type SalaryHistoryEntryFormValues,
+  type SalaryHistoryUpdateFormValues,
+} from "@/lib/validations/salary-history-schema";
 
 export interface EmployeeWithRelations {
   id: string;
@@ -113,6 +119,26 @@ export async function getUnlinkedUserProfiles() {
   const { data, error } = await query;
   if (error) throw error;
   return data;
+}
+
+/**
+ * Next employee / biometric number for display on the create form (not reserved;
+ * the DB assigns `biometric_no` on insert via serial).
+ */
+export async function generateEmployeeNo(): Promise<string> {
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select("biometric_no")
+    .order("biometric_no", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  const next = (data?.biometric_no ?? 0) + 1;
+  return String(next);
 }
 
 export async function createEmployee(input: EmployeeFormValues) {
@@ -255,6 +281,200 @@ export async function getSalaryHistory(employeeId: string) {
 
   if (error) throw error;
   return data;
+}
+
+/**
+ * Sync `employees.salary_grade` and `employees.step_increment` from the most
+ * recent `salary_history` row (by `effective_date`, then `created_at`).
+ * No-op when the employee has no history rows yet.
+ *
+ * Returns `{ updated: true, salary_grade, step }` if employees was changed,
+ * or `{ updated: false }` otherwise.
+ */
+export async function syncEmployeeFromLatestSalaryHistory(
+  employeeId: string
+): Promise<
+  | { updated: true; salary_grade: number; step: number }
+  | { updated: false }
+> {
+  const supabase = createAdminClient();
+
+  const { data: latest } = await supabase
+    .schema("hris")
+    .from("salary_history")
+    .select("salary_grade, step")
+    .eq("employee_id", employeeId)
+    .order("effective_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!latest) return { updated: false };
+
+  const { data: emp } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select("salary_grade, step_increment")
+    .eq("id", employeeId)
+    .single();
+
+  if (
+    emp &&
+    emp.salary_grade === latest.salary_grade &&
+    emp.step_increment === latest.step
+  ) {
+    return { updated: false };
+  }
+
+  const { error } = await supabase
+    .schema("hris")
+    .from("employees")
+    .update({
+      salary_grade: latest.salary_grade,
+      step_increment: latest.step,
+    })
+    .eq("id", employeeId);
+
+  if (error) return { updated: false };
+
+  revalidatePath("/employees");
+  revalidatePath(`/employees/${employeeId}`);
+  revalidatePath("/nosi");
+
+  return {
+    updated: true,
+    salary_grade: latest.salary_grade,
+    step: latest.step,
+  };
+}
+
+export async function addSalaryHistoryRecord(
+  input: SalaryHistoryEntryFormValues
+): Promise<{ success: true; id: string } | { error: string }> {
+  const user = await getCurrentUser();
+  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+    return { error: "Unauthorized" };
+  }
+
+  const parsed = salaryHistoryEntrySchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.flatten().formErrors[0] ?? "Invalid data" };
+  }
+
+  const supabase = createAdminClient();
+  const v = parsed.data;
+
+  const { data: inserted, error } = await supabase
+    .schema("hris")
+    .from("salary_history")
+    .insert({
+      employee_id: v.employee_id,
+      salary_grade: v.salary_grade,
+      step: v.step,
+      salary_amount: v.salary_amount,
+      effective_date: v.effective_date,
+      reason: v.reason,
+      remarks: v.remarks ?? null,
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error) return { error: error.message };
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "create",
+    tableName: "salary_history",
+    recordId: inserted.id,
+    newValues: {
+      employee_id: v.employee_id,
+      reason: v.reason,
+      effective_date: v.effective_date,
+    },
+  });
+
+  await syncEmployeeFromLatestSalaryHistory(v.employee_id);
+
+  revalidatePath("/employees");
+  revalidatePath(`/employees/${v.employee_id}`);
+  revalidatePath("/nosi");
+  return { success: true, id: inserted.id };
+}
+
+export async function updateSalaryHistoryRecord(
+  input: SalaryHistoryUpdateFormValues
+): Promise<{ success: true } | { error: string }> {
+  const user = await getCurrentUser();
+  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+    return { error: "Unauthorized" };
+  }
+
+  const parsed = salaryHistoryUpdateSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.flatten().formErrors[0] ?? "Invalid data" };
+  }
+
+  const supabase = createAdminClient();
+  const v = parsed.data;
+
+  const { data: existing, error: fetchError } = await supabase
+    .schema("hris")
+    .from("salary_history")
+    .select("id, employee_id, salary_grade, step, effective_date, reason, remarks, salary_amount")
+    .eq("id", v.id)
+    .single();
+
+  if (fetchError || !existing) {
+    return { error: "Record not found." };
+  }
+  if (existing.employee_id !== v.employee_id) {
+    return { error: "Invalid record." };
+  }
+
+  const { error } = await supabase
+    .schema("hris")
+    .from("salary_history")
+    .update({
+      salary_grade: v.salary_grade,
+      step: v.step,
+      salary_amount: v.salary_amount,
+      effective_date: v.effective_date,
+      reason: v.reason,
+      remarks: v.remarks ?? null,
+    })
+    .eq("id", v.id)
+    .eq("employee_id", v.employee_id);
+
+  if (error) return { error: error.message };
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "update",
+    tableName: "salary_history",
+    recordId: v.id,
+    oldValues: {
+      salary_grade: existing.salary_grade,
+      step: existing.step,
+      effective_date: existing.effective_date,
+      reason: existing.reason,
+    },
+    newValues: {
+      salary_grade: v.salary_grade,
+      step: v.step,
+      effective_date: v.effective_date,
+      reason: v.reason,
+    },
+  });
+
+  await syncEmployeeFromLatestSalaryHistory(v.employee_id);
+
+  revalidatePath("/employees");
+  revalidatePath(`/employees/${v.employee_id}`);
+  revalidatePath("/nosi");
+  return { success: true };
 }
 
 export async function getLeaveCredits(employeeId: string) {

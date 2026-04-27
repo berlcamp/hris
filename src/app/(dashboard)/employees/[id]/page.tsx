@@ -65,6 +65,7 @@ export default async function EmployeeProfilePage({
       : null;
 
   const canEditPlantilla = ["super_admin", "hr_admin"].includes(currentUser?.role ?? "");
+  const canManageSalaryHistory = canEditPlantilla;
 
   if (!employee) notFound();
 
@@ -105,7 +106,7 @@ export default async function EmployeeProfilePage({
             <h1 className="text-2xl font-bold tracking-tight">{fullName}</h1>
             <div className="flex items-center gap-2 mt-1">
               <span className="font-mono text-sm text-muted-foreground">
-                {employee.employee_no}
+                {employee.biometric_no}
               </span>
               <Separator orientation="vertical" className="h-4" />
               <Badge
@@ -184,7 +185,13 @@ export default async function EmployeeProfilePage({
         </TabsContent>
 
         <TabsContent value="salary">
-          <SalaryHistoryTab salaryHistory={salaryHistory ?? []} />
+          <SalaryHistoryTab
+            salaryHistory={salaryHistory ?? []}
+            employeeId={id}
+            canManage={canManageSalaryHistory}
+            defaultSalaryGrade={employee.salary_grade}
+            defaultStep={employee.step_increment}
+          />
         </TabsContent>
 
         <TabsContent value="service">

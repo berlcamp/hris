@@ -3,6 +3,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
+import { getSystemSettings } from "@/lib/actions/settings-actions";
+import { NOSI_BASIS_SALARY_REASONS } from "@/lib/constants";
 
 // --- Types ---
 
@@ -352,21 +354,22 @@ export async function getEmployeeDashboardData(userId: string): Promise<Employee
     };
   });
 
-  // Next step increment
+  // Next step increment (aligned with NOSI basis: salary history + system setting years)
   let nextIncrementDate: string | null = null;
   if (emp.step_increment < 8) {
+    const { nosi_eligibility_years: nosiYears } = await getSystemSettings();
     const { data: lastIncrement } = await supabase
       .schema("hris")
       .from("salary_history")
       .select("effective_date")
       .eq("employee_id", emp.id)
-      .in("reason", ["step_increment", "initial"])
+      .in("reason", [...NOSI_BASIS_SALARY_REASONS])
       .order("effective_date", { ascending: false })
       .limit(1);
 
     if (lastIncrement && lastIncrement.length > 0) {
       const lastDate = new Date(lastIncrement[0].effective_date);
-      lastDate.setFullYear(lastDate.getFullYear() + 3);
+      lastDate.setFullYear(lastDate.getFullYear() + nosiYears);
       nextIncrementDate = lastDate.toISOString().split("T")[0];
     }
   }

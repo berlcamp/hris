@@ -55,7 +55,7 @@ export default async function LeaveCreditsPage() {
       grouped.set(key, {
         employeeId: key,
         employeeName: `${emp.last_name}, ${emp.first_name}`,
-        employeeNo: emp.employee_no,
+        employeeNo: String(emp.biometric_no),
         department: dept?.name ?? "—",
         credits: [],
       });

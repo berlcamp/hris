@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { getNosiById } from "@/lib/actions/nosi-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { NosiApprovalActions } from "@/components/nosi/nosi-approval-actions";
+import { NosiDeleteDraft } from "@/components/nosi/nosi-delete-draft";
 import { NosiPdfButton } from "@/components/nosi/nosi-pdf-button";
 
 const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -46,6 +47,8 @@ export default async function NosiDetailPage({
   const formatPHP = (n: number) =>
     n > 0 ? `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}` : "₱0.00";
 
+  const canManageDrafts = ["super_admin", "hr_admin"].includes(user.role);
+
   const timeline = [
     { label: "Created", done: true, date: nosi.created_at },
     { label: "Submitted", done: nosi.status !== "draft", date: null },
@@ -72,9 +75,12 @@ export default async function NosiDetailPage({
             Created {format(new Date(nosi.created_at), "MMMM d, yyyy")}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {nosi.status === "approved" && <NosiPdfButton nosi={nosi} employeeName={fullName} />}
           <NosiApprovalActions nosiId={nosi.id} status={nosi.status} user={user} />
+          {nosi.status === "draft" && canManageDrafts && (
+            <NosiDeleteDraft nosiId={nosi.id} hrefAfterDelete="/nosi" />
+          )}
         </div>
       </div>
 
@@ -83,7 +89,10 @@ export default async function NosiDetailPage({
           <CardHeader><CardTitle className="text-base">Employee Information</CardTitle></CardHeader>
           <CardContent className="divide-y">
             <InfoRow label="Name" value={fullName} />
-            <InfoRow label="Employee No" value={emp?.employee_no} />
+            <InfoRow
+              label="Employee No"
+              value={emp != null ? String(emp.biometric_no) : undefined}
+            />
             <InfoRow label="Position" value={emp?.positions?.title} />
             <InfoRow
               label="Department"

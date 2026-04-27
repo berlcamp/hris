@@ -1,8 +1,28 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { addYears, differenceInCalendarDays, startOfDay } from "date-fns";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { getSystemSettings } from "@/lib/actions/settings-actions";
+import { NOSI_BASIS_SALARY_REASONS } from "@/lib/constants";
+
+/**
+ * Maximum IDs per `.in()` filter. PostgREST encodes `.in(col, ids)` as a URL
+ * query string, and very large arrays (we routinely hit 700+ active plantilla
+ * employees) push the URL past the server's 8 KiB URI limit, which fails with
+ * an opaque empty error object. Chunking keeps every request well under that.
+ */
+const IN_CHUNK_SIZE = 200;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  if (items.length <= size) return [items];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
 
 export interface EligibleEmployee {
   id: string;
@@ -15,6 +35,11 @@ export interface EligibleEmployee {
   positions: { title: string } | null;
   last_increment_date: string | null;
   years_in_step: number;
+  eligibility_date: string;
+}
+
+export interface UpcomingEligibleEmployee extends EligibleEmployee {
+  days_until_eligibility: number;
 }
 
 export interface NosiWithRelations {
@@ -42,119 +67,301 @@ export interface NosiWithRelations {
     last_name: string;
     salary_grade: number;
     step_increment: number;
+    biometric_no: number;
     departments: { name: string; code: string } | null;
     positions: { title: string } | null;
   } | null;
 }
 
-export async function getEligibleForNosi(): Promise<EligibleEmployee[]> {
+interface NosiCandidate {
+  emp: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    salary_grade: number;
+    step_increment: number;
+    department_id: string | null;
+    departments: { name: string; code: string } | null;
+    positions: { title: string } | null;
+  };
+  lastDate: string;
+  /** Earliest day the employee qualifies (lastDate + min years). */
+  eligibilityDate: Date;
+}
+
+/** Loads all active plantilla candidates with their NOSI basis date and eligibility date. */
+async function loadNosiCandidates(): Promise<{
+  candidates: NosiCandidate[];
+  minYears: number;
+}> {
   const supabase = createAdminClient();
+  const { nosi_eligibility_years: minYears } = await getSystemSettings();
 
   const { data: employees, error } = await supabase
     .schema("hris")
     .from("employees")
     .select("id, first_name, last_name, salary_grade, step_increment, department_id, departments!employees_department_id_fkey(name, code), positions(title)")
     .eq("status", "active")
-    .eq("employment_type", "plantilla")
-    .lt("step_increment", 8);
+    .eq("employment_type", "plantilla");
 
-  if (error || !employees || employees.length === 0) return [];
+  if (error) {
+    console.error("[NOSI] employees query error:", error);
+  }
+  if (error || !employees || employees.length === 0) {
+    console.warn(
+      "[NOSI] No active plantilla employees found. employees=",
+      employees?.length ?? 0
+    );
+    return { candidates: [], minYears };
+  }
 
   const ids = employees.map((e) => e.id);
+  const idChunks = chunk(ids, IN_CHUNK_SIZE);
 
-  // Batch all lookups in parallel. Basis-date priority:
-  //   1. Latest salary_history step_increment (most recent approved NOSI resets the clock)
-  //   2. plantilla.date_of_last_promotion_appointment
-  //   3. plantilla.date_of_original_appointment
-  //   4. salary_history initial
-  const [stepRes, plantillaRes, initialRes, ipcrRes] = await Promise.all([
-    supabase
-      .schema("hris")
-      .from("salary_history")
-      .select("employee_id, effective_date")
-      .in("employee_id", ids)
-      .eq("reason", "step_increment")
-      .order("effective_date", { ascending: false }),
-    supabase
-      .schema("hris")
-      .from("plantilla")
-      .select("employee_id, date_of_last_promotion_appointment, date_of_original_appointment")
-      .in("employee_id", ids),
-    supabase
-      .schema("hris")
-      .from("salary_history")
-      .select("employee_id, effective_date")
-      .in("employee_id", ids)
-      .eq("reason", "initial")
-      .order("effective_date", { ascending: false }),
-    supabase
-      .schema("hris")
-      .from("ipcr_records")
-      .select("employee_id, numerical_rating")
-      .in("employee_id", ids)
-      .eq("status", "approved")
-      .gte("numerical_rating", 2.5),
-  ]);
+  // Pull salary_history + plantilla rows for these employees. We chunk the
+  // `.in()` filters to keep each PostgREST request URL under the server's
+  // length limit (see IN_CHUNK_SIZE).
+  //
+  // We use the salary_history rows for two things:
+  //   - latest row by effective_date → current SG/Step (source of truth)
+  //   - latest row whose reason resets the NOSI clock → eligibility basis date
+  type HistoryRow = {
+    employee_id: string;
+    effective_date: string;
+    salary_grade: number;
+    step: number;
+    reason: string;
+    created_at: string;
+  };
+  type PlantillaRow = {
+    employee_id: string | null;
+    date_of_last_promotion_appointment: string | null;
+    date_of_original_appointment: string | null;
+  };
 
-  const latestStepByEmp = new Map<string, string>();
-  for (const row of stepRes.data ?? []) {
-    if (!latestStepByEmp.has(row.employee_id)) {
-      latestStepByEmp.set(row.employee_id, row.effective_date);
+  const historyResults = await Promise.all(
+    idChunks.map((c) =>
+      supabase
+        .schema("hris")
+        .from("salary_history")
+        .select(
+          "employee_id, effective_date, salary_grade, step, reason, created_at"
+        )
+        .in("employee_id", c)
+    )
+  );
+  const plantillaResults = await Promise.all(
+    idChunks.map((c) =>
+      supabase
+        .schema("hris")
+        .from("plantilla")
+        .select(
+          "employee_id, date_of_last_promotion_appointment, date_of_original_appointment"
+        )
+        .in("employee_id", c)
+    )
+  );
+
+  const historyRows: HistoryRow[] = [];
+  for (const res of historyResults) {
+    if (res.error) {
+      console.error(
+        "[NOSI] salary_history query error:",
+        JSON.stringify(res.error, Object.getOwnPropertyNames(res.error))
+      );
+      continue;
+    }
+    if (res.data) historyRows.push(...(res.data as HistoryRow[]));
+  }
+
+  const plantillaRows: PlantillaRow[] = [];
+  for (const res of plantillaResults) {
+    if (res.error) {
+      console.error(
+        "[NOSI] plantilla query error:",
+        JSON.stringify(res.error, Object.getOwnPropertyNames(res.error))
+      );
+      continue;
+    }
+    if (res.data) plantillaRows.push(...(res.data as PlantillaRow[]));
+  }
+
+  console.info(
+    `[NOSI] loadNosiCandidates: minYears=${minYears} active_plantilla=${employees.length} chunks=${idChunks.length} salary_history_rows=${historyRows.length} plantilla_rows=${plantillaRows.length}`
+  );
+
+  const basisSet = new Set<string>(NOSI_BASIS_SALARY_REASONS);
+  const latestRowByEmp = new Map<
+    string,
+    { effective_date: string; created_at: string; salary_grade: number; step: number }
+  >();
+  const latestBasisByEmp = new Map<string, string>();
+
+  for (const row of historyRows) {
+    const t = new Date(row.effective_date).getTime();
+    if (Number.isNaN(t)) continue;
+
+    const existing = latestRowByEmp.get(row.employee_id);
+    const existingT = existing ? new Date(existing.effective_date).getTime() : -Infinity;
+    const existingCreated = existing ? new Date(existing.created_at).getTime() : -Infinity;
+    const rowCreated = new Date(row.created_at).getTime();
+    if (
+      !existing ||
+      t > existingT ||
+      (t === existingT && rowCreated > existingCreated)
+    ) {
+      latestRowByEmp.set(row.employee_id, {
+        effective_date: row.effective_date,
+        created_at: row.created_at,
+        salary_grade: row.salary_grade,
+        step: row.step,
+      });
+    }
+
+    if (basisSet.has(row.reason)) {
+      const existingBasis = latestBasisByEmp.get(row.employee_id);
+      if (!existingBasis || t > new Date(existingBasis).getTime()) {
+        latestBasisByEmp.set(row.employee_id, row.effective_date);
+      }
     }
   }
 
-  const plantillaByEmp = new Map<string, { date_of_last_promotion_appointment: string | null; date_of_original_appointment: string | null }>();
-  for (const row of plantillaRes.data ?? []) {
-    if (row.employee_id) plantillaByEmp.set(row.employee_id, row);
-  }
-
-  const initialByEmp = new Map<string, string>();
-  for (const row of initialRes.data ?? []) {
-    if (!initialByEmp.has(row.employee_id)) {
-      initialByEmp.set(row.employee_id, row.effective_date);
+  const plantillaByEmp = new Map<
+    string,
+    {
+      date_of_last_promotion_appointment: string | null;
+      date_of_original_appointment: string | null;
+    }
+  >();
+  for (const row of plantillaRows) {
+    if (row.employee_id) {
+      plantillaByEmp.set(row.employee_id, {
+        date_of_last_promotion_appointment: row.date_of_last_promotion_appointment,
+        date_of_original_appointment: row.date_of_original_appointment,
+      });
     }
   }
 
-  const eligibleIpcrIds = new Set<string>();
-  for (const row of ipcrRes.data ?? []) {
-    eligibleIpcrIds.add(row.employee_id);
-  }
-
-  const now = Date.now();
-  const eligible: EligibleEmployee[] = [];
-
+  const candidates: NosiCandidate[] = [];
+  const skipped = {
+    at_top_step: 0,
+    no_basis_date: 0,
+    invalid_basis_date: 0,
+  };
   for (const emp of employees) {
+    // Current SG/Step: prefer the latest salary_history row; fall back to the cached employees row
+    const latest = latestRowByEmp.get(emp.id);
+    const currentGrade = latest?.salary_grade ?? emp.salary_grade;
+    const currentStep = latest?.step ?? emp.step_increment;
+
+    // Already at top of grade — no NOSI possible
+    if (currentStep >= 8) {
+      skipped.at_top_step++;
+      continue;
+    }
+
+    // NOSI basis date: latest effective_date among NOSI_BASIS_SALARY_REASONS,
+    // then plantilla appointment fallbacks for legacy/migrated employees.
     const p = plantillaByEmp.get(emp.id);
+    const fromSalary = latestBasisByEmp.get(emp.id);
     const lastDate =
-      latestStepByEmp.get(emp.id) ??
+      fromSalary ??
       p?.date_of_last_promotion_appointment ??
       p?.date_of_original_appointment ??
-      initialByEmp.get(emp.id) ??
       null;
 
-    if (!lastDate) continue;
+    if (!lastDate) {
+      skipped.no_basis_date++;
+      continue;
+    }
 
-    const yearsInStep = (now - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-    if (yearsInStep < 3) continue;
-    if (!eligibleIpcrIds.has(emp.id)) continue;
+    const baseDate = new Date(lastDate);
+    if (Number.isNaN(baseDate.getTime())) {
+      skipped.invalid_basis_date++;
+      continue;
+    }
 
-    const dept = Array.isArray(emp.departments) ? emp.departments[0] ?? null : emp.departments;
-    const pos = Array.isArray(emp.positions) ? emp.positions[0] ?? null : emp.positions;
-    eligible.push({
-      id: emp.id,
-      first_name: emp.first_name,
-      last_name: emp.last_name,
-      salary_grade: emp.salary_grade,
-      step_increment: emp.step_increment,
-      department_id: emp.department_id,
-      departments: dept,
-      positions: pos,
-      last_increment_date: lastDate,
-      years_in_step: Math.floor(yearsInStep),
+    const eligibilityDate = startOfDay(addYears(baseDate, minYears));
+    const dept = Array.isArray(emp.departments)
+      ? emp.departments[0] ?? null
+      : emp.departments;
+    const pos = Array.isArray(emp.positions)
+      ? emp.positions[0] ?? null
+      : emp.positions;
+
+    candidates.push({
+      emp: {
+        id: emp.id,
+        first_name: emp.first_name,
+        last_name: emp.last_name,
+        salary_grade: currentGrade,
+        step_increment: currentStep,
+        department_id: emp.department_id,
+        departments: dept,
+        positions: pos,
+      },
+      lastDate,
+      eligibilityDate,
     });
   }
 
+  console.info(
+    `[NOSI] loadNosiCandidates: candidates=${candidates.length} skipped=${JSON.stringify(skipped)}`
+  );
+
+  return { candidates, minYears };
+}
+
+function yearsBetween(fromIso: string, toMs: number): number {
+  return Math.floor(
+    (toMs - new Date(fromIso).getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+  );
+}
+
+export async function getEligibleForNosi(): Promise<EligibleEmployee[]> {
+  const { candidates } = await loadNosiCandidates();
+  const today = startOfDay(new Date());
+  const todayMs = today.getTime();
+
+  const eligible: EligibleEmployee[] = [];
+  for (const c of candidates) {
+    if (c.eligibilityDate.getTime() > todayMs) continue;
+    eligible.push({
+      ...c.emp,
+      last_increment_date: c.lastDate,
+      years_in_step: Math.max(0, yearsBetween(c.lastDate, todayMs)),
+      eligibility_date: c.eligibilityDate.toISOString().slice(0, 10),
+    });
+  }
   return eligible;
+}
+
+/**
+ * Active plantilla employees whose NOSI eligibility falls within `daysAhead`
+ * (default 30) calendar days from today. Sorted by soonest eligibility first.
+ */
+export async function getUpcomingNosiIncrements(
+  daysAhead = 30
+): Promise<UpcomingEligibleEmployee[]> {
+  const { candidates } = await loadNosiCandidates();
+  const today = startOfDay(new Date());
+  const todayMs = today.getTime();
+
+  const upcoming: UpcomingEligibleEmployee[] = [];
+  for (const c of candidates) {
+    const days = differenceInCalendarDays(c.eligibilityDate, today);
+    if (days <= 0 || days > daysAhead) continue;
+    upcoming.push({
+      ...c.emp,
+      last_increment_date: c.lastDate,
+      years_in_step: Math.max(0, yearsBetween(c.lastDate, todayMs)),
+      eligibility_date: c.eligibilityDate.toISOString().slice(0, 10),
+      days_until_eligibility: days,
+    });
+  }
+
+  upcoming.sort((a, b) => a.days_until_eligibility - b.days_until_eligibility);
+  return upcoming;
 }
 
 export async function getNosisRecords() {
@@ -169,7 +376,7 @@ export async function getNosisRecords() {
     .select(`
       *,
       employees(
-        first_name, last_name, salary_grade, step_increment,
+        first_name, last_name, salary_grade, step_increment, biometric_no,
         departments!employees_department_id_fkey(name, code),
         positions(title)
       )
@@ -201,7 +408,7 @@ export async function getNosiById(id: string) {
     .select(`
       *,
       employees(
-        first_name, last_name, salary_grade, step_increment,
+        first_name, last_name, salary_grade, step_increment, biometric_no,
         hire_date,
         departments!employees_department_id_fkey(name, code),
         positions(title)
@@ -269,6 +476,30 @@ export async function submitNosi(id: string) {
   if (error) return { error: error.message };
   revalidatePath(`/nosi/${id}`);
   revalidatePath("/nosi");
+  return { success: true };
+}
+
+export async function deleteDraftNosi(id: string) {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Unauthorized" };
+  if (!["super_admin", "hr_admin"].includes(user.role))
+    return { error: "Insufficient permissions" };
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("nosi_records")
+    .delete()
+    .eq("id", id)
+    .eq("status", "draft")
+    .select("id");
+
+  if (error) return { error: error.message };
+  if (!data?.length)
+    return { error: "Draft NOSI not found or it was already submitted." };
+
+  revalidatePath("/nosi");
+  revalidatePath(`/nosi/${id}`);
   return { success: true };
 }
 

@@ -31,6 +31,7 @@ export interface IpcrRecordWithRelations {
   employees: {
     first_name: string;
     last_name: string;
+    biometric_no: number;
     department_id: string | null;
     departments: { name: string; code: string } | null;
     positions: { title: string } | null;
@@ -227,7 +228,7 @@ export async function getIpcrRecords(periodId?: string): Promise<IpcrRecordWithR
     .select(
       `*,
        employees!ipcr_records_employee_id_fkey(
-         first_name, last_name, department_id,
+         first_name, last_name, biometric_no, department_id,
          departments!employees_department_id_fkey(name, code),
          positions(title)
        ),
@@ -281,7 +282,7 @@ export async function getIpcrRecordById(id: string): Promise<IpcrRecordWithRelat
     .select(
       `*,
        employees!ipcr_records_employee_id_fkey(
-         first_name, last_name, department_id,
+         first_name, last_name, biometric_no, department_id,
          departments!employees_department_id_fkey(name, code),
          positions(title)
        ),
@@ -465,25 +466,6 @@ export async function reviewIpcrRecord(
   revalidatePath("/performance");
   revalidatePath(`/performance/${id}`);
   return { success: true };
-}
-
-// --- IPCR check for NOSI eligibility ---
-
-export async function hasAtLeastSatisfactoryIpcr(employeeId: string): Promise<boolean> {
-  const supabase = createAdminClient();
-
-  // Check for any approved IPCR with at least Satisfactory in any recent period
-  const { data } = await supabase
-    .schema("hris")
-    .from("ipcr_records")
-    .select("id, numerical_rating")
-    .eq("employee_id", employeeId)
-    .eq("status", "approved")
-    .gte("numerical_rating", 2.5)
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  return (data ?? []).length > 0;
 }
 
 // --- Get employee IPCR history (for employee profile) ---

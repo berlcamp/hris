@@ -21,6 +21,11 @@ export function NosiPdfButton({ nosi, employeeName }: NosiPdfButtonProps) {
       const blob = await pdf(
         <NosiPdf
           employeeName={employeeName}
+          employeeNo={
+            nosi.employees != null
+              ? String(nosi.employees.biometric_no)
+              : ""
+          }
           position={nosi.employees?.positions?.title ?? ""}
           department={nosi.employees?.departments?.name ?? ""}
           currentSalaryGrade={nosi.current_salary_grade}

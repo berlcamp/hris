@@ -68,6 +68,15 @@ export const SALARY_CHANGE_REASONS = {
   DEMOTION: "demotion",
 } as const;
 
+/** Resets the NOSI "years in step" clock — use the latest effective_date across these. */
+export const NOSI_BASIS_SALARY_REASONS = [
+  "step_increment",
+  "promotion",
+  "reclassification",
+  "initial",
+  "demotion",
+] as const;
+
 export const EMPLOYEE_NO_PREFIX = "LGU";
 
 export const DEFAULT_PAGE_SIZE = 10;

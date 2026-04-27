@@ -31,6 +31,7 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
       const blob = await pdf(
         <LeaveForm6Pdf
           employeeName={employeeName}
+          employeeNo={emp != null ? String(emp.biometric_no) : ""}
           middleName={emp?.middle_name ?? ""}
           position={emp?.positions?.title ?? ""}
           department={emp?.departments?.name ?? ""}
