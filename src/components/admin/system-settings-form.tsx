@@ -241,7 +241,9 @@ export function SystemSettingsForm({ settings }: SystemSettingsFormProps) {
           </div>
           <p className="text-xs text-muted-foreground">
             CSC standard: 15 days VL + 15 days SL per year (1.25 credits/month
-            each).
+            each). The monthly accrual button on /leaves/credits divides these
+            annual values by 12 — change them here to adjust both the accrual
+            amount and the documented annual entitlement.
           </p>
           <div className="flex justify-end">
             <Button

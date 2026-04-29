@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
+import {
+  ACCRUING_LEAVE_CODES,
+  addLedgerEntry,
+  recomputeLeaveCreditTotal,
+} from "@/lib/leave-credits-helpers";
 
 export interface LeaveTypeRow {
   id: string;
@@ -137,34 +142,45 @@ export async function getEmployeeLeaveCredits(employeeId: string, year: number) 
   return data as LeaveCreditRow[];
 }
 
+/**
+ * Provision a year's leave-credit baseline for one employee.
+ *
+ * Behavior (ledger-based):
+ *   - VL / SL (accruing types): writes a `carryover` ledger row with the prior
+ *     year's remaining balance (if cumulative and > 0). Does NOT seed the full
+ *     annual amount — monthly accrual fills that in.
+ *   - Other types with max_credits (SPL, FL, ML, …): writes a `seed` ledger
+ *     row equal to max_credits.
+ *   - Skips any leave type that already has at least one ledger row for the
+ *     given (employee, year) so re-running is a safe no-op.
+ *
+ * After writing ledger rows, the corresponding leave_credits.total_credits is
+ * recomputed as SUM(ledger.amount) for that (employee, leave_type, year).
+ */
 export async function provisionLeaveCredits(employeeId: string, year: number) {
   const supabase = createAdminClient();
 
-  // Get all leave types
   const { data: leaveTypes } = await supabase
     .schema("hris")
     .from("leave_types")
     .select("id, code, max_credits, is_cumulative");
   if (!leaveTypes) return { error: "Failed to fetch leave types" };
 
-  // Check what already exists
-  const { data: existing } = await supabase
+  const { data: existingLedger } = await supabase
     .schema("hris")
-    .from("leave_credits")
+    .from("leave_credit_accruals")
     .select("leave_type_id")
     .eq("employee_id", employeeId)
     .eq("year", year);
-  const existingIds = new Set((existing ?? []).map((e) => e.leave_type_id));
+  const seededTypeIds = new Set((existingLedger ?? []).map((r) => r.leave_type_id));
 
-  const toInsert: { employee_id: string; leave_type_id: string; year: number; total_credits: number }[] = [];
-
+  let provisioned = 0;
   for (const lt of leaveTypes) {
-    if (existingIds.has(lt.id)) continue;
+    if (seededTypeIds.has(lt.id)) continue;
 
-    let credits = 0;
-    if (lt.code === "VL" || lt.code === "SL") {
-      credits = 15; // Standard annual provision
-      // If cumulative, carry over from previous year
+    const isAccruing = (ACCRUING_LEAVE_CODES as readonly string[]).includes(lt.code);
+
+    if (isAccruing) {
       if (lt.is_cumulative) {
         const { data: prev } = await supabase
           .schema("hris")
@@ -174,34 +190,50 @@ export async function provisionLeaveCredits(employeeId: string, year: number) {
           .eq("leave_type_id", lt.id)
           .eq("year", year - 1)
           .maybeSingle();
-        if (prev && prev.balance > 0) {
-          credits += Number(prev.balance);
+        const carryAmount = prev && prev.balance ? Number(prev.balance) : 0;
+        if (carryAmount > 0) {
+          const { error } = await addLedgerEntry(supabase, {
+            employee_id: employeeId,
+            leave_type_id: lt.id,
+            year,
+            amount: carryAmount,
+            source: "carryover",
+            notes: `Carried over from ${year - 1}`,
+          });
+          if (error) return { error };
+          await recomputeLeaveCreditTotal(supabase, {
+            employee_id: employeeId,
+            leave_type_id: lt.id,
+            year,
+          });
+          provisioned++;
         }
       }
-    } else if (lt.max_credits) {
-      credits = Number(lt.max_credits);
+      continue;
     }
 
-    if (credits > 0) {
-      toInsert.push({
+    if (lt.max_credits && Number(lt.max_credits) > 0) {
+      const amount = Number(lt.max_credits);
+      const { error } = await addLedgerEntry(supabase, {
         employee_id: employeeId,
         leave_type_id: lt.id,
         year,
-        total_credits: credits,
+        amount,
+        source: "seed",
+        notes: `Annual seed for ${lt.code}`,
       });
+      if (error) return { error };
+      await recomputeLeaveCreditTotal(supabase, {
+        employee_id: employeeId,
+        leave_type_id: lt.id,
+        year,
+      });
+      provisioned++;
     }
   }
 
-  if (toInsert.length > 0) {
-    const { error } = await supabase
-      .schema("hris")
-      .from("leave_credits")
-      .insert(toInsert);
-    if (error) return { error: error.message };
-  }
-
   revalidatePath("/leaves/credits");
-  return { success: true, provisioned: toInsert.length };
+  return { success: true, provisioned };
 }
 
 export async function adjustLeaveCredit(input: {
@@ -218,40 +250,53 @@ export async function adjustLeaveCredit(input: {
 
   const supabase = createAdminClient();
 
-  // Get current credit record
-  const { data: credit } = await supabase
+  // Compute the resulting total to enforce non-negative balance.
+  const { data: prior } = await supabase
     .schema("hris")
-    .from("leave_credits")
-    .select("id, total_credits")
+    .from("leave_credit_accruals")
+    .select("amount")
     .eq("employee_id", input.employee_id)
     .eq("leave_type_id", input.leave_type_id)
-    .eq("year", input.year)
-    .maybeSingle();
+    .eq("year", input.year);
+  const currentTotal = (prior ?? []).reduce(
+    (acc, r) => acc + Number(r.amount),
+    0
+  );
+  const newTotal = currentTotal + input.adjustment;
+  if (newTotal < 0)
+    return { error: "Adjustment would result in negative credits" };
 
-  if (credit) {
-    // Update existing
-    const newTotal = Number(credit.total_credits) + input.adjustment;
-    if (newTotal < 0) return { error: "Adjustment would result in negative credits" };
-    const { error } = await supabase
-      .schema("hris")
-      .from("leave_credits")
-      .update({ total_credits: newTotal })
-      .eq("id", credit.id);
-    if (error) return { error: error.message };
-  } else {
-    // Create new
-    if (input.adjustment < 0) return { error: "Cannot create credit with negative balance" };
-    const { error } = await supabase
-      .schema("hris")
-      .from("leave_credits")
-      .insert({
-        employee_id: input.employee_id,
-        leave_type_id: input.leave_type_id,
-        year: input.year,
-        total_credits: input.adjustment,
-      });
-    if (error) return { error: error.message };
-  }
+  const { error: ledgerError } = await addLedgerEntry(supabase, {
+    employee_id: input.employee_id,
+    leave_type_id: input.leave_type_id,
+    year: input.year,
+    amount: input.adjustment,
+    source: "adjustment",
+    notes: input.reason,
+    created_by: user.id,
+  });
+  if (ledgerError) return { error: ledgerError };
+
+  const { error: recomputeError } = await recomputeLeaveCreditTotal(supabase, {
+    employee_id: input.employee_id,
+    leave_type_id: input.leave_type_id,
+    year: input.year,
+  });
+  if (recomputeError) return { error: recomputeError };
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "adjust_leave_credit",
+    tableName: "leave_credits",
+    newValues: {
+      employee_id: input.employee_id,
+      leave_type_id: input.leave_type_id,
+      year: input.year,
+      adjustment: input.adjustment,
+      reason: input.reason,
+    },
+  });
 
   revalidatePath("/leaves/credits");
   return { success: true };

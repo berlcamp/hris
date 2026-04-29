@@ -576,6 +576,67 @@ export type Database = {
           },
         ]
       }
+      leave_credit_accruals: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          employee_id: string
+          id: string
+          leave_type_id: string
+          month: number | null
+          notes: string | null
+          source: string
+          year: number
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          employee_id: string
+          id?: string
+          leave_type_id: string
+          month?: number | null
+          notes?: string | null
+          source: string
+          year: number
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          employee_id?: string
+          id?: string
+          leave_type_id?: string
+          month?: number | null
+          notes?: string | null
+          source?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_credit_accruals_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_credit_accruals_leave_type_id_fkey"
+            columns: ["leave_type_id"]
+            isOneToOne: false
+            referencedRelation: "leave_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_credit_accruals_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leave_types: {
         Row: {
           applicable_to: string | null

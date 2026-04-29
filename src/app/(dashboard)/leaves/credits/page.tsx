@@ -20,6 +20,7 @@ import {
   provisionAllActiveEmployees,
 } from "@/lib/actions/leave-actions";
 import { LeaveCreditAdjustmentDialog } from "@/components/leaves/leave-credit-adjustment-dialog";
+import { MonthlyAccrualDialog } from "@/components/leaves/monthly-accrual-dialog";
 import { ProvisionButton } from "@/components/leaves/provision-button";
 
 export default async function LeaveCreditsPage() {
@@ -80,7 +81,10 @@ export default async function LeaveCreditsPage() {
           </p>
         </div>
         {isAdmin && (
-          <ProvisionButton year={currentYear} />
+          <div className="flex items-center gap-2">
+            <MonthlyAccrualDialog />
+            <ProvisionButton year={currentYear} />
+          </div>
         )}
       </div>
 

@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { ColumnDef } from "@tanstack/react-table";
+import { Copy } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
 import { EmployeeActionsCell } from "./employee-actions-cell";
@@ -83,12 +86,33 @@ export const employeeColumns: ColumnDef<EmployeeRow>[] = [
       <DataTableColumnHeader column={column} title="Name" />
     ),
     cell: ({ row }) => (
-      <Link
-        href={`/employees/${row.original.id}`}
-        className="font-medium text-primary hover:underline"
-      >
-        {row.getValue("full_name")}
-      </Link>
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+          aria-label="Copy employee ID"
+          title="Copy employee ID"
+          onClick={async (e) => {
+            e.stopPropagation();
+            try {
+              await navigator.clipboard.writeText(row.original.id);
+              toast.success("Employee ID copied");
+            } catch {
+              toast.error("Could not copy to clipboard");
+            }
+          }}
+        >
+          <Copy className="h-3.5 w-3.5" />
+        </Button>
+        <Link
+          href={`/employees/${row.original.id}`}
+          className="min-w-0 font-medium text-primary hover:underline"
+        >
+          {row.getValue("full_name")}
+        </Link>
+      </div>
     ),
   },
   {

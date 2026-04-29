@@ -133,6 +133,12 @@ const navGroups: NavGroup[] = [
         icon: Upload,
         roles: adminRoles,
       },
+      {
+        title: "Leave Credits Import",
+        href: "/admin/leave-credits-import",
+        icon: Upload,
+        roles: adminRoles,
+      },
       { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin", "hr_admin"] },
       { title: "Audit Trail", href: "/admin/audit-log", icon: Shield, roles: ["super_admin"] },
       { title: "Settings", href: "/admin/settings", icon: Settings, roles: ["super_admin"] },
