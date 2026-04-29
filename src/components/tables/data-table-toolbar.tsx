@@ -6,7 +6,6 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
-import { DataTableViewOptions } from "./data-table-view-options";
 import type { DataTableFilterableColumn, DataTableSearchableColumn } from "./data-table";
 
 interface DataTableToolbarProps<TData> {
@@ -63,10 +62,7 @@ export function DataTableToolbar<TData>({
           </Button>
         )}
       </div>
-      <div className="flex items-center space-x-2">
-        {children}
-        <DataTableViewOptions table={table} />
-      </div>
+      <div className="flex items-center space-x-2">{children}</div>
     </div>
   );
 }

@@ -15,7 +15,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
-import { createNosi, getSalaryAmount } from "@/lib/actions/nosi-actions";
+import {
+  createNosi,
+  getSalaryAmount,
+  getNosiSalaryContextForEmployee,
+  type NosiSalaryContext,
+} from "@/lib/actions/nosi-actions";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 
 interface NosiFormProps {
@@ -30,6 +35,8 @@ export function NosiForm({ employees, preselectedEmployeeId, preselectedEmployee
   const [empOpen, setEmpOpen] = useState(false);
   const [selectedEmpId, setSelectedEmpId] = useState<string | null>(preselectedEmployeeId);
   const [selectedEmp, setSelectedEmp] = useState<EmployeeWithRelations | null>(preselectedEmployee);
+  const [nosiContext, setNosiContext] = useState<NosiSalaryContext | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
   const [effectiveDate, setEffectiveDate] = useState<string>("");
   const [dateOpen, setDateOpen] = useState(false);
   const [currentSalary, setCurrentSalary] = useState(0);
@@ -37,17 +44,45 @@ export function NosiForm({ employees, preselectedEmployeeId, preselectedEmployee
   const [remarks, setRemarks] = useState("");
 
   useEffect(() => {
-    if (!selectedEmp) return;
+    if (!selectedEmp) {
+      setNosiContext(null);
+      return;
+    }
+    let cancelled = false;
+    setContextLoading(true);
+    setNosiContext(null);
+    void (async () => {
+      const res = await getNosiSalaryContextForEmployee(selectedEmp.id);
+      if (cancelled) return;
+      setContextLoading(false);
+      if ("error" in res) {
+        toast.error(res.error);
+        setNosiContext({
+          salary_grade: selectedEmp.salary_grade,
+          step_increment: selectedEmp.step_increment,
+          source: "employee",
+        });
+        return;
+      }
+      setNosiContext(res);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEmp]);
+
+  useEffect(() => {
+    if (!nosiContext) return;
     const fetchSalaries = async () => {
       const [cur, nxt] = await Promise.all([
-        getSalaryAmount(selectedEmp.salary_grade, selectedEmp.step_increment),
-        getSalaryAmount(selectedEmp.salary_grade, selectedEmp.step_increment + 1),
+        getSalaryAmount(nosiContext.salary_grade, nosiContext.step_increment),
+        getSalaryAmount(nosiContext.salary_grade, nosiContext.step_increment + 1),
       ]);
       setCurrentSalary(cur);
       setNewSalary(nxt);
     };
-    fetchSalaries();
-  }, [selectedEmp]);
+    void fetchSalaries();
+  }, [nosiContext]);
 
   const handleSelectEmployee = (emp: EmployeeWithRelations) => {
     setSelectedEmpId(emp.id);
@@ -57,20 +92,20 @@ export function NosiForm({ employees, preselectedEmployeeId, preselectedEmployee
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmp || !effectiveDate) {
+    if (!selectedEmp || !nosiContext || !effectiveDate) {
       toast.error("Please select an employee and effective date.");
       return;
     }
-    if (selectedEmp.step_increment >= 8) {
+    if (nosiContext.step_increment >= 8) {
       toast.error("Employee is already at maximum step.");
       return;
     }
     setLoading(true);
     const result = await createNosi({
       employee_id: selectedEmp.id,
-      current_salary_grade: selectedEmp.salary_grade,
-      current_step: selectedEmp.step_increment,
-      new_step: selectedEmp.step_increment + 1,
+      current_salary_grade: nosiContext.salary_grade,
+      current_step: nosiContext.step_increment,
+      new_step: nosiContext.step_increment + 1,
       current_salary: currentSalary,
       new_salary: newSalary,
       effective_date: effectiveDate,
@@ -138,63 +173,81 @@ export function NosiForm({ employees, preselectedEmployeeId, preselectedEmployee
         <Card>
           <CardHeader><CardTitle>Increment Details</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Salary Grade</Label>
-                <Input value={selectedEmp.salary_grade} disabled />
-              </div>
-              <div className="space-y-2">
-                <Label>Current Step</Label>
-                <Input value={selectedEmp.step_increment} disabled />
-              </div>
-              <div className="space-y-2">
-                <Label>New Step</Label>
-                <Input value={selectedEmp.step_increment + 1} disabled className="font-semibold" />
-              </div>
-              <div className="space-y-2">
-                <Label>Current Salary</Label>
-                <Input value={formatPHP(currentSalary)} disabled />
-              </div>
-              <div className="space-y-2 col-span-2">
-                <Label>New Salary</Label>
-                <Input value={formatPHP(newSalary)} disabled className="font-semibold text-green-700" />
-              </div>
-            </div>
+            {contextLoading ? (
+              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Resolving salary grade and step…
+              </p>
+            ) : nosiContext ? (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  SG and step follow{" "}
+                  {nosiContext.source === "salary_history"
+                    ? "the latest salary history row (same as NOSI eligibility)."
+                    : "the employee record (no salary history yet)."}
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Salary Grade</Label>
+                    <Input value={nosiContext.salary_grade} disabled />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Current Step</Label>
+                    <Input value={nosiContext.step_increment} disabled />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>New Step</Label>
+                    <Input value={nosiContext.step_increment + 1} disabled className="font-semibold" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Current Salary</Label>
+                    <Input value={formatPHP(currentSalary)} disabled />
+                  </div>
+                  <div className="space-y-2 col-span-2">
+                    <Label>New Salary</Label>
+                    <Input value={formatPHP(newSalary)} disabled className="font-semibold text-green-700" />
+                  </div>
+                </div>
 
-            <div className="space-y-2">
-              <Label>Effective Date *</Label>
-              <Popover open={dateOpen} onOpenChange={setDateOpen}>
-                <PopoverTrigger
-                  render={
-                    <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !effectiveDate && "text-muted-foreground")} />
-                  }
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {effectiveDate ? format(new Date(effectiveDate), "MMMM d, yyyy") : "Select date"}
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={effectiveDate ? new Date(effectiveDate) : undefined}
-                    onSelect={(d) => { setEffectiveDate(d ? format(d, "yyyy-MM-dd") : ""); setDateOpen(false); }}
-                    captionLayout="dropdown"
-                    fromYear={2000}
-                    toYear={new Date().getFullYear() + 2}
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
+                <div className="space-y-2">
+                  <Label>Effective Date *</Label>
+                  <Popover open={dateOpen} onOpenChange={setDateOpen}>
+                    <PopoverTrigger
+                      render={
+                        <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !effectiveDate && "text-muted-foreground")} />
+                      }
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {effectiveDate ? format(new Date(effectiveDate), "MMMM d, yyyy") : "Select date"}
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={effectiveDate ? new Date(effectiveDate) : undefined}
+                        onSelect={(d) => { setEffectiveDate(d ? format(d, "yyyy-MM-dd") : ""); setDateOpen(false); }}
+                        captionLayout="dropdown"
+                        fromYear={2000}
+                        toYear={new Date().getFullYear() + 2}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
 
-            <div className="space-y-2">
-              <Label>Remarks</Label>
-              <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional remarks..." rows={2} />
-            </div>
+                <div className="space-y-2">
+                  <Label>Remarks</Label>
+                  <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional remarks..." rows={2} />
+                </div>
+              </>
+            ) : null}
           </CardContent>
         </Card>
       )}
 
       <div className="flex gap-3">
-        <Button type="submit" disabled={loading || !selectedEmp || !effectiveDate}>
+        <Button
+          type="submit"
+          disabled={loading || !selectedEmp || !nosiContext || contextLoading || !effectiveDate}
+        >
           {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Save as Draft
         </Button>

@@ -1,8 +1,8 @@
 -- ============================================================
 -- hris.plantilla — migrated from public.hr_plantilla
 -- Stores official CSC plantilla records linked to hris.employees.
--- date_of_original_appointment and date_of_last_promotion_appointment
--- are used as the basis date for NOSI step-increment eligibility.
+-- date_of_original_appointment and date_of_last_promotion_appointment are
+-- retained as reference fields; NOSI eligibility in the app uses salary_history.
 -- ============================================================
 
 CREATE TABLE hris.plantilla (
@@ -23,7 +23,8 @@ CREATE TABLE hris.plantilla (
   level                               TEXT,
   level_supplemental                  TEXT,
 
-  -- NOSI basis dates
+  -- NOSI: appointment dates are informational; in-app NOSI eligibility basis
+  -- comes from salary_history (see NOSI_BASIS_SALARY_REASONS), not plantilla.
   date_of_original_appointment        DATE,
   date_of_last_promotion_appointment  DATE,
 

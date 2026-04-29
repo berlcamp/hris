@@ -88,7 +88,21 @@ export default async function NosiDetailPage({
         <Card>
           <CardHeader><CardTitle className="text-base">Employee Information</CardTitle></CardHeader>
           <CardContent className="divide-y">
-            <InfoRow label="Name" value={fullName} />
+            <div className="grid grid-cols-2 gap-4 py-2">
+              <span className="text-sm text-muted-foreground">Name</span>
+              <span className="text-sm font-medium">
+                {emp ? (
+                  <Link
+                    href={`/employees/${nosi.employee_id}`}
+                    className="text-primary hover:underline"
+                  >
+                    {fullName}
+                  </Link>
+                ) : (
+                  "—"
+                )}
+              </span>
+            </div>
             <InfoRow
               label="Employee No"
               value={emp != null ? String(emp.biometric_no) : undefined}

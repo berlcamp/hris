@@ -21,6 +21,8 @@ import {
   Landmark,
   User,
   ScrollText,
+  ScanSearch,
+  Upload,
 } from "lucide-react";
 
 import {
@@ -78,6 +80,12 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Employees", href: "/employees", icon: Users, roles: ["super_admin", "hr_admin", "department_head"] },
       { title: "Plantilla", href: "/plantilla", icon: ScrollText, roles: adminRoles },
+      {
+        title: "Employee ID Generator",
+        href: "/employee-id-generator",
+        icon: ScanSearch,
+        roles: ["super_admin", "hr_admin", "department_head"],
+      },
       { title: "NOSI", href: "/nosi", icon: TrendingUp, roles: adminRoles },
       { title: "NOSA", href: "/nosa", icon: FileText, roles: adminRoles },
     ],
@@ -119,6 +127,12 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "User Management", href: "/admin/users", icon: UserPlus, roles: ["super_admin"] },
       { title: "Salary Grades", href: "/admin/salary-grades", icon: Building2, roles: ["super_admin"] },
+      {
+        title: "Salary CSV import",
+        href: "/admin/salary-import",
+        icon: Upload,
+        roles: adminRoles,
+      },
       { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin", "hr_admin"] },
       { title: "Audit Trail", href: "/admin/audit-log", icon: Shield, roles: ["super_admin"] },
       { title: "Settings", href: "/admin/settings", icon: Settings, roles: ["super_admin"] },

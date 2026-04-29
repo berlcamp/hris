@@ -3,9 +3,8 @@ import { Plus } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NosiRecordsDataTable } from "@/components/nosi/nosi-records-data-table";
 import {
-  getEligibleForNosi,
+  getNosiEligibilityOverview,
   getNosisRecords,
-  getUpcomingNosiIncrements,
 } from "@/lib/actions/nosi-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { redirect } from "next/navigation";
@@ -28,9 +27,8 @@ export default async function NosiPage() {
   if (!user) redirect("/login");
   if (user.role === "employee") redirect("/dashboard");
 
-  const [eligible, upcoming, records] = await Promise.all([
-    getEligibleForNosi(),
-    getUpcomingNosiIncrements(UPCOMING_DAYS_AHEAD),
+  const [{ eligible, upcoming, missingNosiBasis }, records] = await Promise.all([
+    getNosiEligibilityOverview(UPCOMING_DAYS_AHEAD),
     getNosisRecords(),
   ]);
 
@@ -43,6 +41,7 @@ export default async function NosiPage() {
           <h1 className="text-2xl font-bold tracking-tight">NOSI</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Notice of Step Increment — manage salary step increases for eligible employees.
+            Eligibility uses salary history only (a row with reason such as step_increment or initial).
           </p>
         </div>
         {canCreate && (
@@ -68,6 +67,12 @@ export default async function NosiPage() {
             Upcoming Increments
             {upcoming.length > 0 && (
               <Badge variant="secondary" className="ml-2">{upcoming.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="missing-basis">
+            Missing salary basis
+            {missingNosiBasis.length > 0 && (
+              <Badge variant="secondary" className="ml-2">{missingNosiBasis.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="records">NOSI Records</TabsTrigger>
@@ -100,7 +105,12 @@ export default async function NosiPage() {
                     {eligible.map((emp) => (
                       <TableRow key={emp.id}>
                         <TableCell>
-                          <p className="font-medium">{emp.last_name}, {emp.first_name}</p>
+                          <Link
+                            href={`/employees/${emp.id}`}
+                            className="font-medium text-primary hover:underline"
+                          >
+                            {emp.last_name}, {emp.first_name}
+                          </Link>
                         </TableCell>
                         <TableCell>
                           {emp.departments ? (
@@ -170,9 +180,12 @@ export default async function NosiPage() {
                     {upcoming.map((emp) => (
                       <TableRow key={emp.id}>
                         <TableCell>
-                          <p className="font-medium">
+                          <Link
+                            href={`/employees/${emp.id}`}
+                            className="font-medium text-primary hover:underline"
+                          >
                             {emp.last_name}, {emp.first_name}
-                          </p>
+                          </Link>
                         </TableCell>
                         <TableCell>
                           {emp.departments ? (
@@ -199,6 +212,78 @@ export default async function NosiPage() {
                             {emp.days_until_eligibility}{" "}
                             {emp.days_until_eligibility === 1 ? "day" : "days"}
                           </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="missing-basis" className="mt-4">
+          {missingNosiBasis.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-muted-foreground">
+                All active plantilla employees have at least one salary history row that establishes
+                a NOSI basis (e.g. initial, step_increment, promotion).
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-4 space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  These employees are not at step 8 but have no qualifying row in{" "}
+                  <span className="font-mono text-xs">salary_history</span> for NOSI (reasons such as{" "}
+                  <span className="font-mono text-xs">initial</span>,{" "}
+                  <span className="font-mono text-xs">step_increment</span>,{" "}
+                  <span className="font-mono text-xs">promotion</span>, etc.). Add or import salary
+                  history before they can appear under Eligible or Upcoming.
+                </p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Position</TableHead>
+                      <TableHead>Current SG/Step</TableHead>
+                      <TableHead>Salary history</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {missingNosiBasis.map((emp) => (
+                      <TableRow key={emp.id}>
+                        <TableCell>
+                          <Link
+                            href={`/employees/${emp.id}`}
+                            className="font-medium text-primary hover:underline"
+                          >
+                            {emp.last_name}, {emp.first_name}
+                          </Link>
+                        </TableCell>
+                        <TableCell>
+                          {emp.departments ? (
+                            <span>
+                              <span className="font-mono text-xs text-muted-foreground mr-1">
+                                {emp.departments.code}
+                              </span>
+                              {emp.departments.name}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell>{emp.positions?.title ?? "—"}</TableCell>
+                        <TableCell>
+                          SG {emp.salary_grade} — Step {emp.step_increment}
+                        </TableCell>
+                        <TableCell>
+                          {!emp.has_salary_history ? (
+                            <Badge variant="destructive">None</Badge>
+                          ) : (
+                            <Badge variant="secondary">No basis row</Badge>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

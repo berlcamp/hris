@@ -30,11 +30,14 @@ export function getNosiColumns(options: {
     header: ({ column }) => <DataTableColumnHeader column={column} title="Employee" />,
     cell: ({ row }) => {
       const emp = row.original.employees;
+      const href = `/employees/${row.original.employee_id}`;
       return emp ? (
-        <div>
-          <p className="font-medium">{emp.last_name}, {emp.first_name}</p>
-        </div>
-      ) : <span className="text-muted-foreground">—</span>;
+        <Link href={href} className="font-medium text-primary hover:underline">
+          {emp.last_name}, {emp.first_name}
+        </Link>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      );
     },
   },
   {
