@@ -5,7 +5,7 @@ import { SalaryImportClient } from "@/components/admin/salary-import-client";
 export default async function SalaryImportPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (user.role !== "super_admin") redirect("/dashboard");
 
   return (
     <div className="space-y-6">

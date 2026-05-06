@@ -32,6 +32,7 @@ export interface LeaveCreditRow {
     first_name: string;
     last_name: string;
     biometric_no: number;
+    vl_sl_needs_manual_entry: boolean;
     departments: { name: string; code: string } | null;
   } | null;
 }
@@ -96,7 +97,7 @@ export async function getLeaveCreditsForYear(year: number): Promise<LeaveCreditR
       *,
       leave_types(code, name),
       employees(
-        first_name, last_name, biometric_no,
+        first_name, last_name, biometric_no, vl_sl_needs_manual_entry,
         departments!employees_department_id_fkey(name, code)
       )
     `)
@@ -286,6 +287,22 @@ export async function adjustLeaveCredit(input: {
   });
   if (recomputeError) return { error: recomputeError };
 
+  // If this adjustment was for VL or SL, clear the "needs manual entry" flag —
+  // HR has now engaged with this employee's leave-credit baseline.
+  const { data: lt } = await supabase
+    .schema("hris")
+    .from("leave_types")
+    .select("code")
+    .eq("id", input.leave_type_id)
+    .maybeSingle();
+  if (lt?.code === "VL" || lt?.code === "SL") {
+    await supabase
+      .schema("hris")
+      .from("employees")
+      .update({ vl_sl_needs_manual_entry: false })
+      .eq("id", input.employee_id);
+  }
+
   await logAudit({
     userId: user.id,
     userEmail: user.email,
@@ -301,6 +318,7 @@ export async function adjustLeaveCredit(input: {
   });
 
   revalidatePath("/leaves/credits");
+  revalidatePath(`/employees/${input.employee_id}`);
   return { success: true };
 }
 

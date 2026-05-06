@@ -33,6 +33,7 @@ import {
 } from "@/lib/actions/employee-actions";
 import { getDocuments } from "@/lib/actions/document-actions";
 import { getPlantillaByEmployee } from "@/lib/actions/plantilla-actions";
+import { getLeaveTypes } from "@/lib/actions/leave-actions";
 import { PersonalInfoTab } from "@/components/employees/personal-info-tab";
 import { EmploymentTab } from "@/components/employees/employment-tab";
 import { SalaryHistoryTab } from "@/components/employees/salary-history-tab";
@@ -49,11 +50,12 @@ export default async function EmployeeProfilePage({
 }) {
   const { id } = await params;
 
-  const [employee, salaryHistory, leaveCredits, serviceRecords, documents, currentUser] =
+  const [employee, salaryHistory, leaveCredits, leaveTypes, serviceRecords, documents, currentUser] =
     await Promise.all([
       getEmployeeById(id).catch(() => null),
       getSalaryHistory(id),
       getLeaveCredits(id),
+      getLeaveTypes(),
       getServiceRecords(id),
       getDocuments(id),
       getCurrentUser(),
@@ -210,7 +212,14 @@ export default async function EmployeeProfilePage({
         </TabsContent>
 
         <TabsContent value="leave">
-          <LeaveCreditsTab leaveCredits={leaveCredits ?? []} />
+          <LeaveCreditsTab
+            leaveCredits={leaveCredits ?? []}
+            employeeId={id}
+            employeeName={fullName}
+            leaveTypes={leaveTypes}
+            isAdmin={canEditPlantilla}
+            needsManualEntry={Boolean(employee.vl_sl_needs_manual_entry)}
+          />
         </TabsContent>
 
         {plantilla && (

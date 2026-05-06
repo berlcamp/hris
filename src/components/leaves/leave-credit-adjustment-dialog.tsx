@@ -33,6 +33,11 @@ interface LeaveCreditAdjustmentDialogProps {
   employeeName: string;
   leaveTypes: LeaveTypeRow[];
   year: number;
+  // When provided, the leave-type dropdown is hidden and the dialog acts on
+  // this single type. Use this when the trigger lives next to a specific
+  // leave-type card (e.g. the VL card on the employee profile tab).
+  fixedLeaveType?: { id: string; code: string; name: string };
+  trigger?: React.ReactNode;
 }
 
 export function LeaveCreditAdjustmentDialog({
@@ -40,11 +45,13 @@ export function LeaveCreditAdjustmentDialog({
   employeeName,
   leaveTypes,
   year,
+  fixedLeaveType,
+  trigger,
 }: LeaveCreditAdjustmentDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [leaveTypeId, setLeaveTypeId] = useState("");
+  const [leaveTypeId, setLeaveTypeId] = useState(fixedLeaveType?.id ?? "");
   const [adjustment, setAdjustment] = useState("");
   const [reason, setReason] = useState("");
 
@@ -66,7 +73,7 @@ export function LeaveCreditAdjustmentDialog({
     } else {
       toast.success("Leave credit adjusted successfully.");
       setOpen(false);
-      setLeaveTypeId("");
+      setLeaveTypeId(fixedLeaveType?.id ?? "");
       setAdjustment("");
       setReason("");
       router.refresh();
@@ -76,36 +83,44 @@ export function LeaveCreditAdjustmentDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>
-        Adjust Credits
+      <DialogTrigger
+        render={trigger ?? <Button variant="outline" size="sm" />}
+      >
+        {trigger ? undefined : "Adjust Credits"}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Adjust Leave Credits</DialogTitle>
+          <DialogTitle>
+            {fixedLeaveType
+              ? `Adjust ${fixedLeaveType.name} (${fixedLeaveType.code})`
+              : "Adjust Leave Credits"}
+          </DialogTitle>
           <DialogDescription>
             Manually adjust leave credits for {employeeName} ({year}).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="space-y-2">
-            <Label>Leave Type</Label>
-            <Select
-              value={leaveTypeId}
-              items={leaveTypes.map((lt) => ({ value: lt.id, label: `${lt.name} (${lt.code})` }))}
-              onValueChange={(v) => setLeaveTypeId(v ?? "")}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select leave type" />
-              </SelectTrigger>
-              <SelectContent>
-                {leaveTypes.map((lt) => (
-                  <SelectItem key={lt.id} value={lt.id} label={`${lt.name} (${lt.code})`}>
-                    {lt.name} ({lt.code})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!fixedLeaveType && (
+            <div className="space-y-2">
+              <Label>Leave Type</Label>
+              <Select
+                value={leaveTypeId}
+                items={leaveTypes.map((lt) => ({ value: lt.id, label: `${lt.name} (${lt.code})` }))}
+                onValueChange={(v) => setLeaveTypeId(v ?? "")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select leave type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {leaveTypes.map((lt) => (
+                    <SelectItem key={lt.id} value={lt.id} label={`${lt.name} (${lt.code})`}>
+                      {lt.name} ({lt.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Adjustment (+ to add, - to deduct)</Label>
             <Input

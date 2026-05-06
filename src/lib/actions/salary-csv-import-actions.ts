@@ -23,9 +23,9 @@ const VALID_REASONS: Set<string> = new Set([
 
 const UPSERT_CHUNK = 200;
 
-function requireHrAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
+function requireSuperAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
   if (!user) return "Unauthorized" as const;
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (user.role !== "super_admin")
     return "Insufficient permissions" as const;
   return null;
 }
@@ -89,7 +89,7 @@ export async function importSalaryGradeMatrixFromCsv(
   effectiveYear: number
 ): Promise<{ ok: true; upserted: number; rowErrors: string[] } | { error: string }> {
   const user = await getCurrentUser();
-  const deny = requireHrAdmin(user);
+  const deny = requireSuperAdmin(user);
   if (deny) return { error: deny };
 
   if (!Number.isFinite(tranche) || !Number.isInteger(effectiveYear))
@@ -177,7 +177,7 @@ export async function importEmployeeSalarySyncFromCsv(csvText: string): Promise<
   | { error: string }
 > {
   const user = await getCurrentUser();
-  const deny = requireHrAdmin(user);
+  const deny = requireSuperAdmin(user);
   if (deny || !user) return { error: deny ?? "Unauthorized" };
 
   const rows = parseCsvTextToRows(csvText);

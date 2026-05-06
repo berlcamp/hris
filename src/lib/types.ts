@@ -66,6 +66,7 @@ export interface Employee {
   hire_date: string;
   end_of_contract: string | null;
   status: EmployeeStatus;
+  vl_sl_needs_manual_entry: boolean;
   created_at: string;
   updated_at: string;
 }

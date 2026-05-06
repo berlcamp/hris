@@ -13,9 +13,9 @@ import {
   type SupabaseAdmin,
 } from "@/lib/leave-credits-helpers";
 
-function requireHrAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
+function requireSuperAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
   if (!user) return "Unauthorized" as const;
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (user.role !== "super_admin")
     return "Insufficient permissions" as const;
   return null;
 }
@@ -32,12 +32,12 @@ function colIndex(map: Map<string, number>, ...names: string[]): number | undefi
   return undefined;
 }
 
-function parseNonNegFloat(s: string | undefined): number | null {
+function parseFloatStrict(s: string | undefined): number | null {
   const t = (s ?? "").replace(/,/g, "").trim();
   if (!t) return null;
   const n = Number(t);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return n;
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 1000) / 1000;
 }
 
 function parseIntStrict(s: string | undefined): number | null {
@@ -114,7 +114,7 @@ export async function importLeaveCreditsFromCsv(csvText: string): Promise<
   | { error: string }
 > {
   const user = await getCurrentUser();
-  const deny = requireHrAdmin(user);
+  const deny = requireSuperAdmin(user);
   if (deny || !user) return { error: deny ?? "Unauthorized" };
 
   const rows = parseCsvTextToRows(csvText);
@@ -258,7 +258,7 @@ export async function importLeaveCreditsFromCsv(csvText: string): Promise<
         continue;
       }
 
-      const total = parseNonNegFloat(row[totalCol!]);
+      const total = parseFloatStrict(row[totalCol!]);
       if (total === null) {
         errors.push(`Row ${r + 1}: invalid total_credits`);
         skipped++;
@@ -286,7 +286,7 @@ export async function importLeaveCreditsFromCsv(csvText: string): Promise<
       for (const { lt, col } of wideTypeCols) {
         const cell = (row[col] ?? "").trim();
         if (!cell) continue; // empty cell = skip silently
-        const total = parseNonNegFloat(cell);
+        const total = parseFloatStrict(cell);
         if (total === null) {
           errors.push(
             `Row ${r + 1}: invalid number for ${lt.code} ("${cell}")`
