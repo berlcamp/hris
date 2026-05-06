@@ -95,6 +95,8 @@ export function MonthlyAccrualDialog() {
           <DialogDescription>
             Adds VL and SL credits (1.25 each by default, configurable in
             System Settings) to every active employee for the selected period.
+            A pg_cron job runs this automatically on the 1st of every month —
+            use this dialog only for backfills or one-off catch-ups.
             Already-accrued months are silently skipped.
           </DialogDescription>
         </DialogHeader>

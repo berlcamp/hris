@@ -91,8 +91,8 @@ export async function replaceCsvImportLedger(
 
 /**
  * Recompute leave_credits.total_credits = SUM(ledger.amount) for the given
- * (employee, leave_type, year) and upsert the row. Preserves used_credits
- * (which is mutated only by leave application approvals).
+ * (employee, leave_type, year) and upsert the row. Used credits are derived
+ * from approved leave_applications via the leave_credit_balances view.
  */
 export async function recomputeLeaveCreditTotal(
   supabase: SupabaseAdmin,
@@ -100,7 +100,6 @@ export async function recomputeLeaveCreditTotal(
     employee_id: string;
     leave_type_id: string;
     year: number;
-    used_credits_override?: number;
   }
 ): Promise<{ total: number; error: string | null }> {
   const { data: rows, error: sumErr } = await supabase
@@ -117,23 +116,17 @@ export async function recomputeLeaveCreditTotal(
   const { data: existing } = await supabase
     .schema("hris")
     .from("leave_credits")
-    .select("id, used_credits")
+    .select("id")
     .eq("employee_id", input.employee_id)
     .eq("leave_type_id", input.leave_type_id)
     .eq("year", input.year)
     .maybeSingle();
 
   if (existing) {
-    const update: { total_credits: number; used_credits?: number } = {
-      total_credits: total,
-    };
-    if (input.used_credits_override !== undefined) {
-      update.used_credits = input.used_credits_override;
-    }
     const { error } = await supabase
       .schema("hris")
       .from("leave_credits")
-      .update(update)
+      .update({ total_credits: total })
       .eq("id", existing.id);
     if (error) return { total, error: error.message };
   } else {
@@ -145,7 +138,6 @@ export async function recomputeLeaveCreditTotal(
         leave_type_id: input.leave_type_id,
         year: input.year,
         total_credits: total,
-        used_credits: input.used_credits_override ?? 0,
       });
     if (error) return { total, error: error.message };
   }
@@ -158,6 +150,7 @@ export interface LeaveTypeLite {
   code: string;
   max_credits: number | null;
   is_cumulative: boolean | null;
+  annual_credits: number | null;
 }
 
 export async function getLeaveTypeMap(
@@ -166,7 +159,7 @@ export async function getLeaveTypeMap(
   const { data } = await supabase
     .schema("hris")
     .from("leave_types")
-    .select("id, code, max_credits, is_cumulative");
+    .select("id, code, max_credits, is_cumulative, annual_credits");
   const byId = new Map<string, LeaveTypeLite>();
   const byCode = new Map<string, LeaveTypeLite>();
   for (const lt of data ?? []) {
@@ -175,6 +168,8 @@ export async function getLeaveTypeMap(
       code: String(lt.code),
       max_credits: lt.max_credits,
       is_cumulative: lt.is_cumulative,
+      annual_credits:
+        (lt as { annual_credits?: number | null }).annual_credits ?? null,
     };
     byId.set(v.id, v);
     byCode.set(v.code, v);

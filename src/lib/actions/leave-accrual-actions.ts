@@ -4,9 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
-import { getSystemSettings } from "@/lib/actions/settings-actions";
 import {
-  ACCRUING_LEAVE_CODES,
   addLedgerEntry,
   getLeaveTypeMap,
   monthlyAccrualFromAnnual,
@@ -49,28 +47,24 @@ export async function accrueMonthlyLeaveCredits(
   if (!Number.isInteger(month) || month < 1 || month > 12)
     return { error: "Invalid month" };
 
-  const settings = await getSystemSettings();
-  const perCode = new Map<string, number>([
-    ["VL", monthlyAccrualFromAnnual(settings.vl_annual_credits)],
-    ["SL", monthlyAccrualFromAnnual(settings.sl_annual_credits)],
-  ]);
-
   const supabase = createAdminClient();
   const { byCode } = await getLeaveTypeMap(supabase);
 
   const accruingTypes: { id: string; code: string; amount: number }[] = [];
-  for (const code of ACCRUING_LEAVE_CODES) {
-    const lt = byCode.get(code);
-    const amt = perCode.get(code) ?? 0;
-    if (lt && amt > 0) {
-      accruingTypes.push({ id: lt.id, code, amount: amt });
-    }
+  for (const lt of byCode.values()) {
+    const annual = Number(lt.annual_credits ?? 0);
+    if (!Number.isFinite(annual) || annual <= 0) continue;
+    accruingTypes.push({
+      id: lt.id,
+      code: lt.code,
+      amount: monthlyAccrualFromAnnual(annual),
+    });
   }
 
   if (accruingTypes.length === 0) {
     return {
       error:
-        "No accruing leave types configured. Check VL/SL annual credits in System Settings.",
+        "No accruing leave types configured. Set annual_credits on VL/SL leave types (System Settings).",
     };
   }
 

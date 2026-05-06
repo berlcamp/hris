@@ -9,6 +9,8 @@ import {
   getLeaveTypeMap,
   recomputeLeaveCreditTotal,
   replaceCsvImportLedger,
+  type LeaveTypeLite,
+  type SupabaseAdmin,
 } from "@/lib/leave-credits-helpers";
 
 function requireHrAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
@@ -48,9 +50,62 @@ function parseIntStrict(s: string | undefined): number | null {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Strip underscores so "solo_parent" matches "soloparent" matches "SoloParent".
+const matchKey = (s: string) => s.toLowerCase().replace(/_/g, "");
+
+const RESERVED_HEADERS = new Set([
+  "employee_id",
+  "employee_uuid",
+  "id",
+  "uuid",
+  "leave_type_id",
+  "leave_type_uuid",
+  "leave_type_code",
+  "leave_code",
+  "code",
+  "year",
+  "total_credits",
+  "total",
+  "used_credits",
+  "used",
+  "balance",
+  "employee_name",
+  "name",
+  "first_name",
+  "last_name",
+  "department",
+]);
+
+async function applyOneCell(
+  supabase: SupabaseAdmin,
+  userId: string,
+  employeeId: string,
+  leaveTypeId: string,
+  year: number,
+  total: number
+): Promise<string | null> {
+  const { error: ledgerErr } = await replaceCsvImportLedger(supabase, {
+    employee_id: employeeId,
+    leave_type_id: leaveTypeId,
+    year,
+    amount: total,
+    notes: `CSV import baseline (total=${total})`,
+    created_by: userId,
+  });
+  if (ledgerErr) return ledgerErr;
+
+  const { error: recompErr } = await recomputeLeaveCreditTotal(supabase, {
+    employee_id: employeeId,
+    leave_type_id: leaveTypeId,
+    year,
+  });
+  return recompErr ?? null;
+}
+
 export async function importLeaveCreditsFromCsv(csvText: string): Promise<
   | {
       ok: true;
+      format: "long" | "wide";
       processed: number;
       imported: number;
       skipped: number;
@@ -73,30 +128,44 @@ export async function importLeaveCreditsFromCsv(csvText: string): Promise<
   });
 
   const idCol = colIndex(map, "employee_id", "employee_uuid", "id", "uuid");
-  const ltIdCol = colIndex(map, "leave_type_id", "leave_type_uuid");
-  const ltCodeCol = colIndex(map, "leave_type_code", "leave_code", "code");
-  const yearCol = colIndex(map, "year");
-  const totalCol = colIndex(map, "total_credits", "total");
-  const usedCol = colIndex(map, "used_credits", "used");
-
   if (idCol === undefined) {
     return {
-      error:
-        "Leave credits CSV needs columns: employee_id, leave_type_id (or leave_type_code), year, total_credits, used_credits. (balance is ignored.)",
+      error: "CSV needs an employee_id column.",
     };
-  }
-  if (ltIdCol === undefined && ltCodeCol === undefined) {
-    return {
-      error:
-        "CSV needs leave_type_id (uuid) or leave_type_code (e.g. VL/SL/SPL).",
-    };
-  }
-  if (yearCol === undefined || totalCol === undefined) {
-    return { error: "CSV needs columns: year, total_credits." };
   }
 
   const supabase = createAdminClient();
   const { byId: ltById, byCode: ltByCode } = await getLeaveTypeMap(supabase);
+
+  // Wide-format detection: any header whose match-key equals a known
+  // leave_type code. e.g. headers `vl`, `sl`, `spl` \u2192 VL/SL/SPL columns.
+  const codeByMatchKey = new Map<string, LeaveTypeLite>();
+  for (const [code, lt] of ltByCode) {
+    codeByMatchKey.set(matchKey(code), lt);
+  }
+  const wideTypeCols: { lt: LeaveTypeLite; col: number }[] = [];
+  for (let i = 0; i < header.length; i++) {
+    if (i === idCol) continue;
+    if (RESERVED_HEADERS.has(header[i])) continue;
+    const lt = codeByMatchKey.get(matchKey(header[i]));
+    if (lt) wideTypeCols.push({ lt, col: i });
+  }
+
+  const totalCol = colIndex(map, "total_credits", "total");
+  const yearCol = colIndex(map, "year");
+  const isLongFormat =
+    totalCol !== undefined &&
+    (colIndex(map, "leave_type_id", "leave_type_uuid") !== undefined ||
+      colIndex(map, "leave_type_code", "leave_code", "code") !== undefined);
+
+  if (!isLongFormat && wideTypeCols.length === 0) {
+    return {
+      error:
+        "CSV must be either: long-format (employee_id, leave_type_code, year, total_credits) or wide-format (employee_id, vl, sl, spl, ...). No leave-type columns or total_credits column found.",
+    };
+  }
+
+  const defaultYear = new Date().getFullYear();
 
   let processed = 0;
   let imported = 0;
@@ -119,62 +188,6 @@ export async function importLeaveCreditsFromCsv(csvText: string): Promise<
       continue;
     }
 
-    let leaveTypeId: string | null = null;
-    if (ltIdCol !== undefined) {
-      const v = (row[ltIdCol] ?? "").trim();
-      if (v) {
-        if (!UUID_RE.test(v)) {
-          errors.push(`Row ${r + 1}: leave_type_id is not a valid UUID`);
-          skipped++;
-          continue;
-        }
-        if (!ltById.has(v)) {
-          errors.push(`Row ${r + 1}: leave_type_id not found`);
-          skipped++;
-          continue;
-        }
-        leaveTypeId = v;
-      }
-    }
-    if (!leaveTypeId && ltCodeCol !== undefined) {
-      const code = (row[ltCodeCol] ?? "").trim();
-      const lt = code ? ltByCode.get(code) : null;
-      if (!lt) {
-        errors.push(`Row ${r + 1}: unknown leave_type_code "${code}"`);
-        skipped++;
-        continue;
-      }
-      leaveTypeId = lt.id;
-    }
-    if (!leaveTypeId) {
-      errors.push(`Row ${r + 1}: missing leave_type_id and leave_type_code`);
-      skipped++;
-      continue;
-    }
-
-    const year = parseIntStrict(row[yearCol]);
-    if (year === null || year < 2000 || year > 2100) {
-      errors.push(`Row ${r + 1}: invalid year`);
-      skipped++;
-      continue;
-    }
-
-    const total = parseNonNegFloat(row[totalCol]);
-    if (total === null) {
-      errors.push(`Row ${r + 1}: invalid total_credits`);
-      skipped++;
-      continue;
-    }
-    const used =
-      usedCol !== undefined ? parseNonNegFloat(row[usedCol]) ?? 0 : 0;
-    if (used > total) {
-      errors.push(
-        `Row ${r + 1}: used_credits (${used}) exceeds total_credits (${total})`
-      );
-      skipped++;
-      continue;
-    }
-
     const { data: emp } = await supabase
       .schema("hris")
       .from("employees")
@@ -187,33 +200,118 @@ export async function importLeaveCreditsFromCsv(csvText: string): Promise<
       continue;
     }
 
-    const { error: ledgerErr } = await replaceCsvImportLedger(supabase, {
-      employee_id: employeeId,
-      leave_type_id: leaveTypeId,
-      year,
-      amount: total,
-      notes: `CSV import baseline (total=${total})`,
-      created_by: user.id,
-    });
-    if (ledgerErr) {
-      errors.push(`Row ${r + 1}: ${ledgerErr}`);
+    // Year applies to all cells on the row. Optional in wide format
+    // (defaults to current year); required in long format.
+    let year: number;
+    if (yearCol !== undefined && (row[yearCol] ?? "").trim()) {
+      const parsed = parseIntStrict(row[yearCol]);
+      if (parsed === null || parsed < 2000 || parsed > 2100) {
+        errors.push(`Row ${r + 1}: invalid year`);
+        skipped++;
+        continue;
+      }
+      year = parsed;
+    } else if (isLongFormat) {
+      errors.push(`Row ${r + 1}: missing year`);
       skipped++;
       continue;
+    } else {
+      year = defaultYear;
     }
 
-    const { error: recompErr } = await recomputeLeaveCreditTotal(supabase, {
-      employee_id: employeeId,
-      leave_type_id: leaveTypeId,
-      year,
-      used_credits_override: used,
-    });
-    if (recompErr) {
-      errors.push(`Row ${r + 1}: ${recompErr}`);
-      skipped++;
-      continue;
-    }
+    if (isLongFormat) {
+      // \u2500\u2500 Long format: one record per row \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+      const ltIdCol = colIndex(map, "leave_type_id", "leave_type_uuid");
+      const ltCodeCol = colIndex(map, "leave_type_code", "leave_code", "code");
 
-    imported++;
+      let leaveTypeId: string | null = null;
+      if (ltIdCol !== undefined) {
+        const v = (row[ltIdCol] ?? "").trim();
+        if (v) {
+          if (!UUID_RE.test(v)) {
+            errors.push(`Row ${r + 1}: leave_type_id is not a valid UUID`);
+            skipped++;
+            continue;
+          }
+          if (!ltById.has(v)) {
+            errors.push(`Row ${r + 1}: leave_type_id not found`);
+            skipped++;
+            continue;
+          }
+          leaveTypeId = v;
+        }
+      }
+      if (!leaveTypeId && ltCodeCol !== undefined) {
+        const code = (row[ltCodeCol] ?? "").trim();
+        const lt =
+          code ? ltByCode.get(code) ?? codeByMatchKey.get(matchKey(code)) : null;
+        if (!lt) {
+          errors.push(`Row ${r + 1}: unknown leave_type_code "${code}"`);
+          skipped++;
+          continue;
+        }
+        leaveTypeId = lt.id;
+      }
+      if (!leaveTypeId) {
+        errors.push(`Row ${r + 1}: missing leave_type_id and leave_type_code`);
+        skipped++;
+        continue;
+      }
+
+      const total = parseNonNegFloat(row[totalCol!]);
+      if (total === null) {
+        errors.push(`Row ${r + 1}: invalid total_credits`);
+        skipped++;
+        continue;
+      }
+
+      const err = await applyOneCell(
+        supabase,
+        user.id,
+        employeeId,
+        leaveTypeId,
+        year,
+        total
+      );
+      if (err) {
+        errors.push(`Row ${r + 1}: ${err}`);
+        skipped++;
+        continue;
+      }
+      imported++;
+    } else {
+      // \u2500\u2500 Wide format: one record per leave-type column \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+      let rowImported = 0;
+      let rowFailed = false;
+      for (const { lt, col } of wideTypeCols) {
+        const cell = (row[col] ?? "").trim();
+        if (!cell) continue; // empty cell = skip silently
+        const total = parseNonNegFloat(cell);
+        if (total === null) {
+          errors.push(
+            `Row ${r + 1}: invalid number for ${lt.code} ("${cell}")`
+          );
+          rowFailed = true;
+          continue;
+        }
+        const err = await applyOneCell(
+          supabase,
+          user.id,
+          employeeId,
+          lt.id,
+          year,
+          total
+        );
+        if (err) {
+          errors.push(`Row ${r + 1} ${lt.code}: ${err}`);
+          rowFailed = true;
+          continue;
+        }
+        rowImported++;
+      }
+      if (rowImported > 0) imported++;
+      if (rowImported === 0 && rowFailed) skipped++;
+    }
   }
 
   await logAudit({
@@ -221,10 +319,23 @@ export async function importLeaveCreditsFromCsv(csvText: string): Promise<
     userEmail: user.email,
     action: "leave_credits_csv_import",
     tableName: "leave_credit_accruals",
-    newValues: { processed, imported, skipped, errors: errors.length },
+    newValues: {
+      format: isLongFormat ? "long" : "wide",
+      processed,
+      imported,
+      skipped,
+      errors: errors.length,
+    },
   });
 
   revalidatePath("/leaves/credits");
   revalidatePath("/admin/leave-credits-import");
-  return { ok: true, processed, imported, skipped, errors };
+  return {
+    ok: true,
+    format: isLongFormat ? "long" : "wide",
+    processed,
+    imported,
+    skipped,
+    errors,
+  };
 }

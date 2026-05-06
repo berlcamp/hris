@@ -484,7 +484,7 @@ export async function getLeaveCredits(employeeId: string) {
 
   const { data, error } = await supabase
     .schema("hris")
-    .from("leave_credits")
+    .from("leave_credit_balances")
     .select("*, leave_types(code, name)")
     .eq("employee_id", employeeId)
     .eq("year", currentYear);

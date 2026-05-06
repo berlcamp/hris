@@ -314,10 +314,10 @@ export async function getEmployeeDashboardData(userId: string): Promise<Employee
 
   const currentYear = new Date().getFullYear();
 
-  // Leave balances
+  // Leave balances (used/balance derived from approved applications via the view)
   const { data: credits } = await supabase
     .schema("hris")
-    .from("leave_credits")
+    .from("leave_credit_balances")
     .select("total_credits, used_credits, balance, leave_types!inner(name, code)")
     .eq("employee_id", emp.id)
     .eq("year", currentYear);

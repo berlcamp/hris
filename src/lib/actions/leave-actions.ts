@@ -5,7 +5,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
 import {
-  ACCRUING_LEAVE_CODES,
   addLedgerEntry,
   recomputeLeaveCreditTotal,
 } from "@/lib/leave-credits-helpers";
@@ -92,7 +91,7 @@ export async function getLeaveCreditsForYear(year: number): Promise<LeaveCreditR
 
   let query = supabase
     .schema("hris")
-    .from("leave_credits")
+    .from("leave_credit_balances")
     .select(`
       *,
       leave_types(code, name),
@@ -134,7 +133,7 @@ export async function getEmployeeLeaveCredits(employeeId: string, year: number) 
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .schema("hris")
-    .from("leave_credits")
+    .from("leave_credit_balances")
     .select("*, leave_types(code, name)")
     .eq("employee_id", employeeId)
     .eq("year", year);
@@ -163,7 +162,7 @@ export async function provisionLeaveCredits(employeeId: string, year: number) {
   const { data: leaveTypes } = await supabase
     .schema("hris")
     .from("leave_types")
-    .select("id, code, max_credits, is_cumulative");
+    .select("id, code, max_credits, is_cumulative, annual_credits");
   if (!leaveTypes) return { error: "Failed to fetch leave types" };
 
   const { data: existingLedger } = await supabase
@@ -178,13 +177,16 @@ export async function provisionLeaveCredits(employeeId: string, year: number) {
   for (const lt of leaveTypes) {
     if (seededTypeIds.has(lt.id)) continue;
 
-    const isAccruing = (ACCRUING_LEAVE_CODES as readonly string[]).includes(lt.code);
+    const annual = Number(
+      (lt as { annual_credits?: number | null }).annual_credits ?? 0
+    );
+    const isAccruing = Number.isFinite(annual) && annual > 0;
 
     if (isAccruing) {
       if (lt.is_cumulative) {
         const { data: prev } = await supabase
           .schema("hris")
-          .from("leave_credits")
+          .from("leave_credit_balances")
           .select("balance")
           .eq("employee_id", employeeId)
           .eq("leave_type_id", lt.id)
@@ -386,10 +388,10 @@ export async function createLeaveApplication(input: {
   const supabase = createAdminClient();
   const year = new Date(input.start_date).getFullYear();
 
-  // Validate credit balance
+  // Validate credit balance (view = total - approved usage)
   const { data: credit } = await supabase
     .schema("hris")
-    .from("leave_credits")
+    .from("leave_credit_balances")
     .select("balance")
     .eq("employee_id", input.employee_id)
     .eq("leave_type_id", input.leave_type_id)
@@ -555,24 +557,8 @@ export async function approveLeave(id: string) {
 
     if (error) return { error: error.message };
 
-    // Deduct leave credits
-    const year = new Date(app.start_date).getFullYear();
-    const { data: credit } = await supabase
-      .schema("hris")
-      .from("leave_credits")
-      .select("id, used_credits")
-      .eq("employee_id", app.employee_id)
-      .eq("leave_type_id", app.leave_type_id)
-      .eq("year", year)
-      .maybeSingle();
-
-    if (credit) {
-      await supabase
-        .schema("hris")
-        .from("leave_credits")
-        .update({ used_credits: Number(credit.used_credits) + Number(app.days_applied) })
-        .eq("id", credit.id);
-    }
+    // No need to mutate used_credits: the leave_credit_balances view derives
+    // used = SUM(approved leave_applications.days_applied) for the year.
 
     await logAudit({
       userId: user.id,

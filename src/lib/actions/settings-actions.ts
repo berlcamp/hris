@@ -100,6 +100,24 @@ export async function updateSystemSettings(settings: Partial<SystemSettings>) {
     new_values: merged as unknown as Record<string, unknown>,
   });
 
+  // Write-through: VL/SL annual rates are the source of truth in
+  // hris.leave_types.annual_credits (used by the SQL accrual function and
+  // pg_cron). Keep this row in sync whenever the admin changes the setting.
+  if (settings.vl_annual_credits !== undefined) {
+    await supabase
+      .schema("hris")
+      .from("leave_types")
+      .update({ annual_credits: Number(settings.vl_annual_credits) })
+      .eq("code", "VL");
+  }
+  if (settings.sl_annual_credits !== undefined) {
+    await supabase
+      .schema("hris")
+      .from("leave_types")
+      .update({ annual_credits: Number(settings.sl_annual_credits) })
+      .eq("code", "SL");
+  }
+
   revalidatePath("/admin/settings");
   return { success: true };
 }
