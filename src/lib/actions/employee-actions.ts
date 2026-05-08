@@ -33,6 +33,7 @@ export interface EmployeeWithRelations {
   end_of_contract: string | null;
   status: string;
   user_profile_id: string | null;
+  vl_sl_needs_manual_entry: boolean;
   created_at: string;
   updated_at: string;
   departments: { name: string; code: string } | null;

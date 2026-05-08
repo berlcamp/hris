@@ -81,6 +81,7 @@ async function applyOneCell(
   userId: string,
   employeeId: string,
   leaveTypeId: string,
+  leaveTypeCode: string | null,
   year: number,
   total: number
 ): Promise<string | null> {
@@ -99,7 +100,16 @@ async function applyOneCell(
     leave_type_id: leaveTypeId,
     year,
   });
-  return recompErr ?? null;
+  if (recompErr) return recompErr;
+
+  if (leaveTypeCode === "VL" || leaveTypeCode === "SL") {
+    await supabase
+      .schema("hris")
+      .from("employees")
+      .update({ vl_sl_needs_manual_entry: false })
+      .eq("id", employeeId);
+  }
+  return null;
 }
 
 export async function importLeaveCreditsFromCsv(csvText: string): Promise<
@@ -270,6 +280,7 @@ export async function importLeaveCreditsFromCsv(csvText: string): Promise<
         user.id,
         employeeId,
         leaveTypeId,
+        ltById.get(leaveTypeId)?.code ?? null,
         year,
         total
       );
@@ -299,6 +310,7 @@ export async function importLeaveCreditsFromCsv(csvText: string): Promise<
           user.id,
           employeeId,
           lt.id,
+          lt.code,
           year,
           total
         );

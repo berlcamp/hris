@@ -20,6 +20,7 @@ export type EmployeeRow = {
   employment_type: string;
   status: string;
   department_id: string | null;
+  vl_sl_needs_manual_entry: boolean;
   departments: { name: string; code: string } | null;
   positions: { title: string; item_number: string | null } | null;
 };
@@ -183,6 +184,22 @@ export const employeeColumns: ColumnDef<EmployeeRow>[] = [
         </Badge>
       );
     },
+    filterFn: (row, id, value) => {
+      return value.includes(row.getValue(id));
+    },
+  },
+  {
+    id: "vl_sl_status",
+    accessorFn: (row) => (row.vl_sl_needs_manual_entry ? "missing" : "ok"),
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="VL/SL" />
+    ),
+    cell: ({ row }) =>
+      row.original.vl_sl_needs_manual_entry ? (
+        <Badge variant="destructive">Needs entry</Badge>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
     filterFn: (row, id, value) => {
       return value.includes(row.getValue(id));
     },

@@ -290,3 +290,102 @@ export interface ServiceRecordActivityLogEntry {
   created_at: string;
   user_profiles: { full_name: string; email: string } | null;
 }
+
+// ============================================================================
+// Payroll
+// ============================================================================
+
+export interface Payroll {
+  id: string;
+  period_start: string;
+  period_end: string;
+  particulars: string | null;
+  particulars_2nd_half: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmployeePayroll {
+  id: string;
+  payroll_id: string;
+  employee_id: string;
+  designation: string | null;
+  monthly_rate: number | null;
+  sif: number | null;
+  withholding_tax: number | null;
+  philhealth_personal_share: number | null;
+  philhealth_govt_share: number | null;
+  gsis_personal_share: number | null;
+  gsis_govt_share: number | null;
+  pag_ibig_personal_share: number | null;
+  pag_ibig_govt_share: number | null;
+  hmdf: number | null;
+  pag_ibig_salary_loan: number | null;
+  ss_contribution: number | null;
+  ss_contribution_ec: number | null;
+  gsis_repayments_mpl: number | null;
+  gsis_repayments_mpl_lite: number | null;
+  gsis_repayments_policy_loan: number | null;
+  gsis_repayments_cpl: number | null;
+  courage_2_contribution: number | null;
+  courage_salary_loan: number | null;
+  economic_enterprise_multipurpose_coop: number | null;
+  eempc_salary_loan: number | null;
+  emergency_loan: number | null;
+  notice_of_disallowance: number | null;
+  economic_enterprise_multipurpose_coop_pera: number | null;
+  courage_2_pera_loan: number | null;
+  amount_received: number | null;
+  amount_received_2nd_half: number | null;
+  lbp_savings_account_number: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CosPayroll {
+  id: string;
+  period_start: string;
+  period_end: string;
+  particulars: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CosEmployeePayroll {
+  id: string;
+  payroll_id: string;
+  employee_id: string;
+  designation: string | null;
+  monthly_rate: number | null;
+  absent_without_pay: number | null;
+  ss_contribution: number | null;
+  ss_contribution_ec: number | null;
+  percentage_tax_3: number | null;
+  amount_received: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JoPayroll {
+  id: string;
+  period_start: string;
+  period_end: string;
+  description: string | null;
+  particulars: string | null;
+  areas: string | null;
+  days: number | null;
+  payroll_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JoPayrollMember {
+  id: string;
+  payroll_id: string;
+  employee_id: string;
+  days: number | null;
+  hours: number | null;
+  rate: number | null;
+  created_at: string;
+  updated_at: string;
+}

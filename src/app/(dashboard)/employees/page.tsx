@@ -84,6 +84,14 @@ export default async function EmployeesPage() {
               { label: "Resigned", value: "resigned" },
             ],
           },
+          {
+            id: "vl_sl_status",
+            title: "VL/SL",
+            options: [
+              { label: "Needs manual entry", value: "missing" },
+              { label: "OK", value: "ok" },
+            ],
+          },
         ]}
         toolbar={
           <ExportCsvButton

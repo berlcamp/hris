@@ -7,6 +7,7 @@ import {
 } from "@/lib/actions/leave-actions";
 import { MonthlyAccrualDialog } from "@/components/leaves/monthly-accrual-dialog";
 import { ProvisionButton } from "@/components/leaves/provision-button";
+import { FlagAllVlSlButton } from "@/components/leaves/flag-all-vl-sl-button";
 import { LeaveCreditsTable } from "@/components/leaves/leave-credits-table";
 import type { LeaveCreditTableRow } from "@/components/tables/columns/leave-credit-columns";
 
@@ -74,6 +75,7 @@ export default async function LeaveCreditsPage() {
         </div>
         {isAdmin && (
           <div className="flex items-center gap-2">
+            <FlagAllVlSlButton />
             <MonthlyAccrualDialog />
             <ProvisionButton year={currentYear} />
           </div>

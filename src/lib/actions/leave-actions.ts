@@ -663,6 +663,35 @@ export async function getLeaveLedger(employeeId: string, year: number) {
 
 // ── Bulk Provisioning ──────────────────────────────────────────────
 
+export async function flagAllEmployeesNeedingVlSlEntry() {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Unauthorized" };
+  if (user.role !== "super_admin")
+    return { error: "Insufficient permissions" };
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("employees")
+    .update({ vl_sl_needs_manual_entry: true })
+    .eq("status", "active")
+    .select("id");
+
+  if (error) return { error: error.message };
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "flag_all_vl_sl_manual_entry",
+    tableName: "employees",
+    newValues: { flagged: data?.length ?? 0 },
+  });
+
+  revalidatePath("/leaves/credits");
+  revalidatePath("/employees");
+  return { success: true, flagged: data?.length ?? 0 };
+}
+
 export async function provisionAllActiveEmployees(year: number) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };

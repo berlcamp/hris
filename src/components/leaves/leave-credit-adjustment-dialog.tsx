@@ -37,7 +37,7 @@ interface LeaveCreditAdjustmentDialogProps {
   // this single type. Use this when the trigger lives next to a specific
   // leave-type card (e.g. the VL card on the employee profile tab).
   fixedLeaveType?: { id: string; code: string; name: string };
-  trigger?: React.ReactNode;
+  trigger?: React.ReactElement;
 }
 
 export function LeaveCreditAdjustmentDialog({

@@ -7,6 +7,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 import { getLeaveApplicationById, getEmployeeLeaveCredits } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
@@ -126,28 +135,105 @@ export default async function LeaveDetailPage({
         </Card>
       </div>
 
-      {/* Leave Credit Info */}
-      {credit && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">Leave Credit Balance ({year})</CardTitle></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-2xl font-bold">{Number(credit.total_credits)}</p>
-                <p className="text-xs text-muted-foreground">Total Earned</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{Number(credit.used_credits)}</p>
-                <p className="text-xs text-muted-foreground">Used</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{Number(credit.balance)}</p>
-                <p className="text-xs text-muted-foreground">Balance</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Leave Credit Balances — all leave types for the employee, with the
+          requested type highlighted. Helps HR confirm sufficient balance
+          before approving. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            Current Leave Balances ({year})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {allCredits.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No leave credits on record for {year}.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Leave Type</TableHead>
+                  <TableHead className="text-right">Total Earned</TableHead>
+                  <TableHead className="text-right">Used</TableHead>
+                  <TableHead className="text-right">Balance</TableHead>
+                  <TableHead className="text-right">
+                    Balance After This Leave
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {allCredits
+                  .slice()
+                  .sort((a, b) =>
+                    (a.leave_types?.code ?? "").localeCompare(
+                      b.leave_types?.code ?? ""
+                    )
+                  )
+                  .map((c) => {
+                    const isRequested = c.leave_type_id === leave.leave_type_id;
+                    const balance = Number(c.balance);
+                    const projected = isRequested
+                      ? balance - Number(leave.days_applied)
+                      : null;
+                    return (
+                      <TableRow
+                        key={c.id}
+                        className={cn(
+                          isRequested && "bg-muted/60 font-medium"
+                        )}
+                      >
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span>
+                              {c.leave_types?.name ?? "—"}{" "}
+                              {c.leave_types?.code && (
+                                <span className="text-muted-foreground">
+                                  ({c.leave_types.code})
+                                </span>
+                              )}
+                            </span>
+                            {isRequested && (
+                              <Badge variant="outline" className="text-xs">
+                                Requested
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {Number(c.total_credits)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {Number(c.used_credits)}
+                        </TableCell>
+                        <TableCell className="text-right">{balance}</TableCell>
+                        <TableCell className="text-right">
+                          {projected === null ? (
+                            "—"
+                          ) : (
+                            <span
+                              className={cn(
+                                projected < 0 && "text-destructive font-semibold"
+                              )}
+                            >
+                              {projected}
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+              </TableBody>
+            </Table>
+          )}
+          {credit && Number(credit.balance) - Number(leave.days_applied) < 0 && (
+            <p className="mt-3 text-sm text-destructive">
+              Warning: insufficient balance. Approving this leave will result
+              in a negative balance for {credit.leave_types?.name ?? "this leave type"}.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Rejection Reason */}
       {leave.rejection_reason && (

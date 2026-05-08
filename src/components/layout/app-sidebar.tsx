@@ -23,6 +23,9 @@ import {
   ScrollText,
   ScanSearch,
   Upload,
+  CircleDollarSign,
+  Briefcase,
+  Hammer,
 } from "lucide-react";
 
 import {
@@ -84,7 +87,7 @@ const navGroups: NavGroup[] = [
         title: "Employee ID Generator",
         href: "/employee-id-generator",
         icon: ScanSearch,
-        roles: ["super_admin", "hr_admin", "department_head"],
+        roles: ["super_admin"],
       },
       { title: "NOSI", href: "/nosi", icon: TrendingUp, roles: adminRoles },
       { title: "NOSA", href: "/nosa", icon: FileText, roles: adminRoles },
@@ -108,9 +111,18 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Performance",
-    roles: ["super_admin", "hr_admin", "department_head", "employee"],
+    roles: ["super_admin"],
     items: [
-      { title: "IPCR", href: "/performance", icon: ClipboardList, roles: allRoles },
+      { title: "IPCR", href: "/performance", icon: ClipboardList, roles: ["super_admin"] },
+    ],
+  },
+  {
+    label: "Payroll",
+    roles: adminRoles,
+    items: [
+      { title: "Regular Payroll", href: "/payroll", icon: CircleDollarSign, roles: adminRoles },
+      { title: "COS Payroll", href: "/cos-payroll", icon: Briefcase, roles: adminRoles },
+      { title: "Job Order Payroll", href: "/jo-payroll", icon: Hammer, roles: adminRoles },
     ],
   },
   {
@@ -139,7 +151,7 @@ const navGroups: NavGroup[] = [
         icon: Upload,
         roles: ["super_admin"],
       },
-      { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin", "hr_admin"] },
+      { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin"] },
       { title: "Audit Trail", href: "/admin/audit-log", icon: Shield, roles: ["super_admin"] },
       { title: "Settings", href: "/admin/settings", icon: Settings, roles: ["super_admin"] },
     ],
