@@ -189,14 +189,16 @@ export function JoPayrollDetailModal({
                   )}`
                 : ""}
             </DialogTitle>
-            <DialogDescription>
-              {meta?.description && <div>{meta.description}</div>}
-              {meta?.areas && (
-                <div className="text-xs text-muted-foreground">
-                  Areas: {meta.areas} · Default days: {meta.days ?? "—"}
-                </div>
-              )}
-            </DialogDescription>
+            {(meta?.description || meta?.areas) && (
+              <DialogDescription render={<div />} className="space-y-1">
+                {meta?.description && <div>{meta.description}</div>}
+                {meta?.areas && (
+                  <div className="text-xs">
+                    Areas: {meta.areas} · Default days: {meta.days ?? "—"}
+                  </div>
+                )}
+              </DialogDescription>
+            )}
           </DialogHeader>
 
           <div className="rounded-lg border bg-muted/40 p-3">

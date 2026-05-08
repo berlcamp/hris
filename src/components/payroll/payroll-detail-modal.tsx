@@ -157,18 +157,20 @@ export function PayrollDetailModal({ payroll, onOpenChange, onChange }: Props) {
                   )}`
                 : ""}
             </DialogTitle>
-            <DialogDescription>
-              {meta?.particulars && (
-                <div>
-                  <strong>1st Half:</strong> {meta.particulars}
-                </div>
-              )}
-              {meta?.particulars_2nd_half && (
-                <div>
-                  <strong>2nd Half:</strong> {meta.particulars_2nd_half}
-                </div>
-              )}
-            </DialogDescription>
+            {(meta?.particulars || meta?.particulars_2nd_half) && (
+              <DialogDescription render={<div />} className="space-y-1">
+                {meta?.particulars && (
+                  <div>
+                    <strong>1st Half:</strong> {meta.particulars}
+                  </div>
+                )}
+                {meta?.particulars_2nd_half && (
+                  <div>
+                    <strong>2nd Half:</strong> {meta.particulars_2nd_half}
+                  </div>
+                )}
+              </DialogDescription>
+            )}
           </DialogHeader>
 
           <div className="rounded-lg border bg-muted/40 p-3">

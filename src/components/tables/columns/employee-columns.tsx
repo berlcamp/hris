@@ -190,11 +190,17 @@ export const employeeColumns: ColumnDef<EmployeeRow>[] = [
   },
   {
     id: "vl_sl_status",
-    accessorFn: (row) => (row.vl_sl_needs_manual_entry ? "missing" : "ok"),
+    // Manual VL/SL entry only applies to plantilla employees; non-plantilla
+    // never count as "missing" so the filter ignores them.
+    accessorFn: (row) =>
+      row.employment_type === "plantilla" && row.vl_sl_needs_manual_entry
+        ? "missing"
+        : "ok",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="VL/SL" />
     ),
     cell: ({ row }) =>
+      row.original.employment_type === "plantilla" &&
       row.original.vl_sl_needs_manual_entry ? (
         <Badge variant="destructive">Needs entry</Badge>
       ) : (
