@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { pdf } from "@react-pdf/renderer";
 import { LeaveForm6Pdf } from "@/components/pdf/leave-form6-pdf";
 import type { LeaveApplicationWithRelations, LeaveCreditRow } from "@/lib/actions/leave-actions";
+import { getEffectivePosition } from "@/lib/employee-position";
 import { format } from "date-fns";
 
 interface LeavePdfButtonProps {
@@ -28,12 +30,39 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
   const handleGenerate = async () => {
     setGenerating(true);
     try {
+      // Pre-load logos as data URLs so @react-pdf/renderer doesn't need to
+      // fetch them during render (avoids silent image-loader failures).
+      const fetchAsDataUrl = async (path: string): Promise<string | undefined> => {
+        try {
+          const res = await fetch(path);
+          if (!res.ok) return undefined;
+          const blob = await res.blob();
+          return await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+          });
+        } catch {
+          return undefined;
+        }
+      };
+
+      const [logo1, logo2, logo3, logo4] = await Promise.all([
+        fetchAsDataUrl("/logo1.png"),
+        fetchAsDataUrl("/logo2.png"),
+        fetchAsDataUrl("/logo3.png"),
+        fetchAsDataUrl("/logo4.png"),
+      ]);
+
       const blob = await pdf(
         <LeaveForm6Pdf
+          logoSrc={logo2}
+          titleLogos={[logo1, logo2, logo3, logo4]}
           employeeName={employeeName}
           employeeNo={emp != null ? String(emp.biometric_no) : ""}
           middleName={emp?.middle_name ?? ""}
-          position={emp?.positions?.title ?? ""}
+          position={emp ? getEffectivePosition(emp) ?? "" : ""}
           department={emp?.departments?.name ?? ""}
           salaryGrade={emp?.salary_grade ?? 0}
           dateOfFiling={format(new Date(leave.created_at), "MMMM d, yyyy")}
@@ -62,10 +91,16 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
       link.download = `Leave-Form6-${leave.start_date}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
-    } catch {
-      // PDF generation may not work in all environments
+    } catch (err) {
+      console.error("Failed to render CSC Form 6 PDF:", err);
+      toast.error(
+        err instanceof Error
+          ? `PDF generation failed: ${err.message}`
+          : "PDF generation failed",
+      );
+    } finally {
+      setGenerating(false);
     }
-    setGenerating(false);
   };
 
   return (

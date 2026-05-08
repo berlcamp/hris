@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { pdf } from "@react-pdf/renderer";
 import { NosiPdf } from "@/components/pdf/nosi-pdf";
 import type { NosiWithRelations } from "@/lib/actions/nosi-actions";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 interface NosiPdfButtonProps {
   nosi: NosiWithRelations;
@@ -26,7 +27,7 @@ export function NosiPdfButton({ nosi, employeeName }: NosiPdfButtonProps) {
               ? String(nosi.employees.biometric_no)
               : ""
           }
-          position={nosi.employees?.positions?.title ?? ""}
+          position={(nosi.employees && getEffectivePosition(nosi.employees)) ?? ""}
           department={nosi.employees?.departments?.name ?? ""}
           currentSalaryGrade={nosi.current_salary_grade}
           currentStep={nosi.current_step}

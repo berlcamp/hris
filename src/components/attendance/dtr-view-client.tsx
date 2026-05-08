@@ -94,6 +94,7 @@ export function DtrViewClient({
     middle_name: string | null;
     departments: { name: string } | null;
     positions: { title: string } | null;
+    plantilla: { position_title: string | null }[] | null;
   } | null>(null);
 
   const selectedEmployee = employees.find((e) => e.id === employeeId);

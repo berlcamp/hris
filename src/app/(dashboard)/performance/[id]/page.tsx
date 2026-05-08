@@ -13,6 +13,7 @@ import { getRatingColor } from "@/lib/ipcr-utils";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { IpcrApprovalActions } from "@/components/performance/ipcr-approval-actions";
 import { IpcrRatingEditor } from "@/components/performance/ipcr-rating-editor";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 const statusVariant: Record<
   string,
@@ -118,7 +119,7 @@ export default async function IpcrDetailPage({
               label="Employee No"
               value={emp != null ? String(emp.biometric_no) : undefined}
             />
-            <InfoRow label="Position" value={emp?.positions?.title} />
+            <InfoRow label="Position" value={emp ? getEffectivePosition(emp) : null} />
             <InfoRow
               label="Department"
               value={

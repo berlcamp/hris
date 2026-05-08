@@ -34,6 +34,7 @@ export interface NosaWithRelations {
     position_id: string | null;
     departments: { name: string; code: string } | null;
     positions: { title: string } | null;
+    plantilla: { position_title: string | null }[] | null;
   } | null;
 }
 
@@ -51,7 +52,8 @@ export async function getNosaRecords() {
       employees(
         first_name, last_name, salary_grade, step_increment, biometric_no, position_id,
         departments!employees_department_id_fkey(name, code),
-        positions(title)
+        positions(title),
+        plantilla(position_title)
       )
     `)
     .order("created_at", { ascending: false });
@@ -73,6 +75,9 @@ export async function getNosaRecords() {
 }
 
 export async function getNosaById(id: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Unauthorized");
+
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .schema("hris")
@@ -81,14 +86,22 @@ export async function getNosaById(id: string) {
       *,
       employees(
         first_name, last_name, salary_grade, step_increment, biometric_no, position_id,
-        hire_date,
+        hire_date, department_id,
         departments!employees_department_id_fkey(name, code),
-        positions(title)
+        positions(title),
+        plantilla(position_title)
       )
     `)
     .eq("id", id)
     .single();
   if (error) throw error;
+
+  if (user.role === "department_head" && user.departmentId) {
+    const empDeptId =
+      (data?.employees as { department_id?: string | null } | null)?.department_id ?? null;
+    if (empDeptId !== user.departmentId) throw new Error("Not found");
+  }
+
   return data as NosaWithRelations;
 }
 

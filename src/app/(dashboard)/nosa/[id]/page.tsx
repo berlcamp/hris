@@ -12,6 +12,7 @@ import { getNosaById } from "@/lib/actions/nosa-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { NosaApprovalActions } from "@/components/nosa/nosa-approval-actions";
 import { NosaPdfButton } from "@/components/nosa/nosa-pdf-button";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   draft: "outline",
@@ -95,7 +96,7 @@ export default async function NosaDetailPage({
               label="Employee No"
               value={emp != null ? String(emp.biometric_no) : undefined}
             />
-            <InfoRow label="Position" value={emp?.positions?.title} />
+            <InfoRow label="Position" value={emp ? getEffectivePosition(emp) : null} />
             <InfoRow
               label="Department"
               value={emp?.departments ? `${emp.departments.code} — ${emp.departments.name}` : null}

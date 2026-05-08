@@ -49,13 +49,29 @@ export interface PlantillaListRow extends PlantillaRecord {
 }
 
 export async function getAllPlantilla(): Promise<PlantillaListRow[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
   const supabase = createAdminClient();
-  const { data, error } = await supabase
+  let query = supabase
     .schema("hris")
     .from("plantilla")
     .select("*, employees(id, first_name, last_name, status)")
     .order("organizational_unit", { ascending: true })
     .order("item_number", { ascending: true });
+
+  if (user.role === "department_head" && user.departmentId) {
+    const { data: deptEmps } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("id")
+      .eq("department_id", user.departmentId);
+    const ids = (deptEmps ?? []).map((e) => e.id);
+    if (ids.length === 0) return [];
+    query = query.in("employee_id", ids);
+  }
+
+  const { data, error } = await query;
   if (error) {
     console.error("[getAllPlantilla]", error);
     return [];
@@ -64,7 +80,21 @@ export async function getAllPlantilla(): Promise<PlantillaListRow[]> {
 }
 
 export async function getPlantillaByEmployee(employeeId: string): Promise<PlantillaRecord | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
   const supabase = createAdminClient();
+
+  if (user.role === "department_head" && user.departmentId) {
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) return null;
+  }
+
   const { data, error } = await supabase
     .schema("hris")
     .from("plantilla")

@@ -63,7 +63,11 @@ export function NosiApprovalActions({ nosiId, status, user }: NosiApprovalAction
               disabled={loading}
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {user.role === "super_admin" ? "Final Approve" : "Approve / Recommend"}
+              {user.role === "super_admin"
+                ? "Final Approve"
+                : user.role === "hr_admin"
+                  ? "Approve"
+                  : "Recommend"}
             </Button>
 
             <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>

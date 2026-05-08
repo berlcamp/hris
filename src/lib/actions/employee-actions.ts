@@ -38,6 +38,7 @@ export interface EmployeeWithRelations {
   updated_at: string;
   departments: { name: string; code: string } | null;
   positions: { title: string; item_number: string | null } | null;
+  plantilla: { position_title: string | null; item_number: string | null }[] | null;
 }
 
 export async function getEmployees() {
@@ -49,7 +50,7 @@ export async function getEmployees() {
   let query = supabase
     .schema("hris")
     .from("employees")
-    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number)")
+    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number)")
     .order("created_at", { ascending: false });
 
   // Role-based filtering
@@ -63,16 +64,28 @@ export async function getEmployees() {
 }
 
 export async function getEmployeeById(id: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Unauthorized");
+
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .schema("hris")
     .from("employees")
-    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number)")
+    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number)")
     .eq("id", id)
     .single();
 
   if (error) throw error;
+
+  if (
+    user.role === "department_head" &&
+    user.departmentId &&
+    (data as EmployeeWithRelations).department_id !== user.departmentId
+  ) {
+    throw new Error("Not found");
+  }
+
   return data as EmployeeWithRelations;
 }
 

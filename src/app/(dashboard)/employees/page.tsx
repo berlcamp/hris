@@ -1,13 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus, Download } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/tables/data-table";
-import { employeeColumns } from "@/components/tables/columns/employee-columns";
+import { Plus } from "lucide-react";
 import { getEmployees, getEmployeeForCurrentUser } from "@/lib/actions/employee-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
-import { ExportCsvButton } from "@/components/tables/export-csv-button";
+import { EmployeesTable } from "@/components/employees/employees-table";
 
 export default async function EmployeesPage() {
   const user = await getCurrentUser();
@@ -52,62 +49,7 @@ export default async function EmployeesPage() {
         )}
       </div>
 
-      <DataTable
-        columns={employeeColumns}
-        data={employees ?? []}
-        searchableColumns={[
-          { id: "full_name", title: "name" },
-        ]}
-        filterableColumns={[
-          {
-            id: "department",
-            title: "Department",
-            options: departmentOptions,
-          },
-          {
-            id: "employment_type",
-            title: "Type",
-            options: [
-              { label: "Plantilla", value: "plantilla" },
-              { label: "Job Order", value: "jo" },
-              { label: "Contract of Service", value: "cos" },
-            ],
-          },
-          {
-            id: "status",
-            title: "Status",
-            options: [
-              { label: "Active", value: "active" },
-              { label: "Inactive", value: "inactive" },
-              { label: "Retired", value: "retired" },
-              { label: "Terminated", value: "terminated" },
-              { label: "Resigned", value: "resigned" },
-            ],
-          },
-          {
-            id: "vl_sl_status",
-            title: "VL/SL",
-            options: [
-              { label: "Needs manual entry", value: "missing" },
-              { label: "OK", value: "ok" },
-            ],
-          },
-        ]}
-        toolbar={
-          <ExportCsvButton
-            key="export-csv"
-            data={employees ?? []}
-            filename="employees"
-            columns={[
-              { key: "last_name", header: "Last Name" },
-              { key: "first_name", header: "First Name" },
-              { key: "middle_name", header: "Middle Name" },
-              { key: "employment_type", header: "Employment Type" },
-              { key: "status", header: "Status" },
-            ]}
-          />
-        }
-      />
+      <EmployeesTable data={employees ?? []} departmentOptions={departmentOptions} />
     </div>
   );
 }

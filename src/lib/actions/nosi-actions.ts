@@ -84,6 +84,7 @@ export interface NosiWithRelations {
     biometric_no: number;
     departments: { name: string; code: string } | null;
     positions: { title: string } | null;
+    plantilla: { position_title: string | null }[] | null;
   } | null;
 }
 
@@ -114,14 +115,21 @@ async function loadNosiEligibilityData(): Promise<{
   minYears: number;
 }> {
   const supabase = createAdminClient();
+  const user = await getCurrentUser();
   const { nosi_eligibility_years: minYears } = await getSystemSettings();
 
-  const { data: employees, error } = await supabase
+  let employeesQuery = supabase
     .schema("hris")
     .from("employees")
-    .select("id, first_name, last_name, salary_grade, step_increment, department_id, departments!employees_department_id_fkey(name, code), positions(title)")
+    .select("id, first_name, last_name, salary_grade, step_increment, department_id, departments!employees_department_id_fkey(name, code), positions(title), plantilla(position_title)")
     .eq("status", "active")
     .eq("employment_type", "plantilla");
+
+  if (user?.role === "department_head" && user.departmentId) {
+    employeesQuery = employeesQuery.eq("department_id", user.departmentId);
+  }
+
+  const { data: employees, error } = await employeesQuery;
 
   if (error) {
     console.error("[NOSI] employees query error:", error);
@@ -233,9 +241,17 @@ async function loadNosiEligibilityData(): Promise<{
     const dept = Array.isArray(emp.departments)
       ? emp.departments[0] ?? null
       : emp.departments;
-    const pos = Array.isArray(emp.positions)
+    const rawPos = Array.isArray(emp.positions)
       ? emp.positions[0] ?? null
       : emp.positions;
+    const plantillaArr = (emp as { plantilla?: { position_title: string | null }[] | null })
+      .plantilla ?? null;
+    const plantillaTitle = Array.isArray(plantillaArr)
+      ? plantillaArr.find((p) => p?.position_title)?.position_title ?? null
+      : null;
+    const pos = plantillaTitle
+      ? { title: plantillaTitle }
+      : rawPos;
 
     if (currentStep >= 8) {
       skipped.at_top_step++;
@@ -396,7 +412,8 @@ export async function getNosisRecords() {
       employees(
         first_name, last_name, salary_grade, step_increment, biometric_no,
         departments!employees_department_id_fkey(name, code),
-        positions(title)
+        positions(title),
+        plantilla(position_title)
       )
     `)
     .order("created_at", { ascending: false });
@@ -419,22 +436,34 @@ export async function getNosisRecords() {
 }
 
 export async function getNosiById(id: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Unauthorized");
+
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .schema("hris")
     .from("nosi_records")
     .select(`
       *,
+      employee_id,
       employees(
         first_name, last_name, salary_grade, step_increment, biometric_no,
-        hire_date,
+        hire_date, department_id,
         departments!employees_department_id_fkey(name, code),
-        positions(title)
+        positions(title),
+        plantilla(position_title)
       )
     `)
     .eq("id", id)
     .single();
   if (error) throw error;
+
+  if (user.role === "department_head" && user.departmentId) {
+    const empDeptId =
+      (data?.employees as { department_id?: string | null } | null)?.department_id ?? null;
+    if (empDeptId !== user.departmentId) throw new Error("Not found");
+  }
+
   return data as NosiWithRelations;
 }
 
@@ -642,15 +671,28 @@ export async function reviewNosi(id: string, approved: boolean, remarks?: string
   }
 
   // Check if this is final approval (super_admin) or intermediate review
-  const { data: nosi } = await supabase.schema("hris").from("nosi_records").select("status, employee_id, current_salary_grade, new_step").eq("id", id).single();
+  const { data: nosi } = await supabase.schema("hris").from("nosi_records").select("status, employee_id, current_salary_grade, new_step, reviewed_at").eq("id", id).single();
   if (!nosi) return { error: "NOSI not found" };
 
-  if (user.role === "super_admin") {
-    // Final approval — update employee and salary history
+  // hr_admin and super_admin both finalize NOSI approval; department_head
+  // only records an endorsement (reviewed_by/reviewed_at), leaving the
+  // status at pending until HR/super admin approves.
+  if (user.role === "super_admin" || user.role === "hr_admin") {
+    const nowIso = new Date().toISOString();
+    // Stamp reviewed_* if not already set so the timeline reflects the step.
+    const reviewPatch =
+      nosi.status === "pending" && !(nosi as { reviewed_at?: string | null }).reviewed_at
+        ? { reviewed_by: user.id, reviewed_at: nowIso }
+        : {};
     const { error } = await supabase
       .schema("hris")
       .from("nosi_records")
-      .update({ status: "approved", approved_by: user.id, approved_at: new Date().toISOString() })
+      .update({
+        status: "approved",
+        approved_by: user.id,
+        approved_at: nowIso,
+        ...reviewPatch,
+      })
       .eq("id", id);
     if (error) return { error: error.message };
 
@@ -672,7 +714,7 @@ export async function reviewNosi(id: string, approved: boolean, remarks?: string
       });
     }
   } else {
-    // Intermediate review
+    // department_head endorsement
     const { error } = await supabase
       .schema("hris")
       .from("nosi_records")

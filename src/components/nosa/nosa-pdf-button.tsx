@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { pdf } from "@react-pdf/renderer";
 import { NosaPdf } from "@/components/pdf/nosa-pdf";
 import type { NosaWithRelations } from "@/lib/actions/nosa-actions";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 interface NosaPdfButtonProps {
   nosa: NosaWithRelations;
@@ -26,7 +27,7 @@ export function NosaPdfButton({ nosa, employeeName }: NosaPdfButtonProps) {
               ? String(nosa.employees.biometric_no)
               : ""
           }
-          position={nosa.employees?.positions?.title ?? ""}
+          position={(nosa.employees && getEffectivePosition(nosa.employees)) ?? ""}
           department={nosa.employees?.departments?.name ?? ""}
           previousSalaryGrade={nosa.previous_salary_grade}
           previousStep={nosa.previous_step}

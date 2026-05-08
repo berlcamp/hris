@@ -35,6 +35,7 @@ export interface IpcrRecordWithRelations {
     department_id: string | null;
     departments: { name: string; code: string } | null;
     positions: { title: string } | null;
+    plantilla: { position_title: string | null }[] | null;
   } | null;
   ipcr_periods: {
     name: string;
@@ -230,7 +231,8 @@ export async function getIpcrRecords(periodId?: string): Promise<IpcrRecordWithR
        employees!ipcr_records_employee_id_fkey(
          first_name, last_name, biometric_no, department_id,
          departments!employees_department_id_fkey(name, code),
-         positions(title)
+         positions(title),
+         plantilla(position_title)
        ),
        ipcr_periods!ipcr_records_period_id_fkey(name, start_date, end_date),
        reviewer:user_profiles!ipcr_records_reviewed_by_fkey(full_name),
@@ -274,6 +276,9 @@ export async function getIpcrRecords(periodId?: string): Promise<IpcrRecordWithR
 }
 
 export async function getIpcrRecordById(id: string): Promise<IpcrRecordWithRelations | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
@@ -284,7 +289,8 @@ export async function getIpcrRecordById(id: string): Promise<IpcrRecordWithRelat
        employees!ipcr_records_employee_id_fkey(
          first_name, last_name, biometric_no, department_id,
          departments!employees_department_id_fkey(name, code),
-         positions(title)
+         positions(title),
+         plantilla(position_title)
        ),
        ipcr_periods!ipcr_records_period_id_fkey(name, start_date, end_date),
        reviewer:user_profiles!ipcr_records_reviewed_by_fkey(full_name),
@@ -294,6 +300,12 @@ export async function getIpcrRecordById(id: string): Promise<IpcrRecordWithRelat
     .maybeSingle();
 
   if (error) throw error;
+
+  if (user.role === "department_head" && user.departmentId) {
+    const empDeptId = data?.employees?.department_id ?? null;
+    if (empDeptId !== user.departmentId) return null;
+  }
+
   return data as unknown as IpcrRecordWithRelations | null;
 }
 
@@ -471,7 +483,20 @@ export async function reviewIpcrRecord(
 // --- Get employee IPCR history (for employee profile) ---
 
 export async function getEmployeeIpcrHistory(employeeId: string): Promise<IpcrRecordWithRelations[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
   const supabase = createAdminClient();
+
+  if (user.role === "department_head" && user.departmentId) {
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) return [];
+  }
 
   const { data, error } = await supabase
     .schema("hris")
@@ -481,7 +506,8 @@ export async function getEmployeeIpcrHistory(employeeId: string): Promise<IpcrRe
        employees!ipcr_records_employee_id_fkey(
          first_name, last_name, department_id,
          departments!employees_department_id_fkey(name, code),
-         positions(title)
+         positions(title),
+         plantilla(position_title)
        ),
        ipcr_periods!ipcr_records_period_id_fkey(name, start_date, end_date),
        reviewer:user_profiles!ipcr_records_reviewed_by_fkey(full_name),

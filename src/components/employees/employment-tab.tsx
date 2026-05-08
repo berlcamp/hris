@@ -7,6 +7,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 const employmentTypeLabels: Record<string, string> = {
   plantilla: "Plantilla",
@@ -98,14 +99,17 @@ export function EmploymentTab({
           />
           <InfoRow
             label="Position"
-            value={employee.positions?.title ?? null}
+            value={getEffectivePosition(employee)}
           />
-          {employee.positions?.item_number && (
-            <InfoRow
-              label="Item Number"
-              value={employee.positions.item_number}
-            />
-          )}
+          {(() => {
+            const plantillaItem = employee.plantilla?.find(
+              (p) => p?.item_number,
+            )?.item_number;
+            const itemNumber = plantillaItem ?? employee.positions?.item_number ?? null;
+            return itemNumber ? (
+              <InfoRow label="Item Number" value={itemNumber} />
+            ) : null;
+          })()}
           <InfoRow
             label="Salary Grade"
             value={String(employee.salary_grade)}

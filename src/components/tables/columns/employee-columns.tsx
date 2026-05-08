@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
 import { EmployeeActionsCell } from "./employee-actions-cell";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 export type EmployeeRow = {
   id: string;
@@ -23,6 +24,7 @@ export type EmployeeRow = {
   vl_sl_needs_manual_entry: boolean;
   departments: { name: string; code: string } | null;
   positions: { title: string; item_number: string | null } | null;
+  plantilla: { position_title: string | null; item_number: string | null }[] | null;
 };
 
 const employmentTypeLabels: Record<string, string> = {
@@ -141,14 +143,14 @@ export const employeeColumns: ColumnDef<EmployeeRow>[] = [
   },
   {
     id: "position",
-    accessorFn: (row) => row.positions?.title ?? "—",
+    accessorFn: (row) => getEffectivePosition(row) ?? "—",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Position" />
     ),
     cell: ({ row }) => {
-      const pos = row.original.positions;
-      return pos ? (
-        <span>{pos.title}</span>
+      const title = getEffectivePosition(row.original);
+      return title ? (
+        <span>{title}</span>
       ) : (
         <span className="text-muted-foreground">—</span>
       );

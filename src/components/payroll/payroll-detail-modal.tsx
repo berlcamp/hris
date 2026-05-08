@@ -48,6 +48,7 @@ import {
   type PayrollListRow,
 } from "@/lib/actions/payroll-actions";
 import { PayrollEditEmployeeModal } from "./payroll-edit-employee-modal";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 interface Props {
   payroll: PayrollListRow | null;
@@ -245,7 +246,7 @@ export function PayrollDetailModal({ payroll, onOpenChange, onChange }: Props) {
                         </div>
                       </TableCell>
                       <TableCell className="text-xs">
-                        {emp.designation ?? emp.employees?.positions?.title ?? "—"}
+                        {emp.designation ?? (emp.employees && getEffectivePosition(emp.employees)) ?? "—"}
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs">
                         {fmtNum(emp.monthly_rate)}

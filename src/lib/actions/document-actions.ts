@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 export async function getDocuments(employeeId: string) {
   const supabase = createAdminClient();
@@ -125,7 +126,7 @@ export async function generateServiceRecordPdf(employeeId: string) {
   const { data: employee, error: empError } = await supabase
     .schema("hris")
     .from("employees")
-    .select("*, departments!employees_department_id_fkey(name, code), positions(title)")
+    .select("*, departments!employees_department_id_fkey(name, code), positions(title), plantilla(position_title)")
     .eq("id", employeeId)
     .single();
 
@@ -146,7 +147,7 @@ export async function generateServiceRecordPdf(employeeId: string) {
     employee_id: employeeId,
     date_from: employee.hire_date,
     date_to: employee.end_of_contract ?? null,
-    designation: employee.positions?.title ?? "Staff",
+    designation: getEffectivePosition(employee) ?? "Staff",
     status_type: employee.employment_type,
     salary: null as number | null,
     office: employee.departments?.name ?? null,

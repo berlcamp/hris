@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { createLeaveApplication } from "@/lib/actions/leave-actions";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import type { LeaveTypeRow, LeaveCreditRow } from "@/lib/actions/leave-actions";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 interface LeaveApplicationFormProps {
   employees: EmployeeWithRelations[];
@@ -241,7 +242,7 @@ export function LeaveApplicationForm({
               </div>
               <div className="px-4 py-3">
                 <Label className="text-xs text-muted-foreground">4. POSITION</Label>
-                <p className="text-sm font-medium mt-0.5">{selectedEmp?.positions?.title ?? "—"}</p>
+                <p className="text-sm font-medium mt-0.5">{(selectedEmp && getEffectivePosition(selectedEmp)) ?? "—"}</p>
               </div>
               <div className="px-4 py-3">
                 <Label className="text-xs text-muted-foreground">5. SALARY</Label>

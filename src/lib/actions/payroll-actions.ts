@@ -68,6 +68,7 @@ export interface EmployeePayrollWithEmployee {
     biometric_no: number | null;
     departments: { name: string; code: string } | null;
     positions: { title: string } | null;
+    plantilla: { position_title: string | null }[] | null;
   } | null;
 }
 
@@ -196,7 +197,8 @@ export async function getPayrollById(id: string): Promise<{
     .select(
       `*, employees(id, first_name, middle_name, last_name, employee_no, employment_type, biometric_no,
         departments!employees_department_id_fkey(name, code),
-        positions(title)
+        positions(title),
+        plantilla(position_title)
       )`,
     )
     .eq("payroll_id", id);

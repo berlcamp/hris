@@ -3,51 +3,145 @@ import {
   Page,
   Text,
   View,
+  Image,
   StyleSheet,
 } from "@react-pdf/renderer";
 
-const s = StyleSheet.create({
-  page: { padding: 30, fontSize: 8, fontFamily: "Helvetica" },
-  // Header
-  formNo: { fontSize: 7, textAlign: "left", marginBottom: 1 },
-  header: { textAlign: "center", marginBottom: 6 },
-  republic: { fontSize: 8, marginBottom: 1 },
-  agency: { fontSize: 8, fontFamily: "Helvetica-Bold", marginBottom: 2 },
-  title: { fontSize: 13, fontFamily: "Helvetica-Bold", letterSpacing: 2, marginBottom: 4 },
-  // Outer box
-  box: { border: "1pt solid #000" },
-  // Rows
-  row: { flexDirection: "row", borderBottom: "0.5pt solid #000", minHeight: 18 },
-  rowLast: { flexDirection: "row", minHeight: 18 },
-  // Cells
-  cellLabel: { fontSize: 7, color: "#333" },
-  cellValue: { fontSize: 9, fontFamily: "Helvetica-Bold" },
-  // Section headers
-  sectionHeader: {
-    fontSize: 8,
-    fontFamily: "Helvetica-Bold",
-    backgroundColor: "#ddd",
-    padding: 3,
-    borderBottom: "0.5pt solid #000",
-    textAlign: "center",
-  },
-  // Checkbox
-  cb: { fontSize: 8 },
-  cbChecked: { fontSize: 8, fontFamily: "Helvetica-Bold" },
-  // Signature
-  sigLine: { borderTop: "1pt solid #000", marginTop: 30, paddingTop: 2, fontSize: 7, textAlign: "center" },
-  sigName: { fontSize: 8, fontFamily: "Helvetica-Bold", textAlign: "center", marginTop: 1 },
-  sigTitle: { fontSize: 7, textAlign: "center", color: "#555" },
-});
+const BORDER = "1pt solid #000";
+const HAIR = "0.7pt solid #000";
 
-function Checkbox({ checked, label }: { checked: boolean; label: string }) {
-  return (
-    <Text style={checked ? s.cbChecked : s.cb}>
-      {checked ? "[X] " : "[  ] "}
-      {label}
-    </Text>
-  );
-}
+const s = StyleSheet.create({
+  page: {
+    paddingTop: 24,
+    paddingBottom: 18,
+    paddingHorizontal: 22,
+    fontSize: 9,
+    fontFamily: "Helvetica",
+  },
+
+  // Top metadata strip (above the form box)
+  topStrip: { flexDirection: "row", marginBottom: 4 },
+  topLeft: { flex: 1 },
+  topCenter: { flex: 2, flexDirection: "row", alignItems: "center", justifyContent: "center" },
+  topRight: { flex: 1, alignItems: "flex-end" },
+  formInfoItalic: { fontSize: 9, fontFamily: "Helvetica", fontStyle: "italic" },
+  republic: { fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center" },
+  agencyName: { fontSize: 9, fontFamily: "Helvetica", fontStyle: "italic", textAlign: "center" },
+  agencyAddr: { fontSize: 9, fontFamily: "Helvetica", fontStyle: "italic", textAlign: "center" },
+  annex: { fontSize: 11, fontFamily: "Helvetica-Bold", letterSpacing: 1.5 },
+  receiptBox: {
+    border: HAIR,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginTop: 4,
+    minWidth: 130,
+  },
+  receiptLabel: { fontSize: 7.5, textAlign: "center" },
+
+  agencyTextWrap: { marginLeft: 6, alignItems: "center" },
+  logo: { width: 56, height: 56 },
+
+  // Page title row (logos | title | logos)
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  titleSideLogos: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  titleLogo: { width: 38, height: 38 },
+  title: {
+    fontSize: 16,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "center",
+    marginHorizontal: 12,
+  },
+
+  // Outer form box
+  formBox: { border: BORDER },
+
+  // Generic row helpers
+  rowBordered: { flexDirection: "row", borderBottom: HAIR },
+  rowOpen: { flexDirection: "row" },
+  cellRightBorder: { borderRight: HAIR },
+
+  cellLabel: { fontSize: 8.5 },
+  cellLabelBold: { fontSize: 8.5, fontFamily: "Helvetica-Bold" },
+  cellValue: { fontSize: 9, fontFamily: "Helvetica-Bold" },
+
+  // Section banner: "6. DETAILS OF APPLICATION" / "7. DETAILS OF ACTION ON APPLICATION"
+  sectionBanner: {
+    fontSize: 10,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "center",
+    paddingVertical: 3,
+    borderBottom: HAIR,
+    backgroundColor: "#ffffff",
+  },
+
+  // Checkbox row
+  cbRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 1.5 },
+  cbBox: {
+    width: 8,
+    height: 8,
+    border: HAIR,
+    marginTop: 1,
+    marginRight: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cbLabel: { fontSize: 8.5, flex: 1, lineHeight: 1.2 },
+  cbLabelMain: { fontFamily: "Helvetica" },
+  cbLabelCite: { fontSize: 7.5 },
+
+  italic: { fontFamily: "Helvetica", fontStyle: "italic" },
+
+  // Underlines
+  underline: { borderBottom: HAIR, flex: 1, minHeight: 10, marginLeft: 2 },
+
+  // Table for 7.A
+  ledger: { borderTop: HAIR, borderBottom: HAIR },
+  ledgerHeader: { flexDirection: "row", borderBottom: HAIR },
+  ledgerHCell: {
+    fontSize: 8,
+    paddingVertical: 2,
+    paddingHorizontal: 3,
+    textAlign: "center",
+    fontFamily: "Helvetica-Bold",
+  },
+  ledgerRow: { flexDirection: "row", borderBottom: HAIR },
+  ledgerRowLast: { flexDirection: "row" },
+  ledgerLabelCell: {
+    fontSize: 8,
+    paddingVertical: 2,
+    paddingHorizontal: 3,
+    fontFamily: "Helvetica", fontStyle: "italic",
+    borderRight: HAIR,
+  },
+  ledgerCell: {
+    fontSize: 9,
+    paddingVertical: 2,
+    paddingHorizontal: 3,
+    textAlign: "center",
+    borderRight: HAIR,
+  },
+  ledgerCellLast: { fontSize: 9, paddingVertical: 2, paddingHorizontal: 3, textAlign: "center" },
+
+  // Signature placement
+  sigCenterLine: {
+    borderBottom: HAIR,
+    minHeight: 24,
+    marginTop: 12,
+    width: 200,
+    alignSelf: "center",
+  },
+  sigCenterCaption: { fontSize: 8.5, textAlign: "center", marginTop: 2, fontFamily: "Helvetica", fontStyle: "italic" },
+});
 
 interface LeaveForm6PdfProps {
   employeeName: string;
@@ -74,6 +168,22 @@ interface LeaveForm6PdfProps {
   leaveDates: string[];
   status: string;
   allLeaveTypeCodes: string[];
+  /** Optional. Falls back to NEXT_PUBLIC_AGENCY_NAME or "(Agency Name)". */
+  agencyName?: string;
+  /** Optional. Falls back to NEXT_PUBLIC_AGENCY_ADDRESS. */
+  agencyAddress?: string;
+  /**
+   * Pre-loaded logo as data URL or absolute URL. The caller should pre-fetch the
+   * image and pass it here so PDF rendering never blocks on a network request
+   * (and never silently fails). When omitted, the header renders without a logo.
+   */
+  logoSrc?: string;
+  /**
+   * Four logos rendered on either side of the "APPLICATION FOR LEAVE" title
+   * (two on the left, two on the right). Pre-fetched as data URLs by the caller.
+   * Any entry that's `undefined` is skipped so the slot stays empty.
+   */
+  titleLogos?: (string | undefined)[];
 }
 
 function fmtDate(dateStr: string) {
@@ -84,278 +194,520 @@ function fmtDate(dateStr: string) {
   });
 }
 
+function splitName(fullName: string, middle: string): {
+  last: string;
+  first: string;
+  middle: string;
+} {
+  // The caller formats as "Last, First[ Middle]". Honor that.
+  const [lastPart, rest] = fullName.split(",").map((p) => p.trim());
+  if (!rest) return { last: fullName, first: "", middle: middle || "" };
+  // rest may already contain middle name; prefer the explicit middleName prop if provided.
+  if (middle) {
+    const first = rest.replace(new RegExp(`\\s+${middle}\\s*$`), "").trim();
+    return { last: lastPart ?? "", first, middle };
+  }
+  const tokens = rest.split(/\s+/);
+  if (tokens.length >= 2) {
+    return {
+      last: lastPart ?? "",
+      first: tokens.slice(0, -1).join(" "),
+      middle: tokens[tokens.length - 1] ?? "",
+    };
+  }
+  return { last: lastPart ?? "", first: rest, middle: "" };
+}
+
+function CB({ checked }: { checked: boolean }) {
+  return (
+    <View style={s.cbBox}>
+      <Text style={{ fontSize: 6, textAlign: "center", lineHeight: 1 }}>
+        {checked ? "X" : " "}
+      </Text>
+    </View>
+  );
+}
+
+function CheckLine({
+  checked,
+  main,
+  cite,
+  trailing,
+}: {
+  checked: boolean;
+  main: string;
+  cite?: string;
+  trailing?: string;
+}) {
+  return (
+    <View style={s.cbRow}>
+      <CB checked={checked} />
+      <Text style={s.cbLabel}>
+        <Text style={s.cbLabelMain}>{main}</Text>
+        {cite ? <Text style={s.cbLabelCite}> {cite}</Text> : null}
+        {trailing ? <Text> {trailing}</Text> : null}
+      </Text>
+    </View>
+  );
+}
+
+function ValueLine({ children }: { children?: React.ReactNode }) {
+  return (
+    <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", borderBottom: HAIR, minHeight: 11, paddingBottom: 1 }}>
+      {children ?? " "}
+    </Text>
+  );
+}
+
 export function LeaveForm6Pdf({
   employeeName,
-  employeeNo,
+  employeeNo: _employeeNo,
   middleName,
   position,
   department,
   salaryGrade,
   dateOfFiling,
-  leaveType,
+  leaveType: _leaveType,
   leaveTypeCode,
   startDate,
   endDate,
   daysApplied,
-  reason,
+  reason: _reason,
   detailsOfLeave,
   commutationRequested,
   vlTotal,
-  vlUsed,
+  vlUsed: _vlUsed,
   vlBalance,
   slTotal,
-  slUsed,
+  slUsed: _slUsed,
   slBalance,
   leaveDates,
   status,
-  allLeaveTypeCodes,
+  allLeaveTypeCodes: _allLeaveTypeCodes,
+  agencyName,
+  agencyAddress,
+  logoSrc,
+  titleLogos,
 }: LeaveForm6PdfProps) {
   const isCode = (code: string) => leaveTypeCode === code;
+  const { last, first, middle } = splitName(employeeName, middleName);
 
-  // Parse details
   const isWithinPH = detailsOfLeave === "Within the Philippines";
   const isAbroad = detailsOfLeave?.startsWith("Abroad") ?? false;
-  const abroadSpec = isAbroad ? detailsOfLeave?.replace("Abroad: ", "").replace("Abroad", "") : "";
+  const abroadSpec = isAbroad
+    ? (detailsOfLeave ?? "").replace(/^Abroad:?\s*/i, "")
+    : "";
   const isInHospital = detailsOfLeave?.startsWith("In Hospital") ?? false;
-  const hospitalSpec = isInHospital ? detailsOfLeave?.replace("In Hospital: ", "").replace("In Hospital", "") : "";
+  const hospitalSpec = isInHospital
+    ? (detailsOfLeave ?? "").replace(/^In Hospital:?\s*/i, "")
+    : "";
   const isOutPatient = detailsOfLeave?.startsWith("Out Patient") ?? false;
-  const outPatientSpec = isOutPatient ? detailsOfLeave?.replace("Out Patient: ", "").replace("Out Patient", "") : "";
+  const outPatientSpec = isOutPatient
+    ? (detailsOfLeave ?? "").replace(/^Out Patient:?\s*/i, "")
+    : "";
+  const selSpec = isCode("SEL") ? detailsOfLeave ?? "" : "";
+
+  const inclusiveDates =
+    leaveDates.length > 0
+      ? leaveDates.length <= 5
+        ? leaveDates.map(fmtDate).join(", ")
+        : `${fmtDate(startDate)} to ${fmtDate(endDate)} (${leaveDates.length} dates)`
+      : `${fmtDate(startDate)} to ${fmtDate(endDate)}`;
+
+  const lessVl =
+    isCode("VL") || isCode("FL") || isCode("SPL") ? daysApplied : 0;
+  const lessSl = isCode("SL") ? daysApplied : 0;
+
+  const resolvedAgencyName =
+    agencyName ?? process.env.NEXT_PUBLIC_AGENCY_NAME ?? "(Agency Name)";
+  const resolvedAgencyAddr =
+    agencyAddress ?? process.env.NEXT_PUBLIC_AGENCY_ADDRESS ?? "(Agency Address)";
 
   return (
     <Document>
       <Page size="A4" style={s.page}>
-        {/* Form number */}
-        <Text style={s.formNo}>Civil Service Form No. 6</Text>
-        <Text style={s.formNo}>Revised 2020</Text>
-
-        {/* Header */}
-        <View style={s.header}>
-          <Text style={s.republic}>Republic of the Philippines</Text>
-          <Text style={s.agency}>{department || "___________________"}</Text>
+        {/* Top strip: form no (left), agency block (center), ANNEX + receipt (right) */}
+        <View style={s.topStrip}>
+          <View style={s.topLeft}>
+            <Text style={s.formInfoItalic}>Civil Service Form No. 6</Text>
+            <Text style={s.formInfoItalic}>Revised 2020</Text>
+          </View>
+          <View style={s.topCenter}>
+            {logoSrc ? (
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image src={logoSrc} style={s.logo} />
+            ) : null}
+            <View style={s.agencyTextWrap}>
+              <Text style={s.republic}>Republic of the Philippines</Text>
+              <Text style={s.agencyName}>{resolvedAgencyName}</Text>
+              <Text style={s.agencyAddr}>{resolvedAgencyAddr}</Text>
+            </View>
+          </View>
+          <View style={s.topRight}>
+            <Text style={s.annex}>ANNEX A</Text>
+            <View style={s.receiptBox}>
+              <Text style={s.receiptLabel}>Stamp of Date of Receipt</Text>
+            </View>
+          </View>
         </View>
-        <View style={{ textAlign: "center", marginBottom: 8 }}>
+
+        <View style={s.titleRow}>
+          <View style={s.titleSideLogos}>
+            {titleLogos?.[0] ? (
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image src={titleLogos[0]} style={s.titleLogo} />
+            ) : null}
+            {titleLogos?.[1] ? (
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image src={titleLogos[1]} style={s.titleLogo} />
+            ) : null}
+          </View>
           <Text style={s.title}>APPLICATION FOR LEAVE</Text>
-        </View>
-
-        {/* Top info row: 1-5 */}
-        <View style={s.box}>
-          <View style={s.row}>
-            <View style={{ width: "40%", padding: 4, borderRight: "0.5pt solid #000" }}>
-              <Text style={s.cellLabel}>1. OFFICE/DEPARTMENT</Text>
-              <Text style={s.cellValue}>{department}</Text>
-            </View>
-            <View style={{ width: "35%", padding: 4, borderRight: "0.5pt solid #000" }}>
-              <Text style={s.cellLabel}>2. NAME (Last, First, Middle)</Text>
-              <Text style={s.cellValue}>{employeeName}</Text>
-            </View>
-            <View style={{ width: "25%", padding: 4 }}>
-              <Text style={s.cellLabel}>DATE OF FILING</Text>
-              <Text style={s.cellValue}>{dateOfFiling}</Text>
-            </View>
-          </View>
-          <View style={s.rowLast}>
-            <View style={{ width: "40%", padding: 4, borderRight: "0.5pt solid #000" }}>
-              <Text style={s.cellLabel}>3. SALARY</Text>
-              <Text style={s.cellValue}>SG-{salaryGrade}</Text>
-            </View>
-            <View style={{ width: "35%", padding: 4, borderRight: "0.5pt solid #000" }}>
-              <Text style={s.cellLabel}>4. POSITION</Text>
-              <Text style={s.cellValue}>{position}</Text>
-            </View>
-            <View style={{ width: "25%", padding: 4 }}>
-              <Text style={s.cellLabel}>5. EMPLOYEE NO.</Text>
-              <Text style={s.cellValue}>{employeeNo}</Text>
-            </View>
+          <View style={s.titleSideLogos}>
+            {titleLogos?.[2] ? (
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image src={titleLogos[2]} style={s.titleLogo} />
+            ) : null}
+            {titleLogos?.[3] ? (
+              // eslint-disable-next-line jsx-a11y/alt-text
+              <Image src={titleLogos[3]} style={s.titleLogo} />
+            ) : null}
           </View>
         </View>
 
-        {/* Section 6 */}
-        <View style={{ ...s.box, marginTop: 6 }}>
-          <Text style={s.sectionHeader}>6. DETAILS OF APPLICATION</Text>
+        {/* Form box */}
+        <View style={s.formBox}>
+          {/* Row: 1. OFFICE/DEPARTMENT  | 2. NAME (Last, First, Middle) */}
+          <View style={s.rowBordered}>
+            <View style={[{ width: "40%", padding: 4 }, s.cellRightBorder]}>
+              <Text style={s.cellLabelBold}>1. OFFICE/DEPARTMENT</Text>
+              <Text style={[s.cellValue, { marginTop: 8 }]}>{department || " "}</Text>
+            </View>
+            <View style={{ width: "60%", padding: 4 }}>
+              <View style={{ flexDirection: "row" }}>
+                <Text style={s.cellLabelBold}>2. NAME : </Text>
+                <Text style={s.cellLabel}>(Last)</Text>
+                <View style={{ flex: 1 }} />
+                <Text style={s.cellLabel}>(First)</Text>
+                <View style={{ flex: 1 }} />
+                <Text style={s.cellLabel}>(Middle)</Text>
+                <View style={{ flex: 0.4 }} />
+              </View>
+              <View style={{ flexDirection: "row", marginTop: 8 }}>
+                <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR, marginRight: 4 }]}>{last}</Text>
+                <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR, marginRight: 4 }]}>{first}</Text>
+                <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR }]}>{middle}</Text>
+              </View>
+            </View>
+          </View>
 
-          <View style={s.row}>
-            {/* 6.A - Left column */}
-            <View style={{ width: "50%", padding: 4, borderRight: "0.5pt solid #000" }}>
-              <Text style={{ ...s.cellLabel, fontFamily: "Helvetica-Bold", marginBottom: 3 }}>
-                6.A TYPE OF LEAVE TO BE AVAILED OF
+          {/* Row: 3. DATE OF FILING | 4. POSITION | 5. SALARY */}
+          <View style={s.rowBordered}>
+            <View style={[{ width: "33.3%", padding: 4, flexDirection: "row" }, s.cellRightBorder]}>
+              <Text style={s.cellLabelBold}>3. DATE OF FILING </Text>
+              <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR, marginLeft: 2 }]}>
+                {dateOfFiling}
               </Text>
-              <Checkbox checked={isCode("VL")} label="Vacation Leave (Sec. 51, Rule XVI, Omnibus Rules Implementing E.O. No. 292)" />
-              <Checkbox checked={isCode("FL")} label="Mandatory/Forced Leave (Sec. 25, Rule XVI, Omnibus Rules)" />
-              <Checkbox checked={isCode("SL")} label="Sick Leave (Sec. 43, Rule XVI, Omnibus Rules)" />
-              <Checkbox checked={isCode("ML")} label="Maternity Leave (R.A. No. 11210 / IRR issued by CSC, DOLE, SSS)" />
-              <Checkbox checked={isCode("PL")} label="Paternity Leave (R.A. No. 8187 / CSC MC No. 71, s. 1998)" />
-              <Checkbox checked={isCode("SPL")} label="Special Privilege Leave (Sec. 21, Rule XVI, Omnibus Rules)" />
-              <Checkbox checked={isCode("SoloParent")} label="Solo Parent Leave (R.A. No. 8972 / CSC MC No. 8, s. 2004)" />
-              <Checkbox checked={isCode("VAWC")} label="10-Day VAWC Leave (R.A. No. 9262 / CSC MC No. 15, s. 2005)" />
-              <Checkbox checked={isCode("RL")} label="Rehabilitation Privilege (Sec. 55, Rule XVI, Omnibus Rules)" />
-              <Checkbox checked={isCode("CL")} label="Special Emergency (Calamity) Leave (CSC MC No. 2, s. 2012)" />
-              <Checkbox checked={isCode("AL")} label="Adoption Leave (R.A. No. 8552)" />
-              <Checkbox checked={isCode("SEL")} label="Special Leave Benefits for Women (R.A. No. 9710)" />
+            </View>
+            <View style={[{ width: "33.3%", padding: 4, flexDirection: "row" }, s.cellRightBorder]}>
+              <Text style={s.cellLabelBold}>4. POSITION </Text>
+              <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR, marginLeft: 2 }]}>
+                {position}
+              </Text>
+            </View>
+            <View style={{ width: "33.4%", padding: 4, flexDirection: "row" }}>
+              <Text style={s.cellLabelBold}>5. SALARY </Text>
+              <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR, marginLeft: 2 }]}>
+                {salaryGrade ? `SG-${salaryGrade}` : ""}
+              </Text>
+            </View>
+          </View>
+
+          {/* Banner */}
+          <Text style={s.sectionBanner}>6. DETAILS OF APPLICATION</Text>
+
+          {/* 6.A | 6.B */}
+          <View style={s.rowBordered}>
+            {/* 6.A */}
+            <View style={[{ width: "55%", padding: 4 }, s.cellRightBorder]}>
+              <Text style={s.cellLabelBold}>6.A TYPE OF LEAVE TO BE AVAILED OF</Text>
+              <View style={{ marginTop: 3 }}>
+                <CheckLine
+                  checked={isCode("VL")}
+                  main="Vacation Leave"
+                  cite="(Sec. 51, Rule XVI, Omnibus Rules Implementing E.O. No. 292)"
+                />
+                <CheckLine
+                  checked={isCode("FL")}
+                  main="Mandatory/Forced Leave"
+                  cite="(Sec. 25, Rule XVI, Omnibus Rules Implementing E.O. No. 292)"
+                />
+                <CheckLine
+                  checked={isCode("SL")}
+                  main="Sick Leave"
+                  cite="(Sec. 43, Rule XVI, Omnibus Rules Implementing E.O. No. 292)"
+                />
+                <CheckLine
+                  checked={isCode("ML")}
+                  main="Maternity Leave"
+                  cite="(R.A. No. 11210 / IRR issued by CSC, DOLE and SSS)"
+                />
+                <CheckLine
+                  checked={isCode("PL")}
+                  main="Paternity Leave"
+                  cite="(R.A. No. 8187 / CSC MC No. 71, s. 1998, as amended)"
+                />
+                <CheckLine
+                  checked={isCode("SPL")}
+                  main="Special Privilege Leave"
+                  cite="(Sec. 21, Rule XVI, Omnibus Rules Implementing E.O. No. 292)"
+                />
+                <CheckLine
+                  checked={isCode("SoloParent")}
+                  main="Solo Parent Leave"
+                  cite="(RA No. 8972 / CSC MC No. 8, s. 2004)"
+                />
+                <CheckLine
+                  checked={false}
+                  main="Study Leave"
+                  cite="(Sec. 68, Rule XVI, Omnibus Rules Implementing E.O. No. 292)"
+                />
+                <CheckLine
+                  checked={isCode("VAWC")}
+                  main="10-Day VAWC Leave"
+                  cite="(RA No. 9262 / CSC MC No. 15, s. 2005)"
+                />
+                <CheckLine
+                  checked={isCode("RL")}
+                  main="Rehabilitation Privilege"
+                  cite="(Sec. 55, Rule XVI, Omnibus Rules Implementing E.O. No. 292)"
+                />
+                <CheckLine
+                  checked={isCode("SEL")}
+                  main="Special Leave Benefits for Women"
+                  cite="(RA No. 9710 / CSC MC No. 25, s. 2010)"
+                />
+                <CheckLine
+                  checked={isCode("CL")}
+                  main="Special Emergency (Calamity) Leave"
+                  cite="(CSC MC No. 2, s. 2012, as amended)"
+                />
+                <CheckLine
+                  checked={isCode("AL")}
+                  main="Adoption Leave"
+                  cite="(R.A. No. 8552)"
+                />
+              </View>
+
+              <Text style={[s.italic, { fontSize: 8.5, marginTop: 6 }]}>Others:</Text>
+              <Text style={{ borderBottom: HAIR, minHeight: 11, marginTop: 4 }} />
             </View>
 
-            {/* 6.B - Right column */}
-            <View style={{ width: "50%", padding: 4 }}>
-              <Text style={{ ...s.cellLabel, fontFamily: "Helvetica-Bold", marginBottom: 3 }}>
-                6.B DETAILS OF LEAVE
-              </Text>
+            {/* 6.B */}
+            <View style={{ width: "45%", padding: 4 }}>
+              <Text style={s.cellLabelBold}>6.B DETAILS OF LEAVE</Text>
 
-              <Text style={{ ...s.cellLabel, marginBottom: 2, marginTop: 2 }}>
+              <Text style={[s.italic, { fontSize: 8.5, marginTop: 4 }]}>
                 In case of Vacation/Special Privilege Leave:
               </Text>
-              <Checkbox checked={isWithinPH} label="Within the Philippines" />
-              <Checkbox checked={isAbroad} label={`Abroad (Specify) ${abroadSpec || "___________"}`} />
+              <View style={s.cbRow}>
+                <CB checked={isWithinPH} />
+                <Text style={s.cbLabel}>
+                  Within the Philippines{" "}
+                  <Text style={{ borderBottom: HAIR }}>
+                    {isWithinPH ? "✓" : "                                          "}
+                  </Text>
+                </Text>
+              </View>
+              <View style={s.cbRow}>
+                <CB checked={isAbroad} />
+                <Text style={s.cbLabel}>
+                  Abroad (Specify){" "}
+                  <Text style={{ borderBottom: HAIR }}>
+                    {abroadSpec || "                                          "}
+                  </Text>
+                </Text>
+              </View>
 
-              <Text style={{ ...s.cellLabel, marginBottom: 2, marginTop: 6 }}>
-                In case of Sick Leave:
-              </Text>
-              <Checkbox checked={isInHospital} label={`In Hospital (Specify Illness) ${hospitalSpec || "___________"}`} />
-              <Checkbox checked={isOutPatient} label={`Out Patient (Specify Illness) ${outPatientSpec || "___________"}`} />
+              <Text style={[s.italic, { fontSize: 8.5, marginTop: 4 }]}>In case of Sick Leave:</Text>
+              <View style={s.cbRow}>
+                <CB checked={isInHospital} />
+                <Text style={s.cbLabel}>
+                  In Hospital (Specify Illness){" "}
+                  <Text style={{ borderBottom: HAIR }}>
+                    {hospitalSpec || "                                  "}
+                  </Text>
+                </Text>
+              </View>
+              <View style={s.cbRow}>
+                <CB checked={isOutPatient} />
+                <Text style={s.cbLabel}>
+                  Out Patient (Specify Illness){" "}
+                  <Text style={{ borderBottom: HAIR }}>
+                    {outPatientSpec || "                                  "}
+                  </Text>
+                </Text>
+              </View>
 
-              <Text style={{ ...s.cellLabel, marginBottom: 2, marginTop: 6 }}>
+              <Text style={[s.italic, { fontSize: 8.5, marginTop: 4 }]}>
                 In case of Special Leave Benefits for Women:
               </Text>
-              <Text style={s.cb}>
-                (Specify Illness) {isCode("SEL") ? detailsOfLeave || "___________" : "___________"}
+              <Text style={{ fontSize: 8.5, marginTop: 1 }}>
+                (Specify Illness){" "}
+                <Text style={{ borderBottom: HAIR }}>
+                  {selSpec || "                                                              "}
+                </Text>
               </Text>
 
-              <Text style={{ ...s.cellLabel, marginBottom: 2, marginTop: 6 }}>
-                In case of Study Leave:
-              </Text>
-              <Checkbox checked={false} label="Completion of Master's Degree" />
-              <Checkbox checked={false} label="BAR/Board Examination Review" />
+              <Text style={[s.italic, { fontSize: 8.5, marginTop: 4 }]}>In case of Study Leave:</Text>
+              <CheckLine checked={false} main="Completion of Master's Degree" />
+              <CheckLine checked={false} main="BAR/Board Examination Review" />
 
-              <Text style={{ ...s.cellLabel, marginBottom: 2, marginTop: 6 }}>
-                Other purpose/Leave:
-              </Text>
-              <Checkbox checked={false} label="Monetization of Leave Credits" />
-              <Checkbox checked={false} label="Terminal Leave" />
+              <Text style={[s.italic, { fontSize: 8.5, marginTop: 4 }]}>Other purpose:</Text>
+              <CheckLine checked={false} main="Monetization of Leave Credits" />
+              <CheckLine checked={false} main="Terminal Leave" />
             </View>
           </View>
 
-          {/* 6.C */}
-          <View style={s.row}>
-            <View style={{ width: "50%", padding: 4, borderRight: "0.5pt solid #000" }}>
-              <Text style={s.cellLabel}>6.C NUMBER OF WORKING DAYS APPLIED FOR</Text>
-              <Text style={{ ...s.cellValue, fontSize: 10, marginTop: 2 }}>{daysApplied} day(s)</Text>
-              <Text style={{ ...s.cellLabel, marginTop: 3 }}>INCLUSIVE DATES</Text>
-              <Text style={{ ...s.cellValue, marginTop: 1 }}>
-                {leaveDates.length > 0
-                  ? leaveDates.length <= 5
-                    ? leaveDates.map((d) => fmtDate(d)).join(", ")
-                    : `${fmtDate(startDate)} to ${fmtDate(endDate)} (${leaveDates.length} specific dates)`
-                  : `${fmtDate(startDate)} to ${fmtDate(endDate)}`}
-              </Text>
+          {/* 6.C | 6.D */}
+          <View style={s.rowBordered}>
+            <View style={[{ width: "55%", padding: 4 }, s.cellRightBorder]}>
+              <Text style={s.cellLabelBold}>6.C NUMBER OF WORKING DAYS APPLIED FOR</Text>
+              <ValueLine>{daysApplied ? `${daysApplied} day(s)` : ""}</ValueLine>
+              <Text style={[s.cellLabelBold, { marginTop: 6 }]}>INCLUSIVE DATES</Text>
+              <ValueLine>{inclusiveDates}</ValueLine>
             </View>
-            <View style={{ width: "50%", padding: 4 }}>
-              <Text style={s.cellLabel}>6.D COMMUTATION</Text>
+            <View style={{ width: "45%", padding: 4 }}>
+              <Text style={s.cellLabelBold}>6.D COMMUTATION</Text>
               <View style={{ marginTop: 3 }}>
-                <Checkbox checked={!commutationRequested} label="Not Requested" />
-                <Checkbox checked={commutationRequested} label="Requested" />
+                <CheckLine checked={!commutationRequested} main="Not Requested" />
+                <CheckLine checked={commutationRequested} main="Requested" />
               </View>
-            </View>
-          </View>
-
-          {/* Reason */}
-          {reason && (
-            <View style={s.rowLast}>
-              <View style={{ padding: 4, width: "100%" }}>
-                <Text style={s.cellLabel}>REMARKS</Text>
-                <Text style={{ ...s.cellValue, marginTop: 2 }}>{reason}</Text>
-              </View>
-            </View>
-          )}
-        </View>
-
-        {/* Applicant signature */}
-        <View style={{ flexDirection: "row", justifyContent: "flex-end", marginTop: 4, marginBottom: 4 }}>
-          <View style={{ width: "40%" }}>
-            <Text style={s.sigLine}>Signature of Applicant</Text>
-          </View>
-        </View>
-
-        {/* Section 7 */}
-        <View style={{ ...s.box, marginTop: 2 }}>
-          <Text style={s.sectionHeader}>7. DETAILS OF ACTION ON APPLICATION</Text>
-
-          {/* 7.A Certification of Leave Credits */}
-          <View style={s.row}>
-            <View style={{ width: "100%", padding: 4 }}>
-              <Text style={{ ...s.cellLabel, fontFamily: "Helvetica-Bold", marginBottom: 3 }}>
-                7.A CERTIFICATION OF LEAVE CREDITS
-              </Text>
-              <Text style={{ ...s.cellLabel, marginBottom: 4 }}>
-                As of filing of application, the leave credits balance of the applicant are as follows:
-              </Text>
-              {/* Credit table header */}
-              <View style={{ flexDirection: "row", borderTop: "0.5pt solid #000", borderBottom: "0.5pt solid #000", backgroundColor: "#f0f0f0" }}>
-                <Text style={{ width: "25%", padding: 2, fontSize: 7, fontFamily: "Helvetica-Bold", textAlign: "center", borderRight: "0.5pt solid #000" }}> </Text>
-                <Text style={{ width: "25%", padding: 2, fontSize: 7, fontFamily: "Helvetica-Bold", textAlign: "center", borderRight: "0.5pt solid #000" }}>Total Earned</Text>
-                <Text style={{ width: "25%", padding: 2, fontSize: 7, fontFamily: "Helvetica-Bold", textAlign: "center", borderRight: "0.5pt solid #000" }}>Less this application</Text>
-                <Text style={{ width: "25%", padding: 2, fontSize: 7, fontFamily: "Helvetica-Bold", textAlign: "center" }}>Balance</Text>
-              </View>
-              {/* VL row */}
-              <View style={{ flexDirection: "row", borderBottom: "0.5pt solid #000" }}>
-                <Text style={{ width: "25%", padding: 2, fontSize: 7, borderRight: "0.5pt solid #000" }}>Vacation Leave</Text>
-                <Text style={{ width: "25%", padding: 2, fontSize: 8, textAlign: "center", borderRight: "0.5pt solid #000" }}>{vlTotal}</Text>
-                <Text style={{ width: "25%", padding: 2, fontSize: 8, textAlign: "center", borderRight: "0.5pt solid #000" }}>
-                  {isCode("VL") || isCode("FL") || isCode("SPL") ? daysApplied : ""}
+              <View style={{ marginTop: 22 }}>
+                <Text style={{ borderBottom: HAIR }}> </Text>
+                <Text style={[s.italic, { fontSize: 8.5, textAlign: "center", marginTop: 1 }]}>
+                  (Signature of Applicant)
                 </Text>
-                <Text style={{ width: "25%", padding: 2, fontSize: 8, textAlign: "center", fontFamily: "Helvetica-Bold" }}>{vlBalance}</Text>
               </View>
-              {/* SL row */}
-              <View style={{ flexDirection: "row" }}>
-                <Text style={{ width: "25%", padding: 2, fontSize: 7, borderRight: "0.5pt solid #000" }}>Sick Leave</Text>
-                <Text style={{ width: "25%", padding: 2, fontSize: 8, textAlign: "center", borderRight: "0.5pt solid #000" }}>{slTotal}</Text>
-                <Text style={{ width: "25%", padding: 2, fontSize: 8, textAlign: "center", borderRight: "0.5pt solid #000" }}>
-                  {isCode("SL") ? daysApplied : ""}
+            </View>
+          </View>
+
+          {/* Banner */}
+          <Text style={s.sectionBanner}>7. DETAILS OF ACTION ON APPLICATION</Text>
+
+          {/* 7.A | 7.B */}
+          <View style={s.rowBordered}>
+            {/* 7.A */}
+            <View style={[{ width: "55%", padding: 4 }, s.cellRightBorder]}>
+              <Text style={s.cellLabelBold}>7.A CERTIFICATION OF LEAVE CREDITS</Text>
+              <View style={{ flexDirection: "row", marginTop: 3 }}>
+                <Text style={[s.italic, { fontSize: 8.5 }]}>As of </Text>
+                <Text style={{ flex: 1, borderBottom: HAIR, fontSize: 9, fontFamily: "Helvetica-Bold" }}>
+                  {dateOfFiling}
                 </Text>
-                <Text style={{ width: "25%", padding: 2, fontSize: 8, textAlign: "center", fontFamily: "Helvetica-Bold" }}>{slBalance}</Text>
+              </View>
+
+              <View style={{ marginTop: 6, ...s.ledger }}>
+                <View style={s.ledgerHeader}>
+                  <Text style={[s.ledgerHCell, { width: "33.3%", borderRight: HAIR }]}> </Text>
+                  <Text style={[s.ledgerHCell, { width: "33.3%", borderRight: HAIR }]}>Vacation Leave</Text>
+                  <Text style={[s.ledgerHCell, { width: "33.4%" }]}>Sick Leave</Text>
+                </View>
+                <View style={s.ledgerRow}>
+                  <Text style={[s.ledgerLabelCell, { width: "33.3%" }]}>Total Earned</Text>
+                  <Text style={[s.ledgerCell, { width: "33.3%" }]}>{vlTotal || ""}</Text>
+                  <Text style={[s.ledgerCellLast, { width: "33.4%" }]}>{slTotal || ""}</Text>
+                </View>
+                <View style={s.ledgerRow}>
+                  <Text style={[s.ledgerLabelCell, { width: "33.3%" }]}>Less this application</Text>
+                  <Text style={[s.ledgerCell, { width: "33.3%" }]}>{lessVl || ""}</Text>
+                  <Text style={[s.ledgerCellLast, { width: "33.4%" }]}>{lessSl || ""}</Text>
+                </View>
+                <View style={s.ledgerRowLast}>
+                  <Text style={[s.ledgerLabelCell, { width: "33.3%" }]}>Balance</Text>
+                  <Text style={[s.ledgerCell, { width: "33.3%", fontFamily: "Helvetica-Bold" }]}>
+                    {vlBalance || ""}
+                  </Text>
+                  <Text style={[s.ledgerCellLast, { width: "33.4%", fontFamily: "Helvetica-Bold" }]}>
+                    {slBalance || ""}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ marginTop: 16 }}>
+                <Text style={{ borderBottom: HAIR, width: "70%", alignSelf: "center" }}> </Text>
+                <Text style={[s.italic, { fontSize: 8.5, textAlign: "center", marginTop: 1 }]}>
+                  (Authorized Officer)
+                </Text>
+              </View>
+            </View>
+
+            {/* 7.B */}
+            <View style={{ width: "45%", padding: 4 }}>
+              <Text style={s.cellLabelBold}>7.B RECOMMENDATION</Text>
+              <View style={{ marginTop: 3 }}>
+                <CheckLine
+                  checked={status === "approved" || status === "pending"}
+                  main="For approval"
+                />
+                <View style={s.cbRow}>
+                  <CB checked={status === "rejected"} />
+                  <Text style={s.cbLabel}>
+                    For disapproval due to{" "}
+                    <Text style={{ borderBottom: HAIR }}>
+                      {"                                                                  "}
+                    </Text>
+                  </Text>
+                </View>
+                <Text style={{ borderBottom: HAIR, marginTop: 2 }}> </Text>
+                <Text style={{ borderBottom: HAIR, marginTop: 2 }}> </Text>
+                <Text style={{ borderBottom: HAIR, marginTop: 2 }}> </Text>
+              </View>
+
+              <View style={{ marginTop: 14 }}>
+                <Text style={{ borderBottom: HAIR, width: "70%", alignSelf: "center" }}> </Text>
+                <Text style={[s.italic, { fontSize: 8.5, textAlign: "center", marginTop: 1 }]}>
+                  (Authorized Officer)
+                </Text>
               </View>
             </View>
           </View>
 
-          {/* 7.B Recommendation */}
-          <View style={s.row}>
-            <View style={{ width: "50%", padding: 4, borderRight: "0.5pt solid #000" }}>
-              <Text style={{ ...s.cellLabel, fontFamily: "Helvetica-Bold", marginBottom: 3 }}>
-                7.B RECOMMENDATION
-              </Text>
-              <Checkbox checked={status === "approved" || status === "pending"} label="For approval" />
-              <Checkbox checked={status === "rejected"} label="For disapproval due to:" />
-              <Text style={{ fontSize: 7, marginTop: 2 }}>________________________</Text>
+          {/* 7.C | 7.D */}
+          <View style={s.rowBordered}>
+            <View style={[{ width: "55%", padding: 4 }, s.cellRightBorder]}>
+              <Text style={s.cellLabelBold}>7.C APPROVED FOR:</Text>
+              <View style={{ flexDirection: "row", alignItems: "flex-end", marginTop: 4 }}>
+                <Text style={{ borderBottom: HAIR, width: 50, fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center" }}>
+                  {status === "approved" ? daysApplied : " "}
+                </Text>
+                <Text style={{ fontSize: 8.5, marginLeft: 4 }}>days with pay</Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "flex-end", marginTop: 4 }}>
+                <Text style={{ borderBottom: HAIR, width: 50 }}> </Text>
+                <Text style={{ fontSize: 8.5, marginLeft: 4 }}>days without pay</Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "flex-end", marginTop: 4 }}>
+                <Text style={{ borderBottom: HAIR, width: 50 }}> </Text>
+                <Text style={{ fontSize: 8.5, marginLeft: 4 }}>others (Specify)</Text>
+              </View>
             </View>
-            <View style={{ width: "50%", padding: 4 }}>
-              <Text style={{ ...s.cellLabel, fontFamily: "Helvetica-Bold", marginBottom: 3 }}>
-                7.C APPROVED FOR
-              </Text>
-              <Text style={s.cb}>
-                {status === "approved" ? `${daysApplied} days with pay` : "_______ days with pay"}
-              </Text>
-              <Text style={{ ...s.cb, marginTop: 2 }}>_______ days without pay</Text>
-              <Text style={{ ...s.cellLabel, fontFamily: "Helvetica-Bold", marginTop: 6, marginBottom: 2 }}>
-                DISAPPROVED DUE TO:
-              </Text>
-              <Text style={{ fontSize: 7 }}>________________________</Text>
+            <View style={{ width: "45%", padding: 4 }}>
+              <Text style={s.cellLabelBold}>7.D DISAPPROVED DUE TO:</Text>
+              <Text style={{ borderBottom: HAIR, marginTop: 6 }}> </Text>
+              <Text style={{ borderBottom: HAIR, marginTop: 4 }}> </Text>
+              <Text style={{ borderBottom: HAIR, marginTop: 4 }}> </Text>
+            </View>
+          </View>
+
+          {/* Final centered "Authorized Official" */}
+          <View style={s.rowOpen}>
+            <View style={{ width: "100%", padding: 6, paddingTop: 30, paddingBottom: 8 }}>
+              <View style={s.sigCenterLine} />
+              <Text style={s.sigCenterCaption}>(Authorized Official)</Text>
             </View>
           </View>
         </View>
-
-        {/* Signatures */}
-        <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
-          <View style={{ width: "45%" }}>
-            <Text style={s.sigLine}>Department Head / Authorized Representative</Text>
-            <Text style={s.sigTitle}>Recommending Approval</Text>
-          </View>
-          <View style={{ width: "45%" }}>
-            <Text style={s.sigLine}>Authorized Official</Text>
-            <Text style={s.sigTitle}>Approved / Disapproved</Text>
-          </View>
-        </View>
-
-        {/* Footer */}
-        <Text style={{ fontSize: 6, color: "#999", textAlign: "center", marginTop: 15, fontStyle: "italic" }}>
-          CS Form No. 6 (Revised 2020) - Application for Leave
-        </Text>
       </Page>
     </Document>
   );

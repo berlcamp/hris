@@ -620,6 +620,7 @@ export async function getDtrData(
   middle_name: string | null;
   departments: { name: string } | null;
   positions: { title: string } | null;
+  plantilla: { position_title: string | null }[] | null;
 } | null }> {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
@@ -630,7 +631,7 @@ export async function getDtrData(
   const { data: employee } = await supabase
     .schema("hris")
     .from("employees")
-    .select("first_name, last_name, middle_name, departments!employees_department_id_fkey(name), positions(title)")
+    .select("first_name, last_name, middle_name, departments!employees_department_id_fkey(name), positions(title), plantilla(position_title)")
     .eq("id", employeeId)
     .maybeSingle();
 
@@ -794,6 +795,7 @@ export async function getDtrData(
     employee: employee as typeof employee & {
       departments: { name: string } | null;
       positions: { title: string } | null;
+      plantilla: { position_title: string | null }[] | null;
     },
   };
 }

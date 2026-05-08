@@ -70,81 +70,120 @@ export interface EmployeeDashboardData {
 export async function getDashboardStats(user: AuthUserData): Promise<DashboardStats> {
   const supabase = createAdminClient();
 
-  // Employee counts
-  const { count: totalEmployees } = await supabase
+  const isDeptHead =
+    user.role === "department_head" && !!user.departmentId;
+  const deptId = user.departmentId ?? null;
+
+  // For department_head: pre-compute employee IDs in their dept so we can
+  // scope record-counts (leaves/NOSI/NOSA/IPCR) to "their employees only".
+  let deptEmployeeIds: string[] = [];
+  if (isDeptHead && deptId) {
+    const { data: deptEmps } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("id")
+      .eq("department_id", deptId);
+    deptEmployeeIds = (deptEmps ?? []).map((e) => e.id);
+  }
+  const noDeptEmployees = isDeptHead && deptEmployeeIds.length === 0;
+
+  // Employee counts (filterable directly by department_id)
+  let totalQuery = supabase
     .schema("hris")
     .from("employees")
     .select("id", { count: "exact", head: true });
+  if (isDeptHead && deptId) totalQuery = totalQuery.eq("department_id", deptId);
+  const { count: totalEmployees } = await totalQuery;
 
-  const { count: activeEmployees } = await supabase
+  let activeQuery = supabase
     .schema("hris")
     .from("employees")
     .select("id", { count: "exact", head: true })
     .eq("status", "active");
+  if (isDeptHead && deptId) activeQuery = activeQuery.eq("department_id", deptId);
+  const { count: activeEmployees } = await activeQuery;
 
-  const { count: plantillaCount } = await supabase
+  let plantillaQuery = supabase
     .schema("hris")
     .from("employees")
     .select("id", { count: "exact", head: true })
     .eq("status", "active")
     .eq("employment_type", "plantilla");
+  if (isDeptHead && deptId) plantillaQuery = plantillaQuery.eq("department_id", deptId);
+  const { count: plantillaCount } = await plantillaQuery;
 
-  const { count: joCount } = await supabase
+  let joQuery = supabase
     .schema("hris")
     .from("employees")
     .select("id", { count: "exact", head: true })
     .eq("status", "active")
     .eq("employment_type", "jo");
+  if (isDeptHead && deptId) joQuery = joQuery.eq("department_id", deptId);
+  const { count: joCount } = await joQuery;
 
-  const { count: cosCount } = await supabase
+  let cosQuery = supabase
     .schema("hris")
     .from("employees")
     .select("id", { count: "exact", head: true })
     .eq("status", "active")
     .eq("employment_type", "cos");
+  if (isDeptHead && deptId) cosQuery = cosQuery.eq("department_id", deptId);
+  const { count: cosCount } = await cosQuery;
 
-  // Pending approvals
-  let pendingLeavesQuery = supabase
-    .schema("hris")
-    .from("leave_applications")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "pending");
+  // Pending approvals — for dept_head, scope by employee_id list
+  let pendingLeaves = 0;
+  let pendingNosi = 0;
+  let pendingNosa = 0;
+  let pendingIpcr = 0;
 
-  if (user.role === "department_head" && user.departmentId) {
-    const { data: deptEmps } = await supabase
+  if (!noDeptEmployees) {
+    let leavesQuery = supabase
       .schema("hris")
-      .from("employees")
-      .select("id")
-      .eq("department_id", user.departmentId);
-    if (deptEmps && deptEmps.length > 0) {
-      pendingLeavesQuery = pendingLeavesQuery.in("employee_id", deptEmps.map((e) => e.id));
-    }
+      .from("leave_applications")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending");
+    if (isDeptHead) leavesQuery = leavesQuery.in("employee_id", deptEmployeeIds);
+    const { count } = await leavesQuery;
+    pendingLeaves = count ?? 0;
+
+    let nosiQuery = supabase
+      .schema("hris")
+      .from("nosi_records")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending");
+    if (isDeptHead) nosiQuery = nosiQuery.in("employee_id", deptEmployeeIds);
+    const { count: nosiCount } = await nosiQuery;
+    pendingNosi = nosiCount ?? 0;
+
+    let nosaQuery = supabase
+      .schema("hris")
+      .from("nosa_records")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending");
+    if (isDeptHead) nosaQuery = nosaQuery.in("employee_id", deptEmployeeIds);
+    const { count: nosaCount } = await nosaQuery;
+    pendingNosa = nosaCount ?? 0;
+
+    let ipcrQuery = supabase
+      .schema("hris")
+      .from("ipcr_records")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending");
+    if (isDeptHead) ipcrQuery = ipcrQuery.in("employee_id", deptEmployeeIds);
+    const { count: ipcrCount } = await ipcrQuery;
+    pendingIpcr = ipcrCount ?? 0;
   }
 
-  const { count: pendingLeaves } = await pendingLeavesQuery;
-
-  const { count: pendingNosi } = await supabase
-    .schema("hris")
-    .from("nosi_records")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "pending");
-
-  const { count: pendingNosa } = await supabase
-    .schema("hris")
-    .from("nosa_records")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "pending");
-
-  const { count: pendingIpcr } = await supabase
-    .schema("hris")
-    .from("ipcr_records")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "pending");
-
-  const { count: departmentCount } = await supabase
-    .schema("hris")
-    .from("departments")
-    .select("id", { count: "exact", head: true });
+  let departmentCount = 0;
+  if (isDeptHead) {
+    departmentCount = 1;
+  } else {
+    const { count } = await supabase
+      .schema("hris")
+      .from("departments")
+      .select("id", { count: "exact", head: true });
+    departmentCount = count ?? 0;
+  }
 
   return {
     totalEmployees: totalEmployees ?? 0,
@@ -152,24 +191,31 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
     plantillaCount: plantillaCount ?? 0,
     joCount: joCount ?? 0,
     cosCount: cosCount ?? 0,
-    pendingLeaves: pendingLeaves ?? 0,
-    pendingNosi: pendingNosi ?? 0,
-    pendingNosa: pendingNosa ?? 0,
-    pendingIpcr: pendingIpcr ?? 0,
-    departmentCount: departmentCount ?? 0,
+    pendingLeaves,
+    pendingNosi,
+    pendingNosa,
+    pendingIpcr,
+    departmentCount,
   };
 }
 
 // --- Chart Data ---
 
 export async function getEmployeesByDepartment(): Promise<DeptEmployeeCount[]> {
+  const user = await getCurrentUser();
   const supabase = createAdminClient();
 
-  const { data } = await supabase
+  let query = supabase
     .schema("hris")
     .from("employees")
     .select("department_id, departments!employees_department_id_fkey(name, code)")
     .eq("status", "active");
+
+  if (user?.role === "department_head" && user.departmentId) {
+    query = query.eq("department_id", user.departmentId);
+  }
+
+  const { data } = await query;
 
   if (!data) return [];
 
@@ -189,13 +235,20 @@ export async function getEmployeesByDepartment(): Promise<DeptEmployeeCount[]> {
 }
 
 export async function getEmployeesByType(): Promise<EmployeeTypeCount[]> {
+  const user = await getCurrentUser();
   const supabase = createAdminClient();
 
-  const { data } = await supabase
+  let query = supabase
     .schema("hris")
     .from("employees")
     .select("employment_type")
     .eq("status", "active");
+
+  if (user?.role === "department_head" && user.departmentId) {
+    query = query.eq("department_id", user.departmentId);
+  }
+
+  const { data } = await query;
 
   if (!data) return [];
 
@@ -406,9 +459,10 @@ export async function getEmployeeDashboardData(userId: string): Promise<Employee
 // --- Reports helpers ---
 
 export async function getReportPlantilla() {
+  const user = await getCurrentUser();
   const supabase = createAdminClient();
 
-  const { data } = await supabase
+  let query = supabase
     .schema("hris")
     .from("positions")
     .select(`
@@ -418,10 +472,16 @@ export async function getReportPlantilla() {
     `)
     .order("salary_grade", { ascending: false });
 
+  if (user?.role === "department_head" && user.departmentId) {
+    query = query.eq("department_id", user.departmentId);
+  }
+
+  const { data } = await query;
   return data ?? [];
 }
 
 export async function getReportNosiSummary(startDate?: string, endDate?: string) {
+  const user = await getCurrentUser();
   const supabase = createAdminClient();
 
   let query = supabase
@@ -430,19 +490,23 @@ export async function getReportNosiSummary(startDate?: string, endDate?: string)
     .select(`
       id, effective_date, current_salary_grade, current_step, new_step,
       current_salary, new_salary, status,
-      employees!inner(first_name, last_name,
+      employees!inner(first_name, last_name, department_id,
         departments!employees_department_id_fkey(name))
     `)
     .order("effective_date", { ascending: false });
 
   if (startDate) query = query.gte("effective_date", startDate);
   if (endDate) query = query.lte("effective_date", endDate);
+  if (user?.role === "department_head" && user.departmentId) {
+    query = query.eq("employees.department_id", user.departmentId);
+  }
 
   const { data } = await query;
   return data ?? [];
 }
 
 export async function getReportNosaSummary(startDate?: string, endDate?: string) {
+  const user = await getCurrentUser();
   const supabase = createAdminClient();
 
   let query = supabase
@@ -451,19 +515,23 @@ export async function getReportNosaSummary(startDate?: string, endDate?: string)
     .select(`
       id, effective_date, previous_salary_grade, previous_step, new_salary_grade, new_step,
       previous_salary, new_salary, reason, status,
-      employees!inner(first_name, last_name,
+      employees!inner(first_name, last_name, department_id,
         departments!employees_department_id_fkey(name))
     `)
     .order("effective_date", { ascending: false });
 
   if (startDate) query = query.gte("effective_date", startDate);
   if (endDate) query = query.lte("effective_date", endDate);
+  if (user?.role === "department_head" && user.departmentId) {
+    query = query.eq("employees.department_id", user.departmentId);
+  }
 
   const { data } = await query;
   return data ?? [];
 }
 
 export async function getReportIpcrSummary(periodId?: string) {
+  const user = await getCurrentUser();
   const supabase = createAdminClient();
 
   let query = supabase
@@ -471,13 +539,16 @@ export async function getReportIpcrSummary(periodId?: string) {
     .from("ipcr_records")
     .select(`
       id, numerical_rating, adjectival_rating, status,
-      employees!inner(first_name, last_name,
+      employees!inner(first_name, last_name, department_id,
         departments!employees_department_id_fkey(name)),
       ipcr_periods!inner(name)
     `)
     .order("numerical_rating", { ascending: false });
 
   if (periodId) query = query.eq("period_id", periodId);
+  if (user?.role === "department_head" && user.departmentId) {
+    query = query.eq("employees.department_id", user.departmentId);
+  }
 
   const { data } = await query;
   return data ?? [];

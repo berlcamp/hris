@@ -42,6 +42,7 @@ import { DocumentsTab } from "@/components/employees/documents-tab";
 import { LeaveCreditsTab } from "@/components/employees/leave-credits-tab";
 import { PlantillaTab } from "@/components/employees/plantilla-tab";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 export default async function EmployeeProfilePage({
   params,
@@ -126,13 +127,17 @@ export default async function EmployeeProfilePage({
                   employee.status.slice(1)}
               </Badge>
             </div>
-            {employee.positions && (
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {employee.positions.title}
-                {employee.departments &&
-                  ` — ${employee.departments.name}`}
-              </p>
-            )}
+            {(() => {
+              const positionTitle = getEffectivePosition(employee);
+              if (!positionTitle && !employee.departments) return null;
+              return (
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {positionTitle}
+                  {positionTitle && employee.departments && " — "}
+                  {employee.departments?.name}
+                </p>
+              );
+            })()}
           </div>
         </div>
         <Link href={`/employees/${id}/edit`}>

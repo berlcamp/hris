@@ -4,6 +4,7 @@ import {
   ColumnDef,
   ColumnFiltersState,
   SortingState,
+  type Table as ReactTableInstance,
   VisibilityState,
   flexRender,
   getCoreRowModel,
@@ -46,7 +47,7 @@ interface DataTableProps<TData, TValue> {
   filterableColumns?: DataTableFilterableColumn<TData>[];
   searchableColumns?: DataTableSearchableColumn<TData>[];
   isLoading?: boolean;
-  toolbar?: React.ReactNode;
+  toolbar?: React.ReactNode | ((table: ReactTableInstance<TData>) => React.ReactNode);
   // When true, the table body scrolls inside a bounded parent instead of
   // growing and causing page-level scroll. The parent must constrain height.
   fillHeight?: boolean;
@@ -102,7 +103,7 @@ export function DataTable<TData, TValue>({
         filterableColumns={filterableColumns}
         searchableColumns={searchableColumns}
       >
-        {toolbar}
+        {typeof toolbar === "function" ? toolbar(table) : toolbar}
       </DataTableToolbar>
       <div
         className={

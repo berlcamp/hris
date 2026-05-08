@@ -6,6 +6,7 @@ import {
   StyleSheet,
 } from "@react-pdf/renderer";
 import type { DtrEntry, DtrSummary } from "@/lib/actions/attendance-actions";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 const styles = StyleSheet.create({
   page: {
@@ -182,6 +183,7 @@ interface DtrPdfProps {
     middle_name: string | null;
     departments: { name: string } | null;
     positions: { title: string } | null;
+    plantilla: { position_title: string | null }[] | null;
   };
   month: string;
   year: string;
@@ -297,7 +299,7 @@ export function DtrPdf({ entries, summary, employee, month, year }: DtrPdfProps)
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Position:</Text>
               <Text style={styles.infoValue}>
-                {employee.positions?.title ?? ""}
+                {getEffectivePosition(employee) ?? ""}
               </Text>
             </View>
           </View>

@@ -65,6 +65,7 @@ export interface LeaveApplicationWithRelations {
     department_id: string | null;
     departments: { name: string; code: string } | null;
     positions: { title: string } | null;
+    plantilla: { position_title: string | null }[] | null;
   } | null;
   leave_types: { code: string; name: string } | null;
 }
@@ -338,7 +339,8 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
       employees(
         first_name, last_name, department_id, biometric_no,
         departments!employees_department_id_fkey(name, code),
-        positions(title)
+        positions(title),
+        plantilla(position_title)
       ),
       leave_types(code, name)
     `)
@@ -370,6 +372,9 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
 }
 
 export async function getLeaveApplicationById(id: string) {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Unauthorized");
+
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .schema("hris")
@@ -379,13 +384,21 @@ export async function getLeaveApplicationById(id: string) {
       employees(
         first_name, last_name, middle_name, salary_grade, biometric_no, department_id,
         departments!employees_department_id_fkey(name, code),
-        positions(title)
+        positions(title),
+        plantilla(position_title)
       ),
       leave_types(code, name)
     `)
     .eq("id", id)
     .single();
   if (error) throw error;
+
+  if (user.role === "department_head" && user.departmentId) {
+    const empDeptId =
+      (data?.employees as { department_id?: string | null } | null)?.department_id ?? null;
+    if (empDeptId !== user.departmentId) throw new Error("Not found");
+  }
+
   return data as LeaveApplicationWithRelations;
 }
 
@@ -405,6 +418,18 @@ export async function createLeaveApplication(input: {
 
   const supabase = createAdminClient();
   const year = new Date(input.start_date).getFullYear();
+
+  if (user.role === "department_head" && user.departmentId) {
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", input.employee_id)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) {
+      return { error: "Insufficient permissions" };
+    }
+  }
 
   // Validate credit balance (view = total - approved usage)
   const { data: credit } = await supabase

@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 import { getLeaveApplicationById, getEmployeeLeaveCredits } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { getEffectivePosition } from "@/lib/employee-position";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
 import { LeavePdfButton } from "@/components/leaves/leave-pdf-button";
 
@@ -107,7 +108,7 @@ export default async function LeaveDetailPage({
               label="Employee No"
               value={emp != null ? String(emp.biometric_no) : undefined}
             />
-            <InfoRow label="Position" value={emp?.positions?.title} />
+            <InfoRow label="Position" value={emp ? getEffectivePosition(emp) : null} />
             <InfoRow
               label="Department"
               value={emp?.departments ? `${emp.departments.code} — ${emp.departments.name}` : null}

@@ -38,6 +38,7 @@ import {
   computeNetPeraAmount,
   getPeraMonthlyAmountFromEnv,
 } from "@/lib/utils/peraAmount";
+import { getEffectivePosition } from "@/lib/employee-position";
 
 type PrintKind =
   | "payroll1"
@@ -86,7 +87,7 @@ export function PayrollPrintMenu({ payroll, onOpenChange }: Props) {
           const rows = employees.map((emp, i) => ({
             "#": i + 1,
             employeeName: fullName(emp.employees),
-            designation: emp.designation ?? emp.employees?.positions?.title ?? "",
+            designation: emp.designation ?? (emp.employees && getEffectivePosition(emp.employees)) ?? "",
             monthly_rate: emp.monthly_rate,
             amount_earned: computeAmountEarnedFor1stHalfPrint(
               Number(emp.amount_received ?? 0),
@@ -129,7 +130,7 @@ export function PayrollPrintMenu({ payroll, onOpenChange }: Props) {
           const rows = employees.map((emp, i) => ({
             "#": i + 1,
             employeeName: fullName(emp.employees),
-            designation: emp.designation ?? emp.employees?.positions?.title ?? "",
+            designation: emp.designation ?? (emp.employees && getEffectivePosition(emp.employees)) ?? "",
             monthly_rate: emp.monthly_rate,
             amount_earned: emp.amount_received_2nd_half,
             amount_received: emp.amount_received_2nd_half,
@@ -146,7 +147,7 @@ export function PayrollPrintMenu({ payroll, onOpenChange }: Props) {
           const rows = employees.map((emp) => ({
             employeeName: fullName(emp.employees),
             cmoIdNo: emp.employees?.employee_no ?? "",
-            designation: emp.designation ?? emp.employees?.positions?.title ?? "",
+            designation: emp.designation ?? (emp.employees && getEffectivePosition(emp.employees)) ?? "",
             monthly_rate: emp.monthly_rate,
             amount_earned: peraBase,
             economic_enterprise_multipurpose_coop_pera:

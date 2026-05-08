@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 
 import { getNosiById } from "@/lib/actions/nosi-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { getEffectivePosition } from "@/lib/employee-position";
 import { NosiApprovalActions } from "@/components/nosi/nosi-approval-actions";
 import { NosiDeleteDraft } from "@/components/nosi/nosi-delete-draft";
 import { NosiPdfButton } from "@/components/nosi/nosi-pdf-button";
@@ -107,7 +108,7 @@ export default async function NosiDetailPage({
               label="Employee No"
               value={emp != null ? String(emp.biometric_no) : undefined}
             />
-            <InfoRow label="Position" value={emp?.positions?.title} />
+            <InfoRow label="Position" value={emp ? getEffectivePosition(emp) : null} />
             <InfoRow
               label="Department"
               value={emp?.departments ? `${emp.departments.code} — ${emp.departments.name}` : null}
