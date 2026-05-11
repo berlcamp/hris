@@ -4,8 +4,8 @@ import { format } from "date-fns";
 import {
   Users,
   CalendarDays,
+  CalendarCheck,
   ClipboardCheck,
-  Building2,
   Clock,
   FileText,
   TrendingUp,
@@ -37,7 +37,6 @@ const quickActions = [
   { title: "View DTR", icon: Clock, href: "/attendance", roles: ["super_admin", "hr_admin", "department_head", "department_admin", "employee"] },
   { title: "Generate Report", icon: FileText, href: "/reports", roles: ["super_admin", "hr_admin"] },
   { title: "NOSI", icon: TrendingUp, href: "/nosi", roles: ["super_admin", "hr_admin"] },
-  { title: "IPCR", icon: Star, href: "/performance", roles: ["super_admin", "hr_admin", "department_head"] },
 ];
 
 const approvalLinks: Record<string, string> = {
@@ -52,16 +51,18 @@ export default async function DashboardPage() {
 
   const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
   const isDeptHead = user.role === "department_head";
+  const isDeptAdmin = user.role === "department_admin";
+  const isDeptScoped = isDeptHead || isDeptAdmin;
   const isEmployee = user.role === "employee";
 
   const stats = await getDashboardStats(user);
 
-  // Admin/DeptHead data
+  // Admin/DeptHead/DeptAdmin data
   let deptData: Awaited<ReturnType<typeof getEmployeesByDepartment>> = [];
   let typeData: Awaited<ReturnType<typeof getEmployeesByType>> = [];
   let pendingApprovals: Awaited<ReturnType<typeof getPendingApprovals>> = [];
 
-  if (isAdmin || isDeptHead) {
+  if (isAdmin || isDeptScoped) {
     [deptData, typeData, pendingApprovals] = await Promise.all([
       getEmployeesByDepartment(),
       getEmployeesByType(),
@@ -88,8 +89,8 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {/* Stats — Admin/DeptHead */}
-      {(isAdmin || isDeptHead) && (
+      {/* Stats — Admin/DeptHead/DeptAdmin */}
+      {(isAdmin || isDeptScoped) && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -127,7 +128,26 @@ export default async function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{stats.pendingLeaves}</div>
-              <p className="mt-1 text-xs text-muted-foreground">Awaiting approval</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {isDeptScoped ? "In your department" : "Awaiting approval"}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Approved Leaves
+              </CardTitle>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
+                <CalendarCheck className="h-4 w-4 text-emerald-600" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{stats.approvedLeaves}</div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Approved this year
+              </p>
             </CardContent>
           </Card>
 
@@ -162,20 +182,6 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Departments
-              </CardTitle>
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/10">
-                <Building2 className="h-4 w-4 text-purple-600" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{stats.departmentCount}</div>
-              <p className="mt-1 text-xs text-muted-foreground">Organizational units</p>
-            </CardContent>
-          </Card>
         </div>
       )}
 
@@ -292,7 +298,7 @@ export default async function DashboardPage() {
       )}
 
       {/* Charts and quick actions — Admin/DeptHead */}
-      {(isAdmin || isDeptHead) && (
+      {(isAdmin || isDeptScoped) && (
         <>
           <div className="grid gap-6 lg:grid-cols-5">
             {/* Quick actions */}

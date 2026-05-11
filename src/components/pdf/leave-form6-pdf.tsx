@@ -29,14 +29,6 @@ const s = StyleSheet.create({
   agencyName: { fontSize: 9, fontFamily: "Helvetica", fontStyle: "italic", textAlign: "center" },
   agencyAddr: { fontSize: 9, fontFamily: "Helvetica", fontStyle: "italic", textAlign: "center" },
   annex: { fontSize: 11, fontFamily: "Helvetica-Bold", letterSpacing: 1.5 },
-  receiptBox: {
-    border: HAIR,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginTop: 4,
-    minWidth: 130,
-  },
-  receiptLabel: { fontSize: 7.5, textAlign: "center" },
 
   agencyTextWrap: { marginLeft: 6, alignItems: "center" },
   logo: { width: 56, height: 56 },
@@ -347,9 +339,6 @@ export function LeaveForm6Pdf({
           </View>
           <View style={s.topRight}>
             <Text style={s.annex}>ANNEX A</Text>
-            <View style={s.receiptBox}>
-              <Text style={s.receiptLabel}>Stamp of Date of Receipt</Text>
-            </View>
           </View>
         </View>
 

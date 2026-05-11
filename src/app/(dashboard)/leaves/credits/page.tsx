@@ -14,11 +14,7 @@ import type { LeaveCreditTableRow } from "@/components/tables/columns/leave-cred
 export default async function LeaveCreditsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (
-    user.role !== "super_admin" &&
-    user.role !== "hr_admin" &&
-    user.role !== "department_admin"
-  ) {
+  if (user.role !== "super_admin" && user.role !== "hr_admin") {
     redirect("/dashboard");
   }
 

@@ -128,7 +128,7 @@ const navGroups: NavGroup[] = [
         title: "Leave Credits",
         href: "/leaves/credits",
         icon: CreditCard,
-        roles: ["super_admin", "hr_admin", "department_admin"],
+        roles: ["super_admin", "hr_admin"],
       },
       { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: leaveAttendanceRoles },
     ],
@@ -156,10 +156,10 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Reports",
-    roles: adminRoles,
+    roles: deptManagerRoles,
     items: [
       { title: "Reports", href: "/reports", icon: BarChart3, roles: adminRoles },
-      { title: "Leave Ledger", href: "/reports/leave-ledger", icon: FileText, roles: adminRoles },
+      { title: "Leave Ledger", href: "/reports/leave-ledger", icon: FileText, roles: deptManagerRoles },
     ],
   },
   {

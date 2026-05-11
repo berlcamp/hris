@@ -24,7 +24,13 @@ export default async function LeaveLedgerPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (
+    !["super_admin", "hr_admin", "department_head", "department_admin"].includes(
+      user.role
+    )
+  ) {
+    redirect("/dashboard");
+  }
 
   const { employee_id, year: yearParam } = await searchParams;
   const year = yearParam ? parseInt(yearParam) : new Date().getFullYear();
@@ -90,7 +96,11 @@ export default async function LeaveLedgerPage({
                   <CardContent>
                     <div className="flex items-baseline gap-1">
                       <span className="text-2xl font-bold">{Number(c.balance)}</span>
-                      <span className="text-sm text-muted-foreground">/ {Number(c.total_credits)}</span>
+                      {c.leave_types?.code !== "VL" && c.leave_types?.code !== "SL" && (
+                        <span className="text-sm text-muted-foreground">
+                          / {Number(c.total_credits)}
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       {Number(c.used_credits)} used

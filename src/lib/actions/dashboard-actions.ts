@@ -15,6 +15,7 @@ export interface DashboardStats {
   joCount: number;
   cosCount: number;
   pendingLeaves: number;
+  approvedLeaves: number;
   pendingNosi: number;
   pendingNosa: number;
   pendingIpcr: number;
@@ -133,6 +134,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
 
   // Pending approvals — for dept_head, scope by employee_id list
   let pendingLeaves = 0;
+  let approvedLeaves = 0;
   let pendingNosi = 0;
   let pendingNosa = 0;
   let pendingIpcr = 0;
@@ -146,6 +148,20 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
     if (isDeptHead) leavesQuery = leavesQuery.in("employee_id", deptEmployeeIds);
     const { count } = await leavesQuery;
     pendingLeaves = count ?? 0;
+
+    // Approved leaves for the current calendar year (start_date in this year)
+    const yearStart = `${new Date().getFullYear()}-01-01`;
+    const yearEnd = `${new Date().getFullYear()}-12-31`;
+    let approvedQuery = supabase
+      .schema("hris")
+      .from("leave_applications")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "approved")
+      .gte("start_date", yearStart)
+      .lte("start_date", yearEnd);
+    if (isDeptHead) approvedQuery = approvedQuery.in("employee_id", deptEmployeeIds);
+    const { count: approvedCount } = await approvedQuery;
+    approvedLeaves = approvedCount ?? 0;
 
     let nosiQuery = supabase
       .schema("hris")
@@ -193,6 +209,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
     joCount: joCount ?? 0,
     cosCount: cosCount ?? 0,
     pendingLeaves,
+    approvedLeaves,
     pendingNosi,
     pendingNosa,
     pendingIpcr,

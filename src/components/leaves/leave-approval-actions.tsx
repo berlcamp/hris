@@ -54,9 +54,13 @@ export function LeaveApprovalActions({
 
   if (status !== "pending") return null;
 
+  // HR can only act once the department head has approved. super_admin can act anytime.
+  const hrCanAct =
+    (user.role === "hr_admin" && !!deptApprovedAt) || user.role === "super_admin";
+
   return (
     <div className="flex gap-2 flex-wrap">
-      {/* Department Head can approve if not yet approved at dept level */}
+      {/* Only Department Head can approve at dept level (Dept Admin is view-only) */}
       {user.role === "department_head" && !deptApprovedAt && (
         <Button onClick={() => handle(() => approveLeave(leaveId))} disabled={loading}>
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -64,16 +68,16 @@ export function LeaveApprovalActions({
         </Button>
       )}
 
-      {/* HR/Admin can do final approval */}
-      {["hr_admin", "super_admin"].includes(user.role) && (
+      {/* HR/Super Admin final approval — only after dept head approval (HR) */}
+      {hrCanAct && (
         <Button onClick={() => handle(() => approveLeave(leaveId))} disabled={loading}>
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           {deptApprovedAt ? "Final Approve (HR)" : "Approve (HR)"}
         </Button>
       )}
 
-      {/* Anyone with approval rights can reject */}
-      {["department_head", "hr_admin", "super_admin"].includes(user.role) && (
+      {/* Reject — dept head anytime; HR only after dept approval; super_admin anytime */}
+      {(user.role === "department_head" || hrCanAct) && (
         <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
           <DialogTrigger
             render={<Button variant="destructive" disabled={loading} />}

@@ -135,7 +135,24 @@ export async function getLeaveCreditsForYear(year: number): Promise<LeaveCreditR
 }
 
 export async function getEmployeeLeaveCredits(employeeId: string, year: number) {
+  const user = await getCurrentUser();
   const supabase = createAdminClient();
+
+  // Department-scoped users can only read credits for employees in their own department.
+  if (
+    user &&
+    (user.role === "department_head" || user.role === "department_admin")
+  ) {
+    if (!user.departmentId) return [];
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) return [];
+  }
+
   const { data, error } = await supabase
     .schema("hris")
     .from("leave_credit_balances")
@@ -359,9 +376,10 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
     if (!emp) return [];
     query = query.eq("employee_id", emp.id);
   } else if (
-    (user.role === "department_head" || user.role === "department_admin") &&
-    user.departmentId
+    user.role === "department_head" ||
+    user.role === "department_admin"
   ) {
+    if (!user.departmentId) return [];
     const { data: deptEmps } = await supabase
       .schema("hris")
       .from("employees")
@@ -370,6 +388,9 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
     const ids = (deptEmps ?? []).map((e) => e.id);
     if (ids.length === 0) return [];
     query = query.in("employee_id", ids);
+  } else if (user.role === "hr_admin") {
+    // HR only sees leaves once the department head has approved.
+    query = query.not("dept_approved_at", "is", null);
   }
 
   const { data, error } = await query;
@@ -399,10 +420,18 @@ export async function getLeaveApplicationById(id: string) {
     .single();
   if (error) throw error;
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (
+    (user.role === "department_head" || user.role === "department_admin") &&
+    user.departmentId
+  ) {
     const empDeptId =
       (data?.employees as { department_id?: string | null } | null)?.department_id ?? null;
     if (empDeptId !== user.departmentId) throw new Error("Not found");
+  }
+
+  // HR only sees leaves once the department head has approved.
+  if (user.role === "hr_admin" && !data?.dept_approved_at) {
+    throw new Error("Not found");
   }
 
   return data as LeaveApplicationWithRelations;
@@ -591,9 +620,14 @@ export async function approveLeave(id: string) {
   if (!app) return { error: "Application not found" };
   if (app.status !== "pending") return { error: "Application is not pending" };
 
-  // Department Head approval step
+  // Department Head approval step (Department Admin is view-only)
   if (user.role === "department_head") {
-    if (app.dept_approved_at) return { error: "Department Head has already approved" };
+    if (!user.departmentId) return { error: "User has no department assigned" };
+    const empDeptId =
+      (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
+    if (empDeptId !== user.departmentId)
+      return { error: "Cannot approve leave outside your department" };
+    if (app.dept_approved_at) return { error: "Department-level approval already recorded" };
 
     const { error } = await supabase
       .schema("hris")
@@ -606,13 +640,29 @@ export async function approveLeave(id: string) {
       .eq("id", id);
 
     if (error) return { error: error.message };
+
+    await logAudit({
+      userId: user.id,
+      userEmail: user.email,
+      action: "approve_leave_dept",
+      tableName: "leave_applications",
+      recordId: id,
+      newValues: { dept_approved_by: user.email, role: user.role },
+    });
+
     revalidatePath(`/leaves/${id}`);
     revalidatePath("/leaves");
-    return { success: true, message: "Department Head approval recorded" };
+    return {
+      success: true,
+      message: "Department Head approval recorded",
+    };
   }
 
-  // HR / Super Admin final approval
+  // HR / Super Admin final approval — requires dept head approval first
   if (["hr_admin", "super_admin"].includes(user.role)) {
+    if (user.role === "hr_admin" && !app.dept_approved_at) {
+      return { error: "Department head must approve this leave first" };
+    }
     const { error } = await supabase
       .schema("hris")
       .from("leave_applications")
@@ -655,6 +705,30 @@ export async function rejectLeave(id: string, reason: string) {
 
   const supabase = createAdminClient();
 
+  const { data: app } = await supabase
+    .schema("hris")
+    .from("leave_applications")
+    .select("dept_approved_at, employees(department_id)")
+    .eq("id", id)
+    .maybeSingle();
+  if (!app) return { error: "Application not found" };
+
+  // Department head can only reject leaves for their own department
+  if (user.role === "department_head") {
+    if (!user.departmentId) return { error: "User has no department assigned" };
+    const empDeptId =
+      (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
+    if (empDeptId !== user.departmentId)
+      return { error: "Cannot reject leave outside your department" };
+  }
+
+  // HR can only reject leaves the department head has already approved
+  if (user.role === "hr_admin" && !app.dept_approved_at) {
+    return { error: "Department head must approve this leave first" };
+  }
+
+  const isDeptScoped = user.role === "department_head";
+
   const { error } = await supabase
     .schema("hris")
     .from("leave_applications")
@@ -662,7 +736,7 @@ export async function rejectLeave(id: string, reason: string) {
       status: "rejected",
       rejection_reason: reason,
       updated_at: new Date().toISOString(),
-      ...(user.role === "department_head"
+      ...(isDeptScoped
         ? { department_head_id: user.id }
         : { hr_reviewer_id: user.id }),
     })
@@ -690,7 +764,23 @@ export interface LeaveLedgerEntry {
 }
 
 export async function getLeaveLedger(employeeId: string, year: number) {
+  const user = await getCurrentUser();
   const supabase = createAdminClient();
+
+  // Department-scoped users can only read ledger for employees in their own department.
+  if (
+    user &&
+    (user.role === "department_head" || user.role === "department_admin")
+  ) {
+    if (!user.departmentId) return [];
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) return [];
+  }
 
   const startOfYear = `${year}-01-01`;
   const endOfYear = `${year}-12-31`;

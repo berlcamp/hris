@@ -54,10 +54,8 @@ export async function getEmployees() {
     .order("created_at", { ascending: false });
 
   // Role-based filtering
-  if (
-    (user.role === "department_head" || user.role === "department_admin") &&
-    user.departmentId
-  ) {
+  if (user.role === "department_head" || user.role === "department_admin") {
+    if (!user.departmentId) return [];
     query = query.eq("department_id", user.departmentId);
   }
 

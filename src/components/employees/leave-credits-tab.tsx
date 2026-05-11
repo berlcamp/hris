@@ -123,9 +123,11 @@ export function LeaveCreditsTab({
                 <>
                   <div className="flex items-baseline gap-1">
                     <span className="text-2xl font-bold">{credit.balance}</span>
-                    <span className="text-sm text-muted-foreground">
-                      / {credit.total_credits}
-                    </span>
+                    {leaveType.code !== "VL" && leaveType.code !== "SL" && (
+                      <span className="text-sm text-muted-foreground">
+                        / {credit.total_credits}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     {credit.used_credits} used
