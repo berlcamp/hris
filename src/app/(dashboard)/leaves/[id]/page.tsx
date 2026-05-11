@@ -180,9 +180,10 @@ export default async function LeaveDetailPage({
                   .map((c) => {
                     const isRequested = c.leave_type_id === leave.leave_type_id;
                     const balance = Number(c.balance);
+                    // Only the paid portion deducts from credits; LWOP days don't.
                     const projected =
                       showProjection && isRequested
-                        ? balance - Number(leave.days_applied)
+                        ? balance - Number(leave.days_with_pay ?? leave.days_applied)
                         : null;
                     return (
                       <TableRow
@@ -237,11 +238,10 @@ export default async function LeaveDetailPage({
             </Table>
           )}
           {showProjection &&
-            credit &&
-            Number(credit.balance) - Number(leave.days_applied) < 0 && (
-              <p className="mt-3 text-sm text-destructive">
-                Warning: insufficient balance. Approving this leave will result
-                in a negative balance for {credit.leave_types?.name ?? "this leave type"}.
+            leave.days_applied > Number(leave.days_with_pay ?? leave.days_applied) && (
+              <p className="mt-3 text-sm text-amber-700 dark:text-amber-500">
+                Note: {leave.days_applied - Number(leave.days_with_pay ?? leave.days_applied)} day(s)
+                will be leave without pay (excess over available credits).
               </p>
             )}
         </CardContent>

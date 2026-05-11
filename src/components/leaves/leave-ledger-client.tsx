@@ -38,6 +38,8 @@ interface LeaveLedgerClientProps {
     start_date: string;
     end_date: string;
     days_applied: number;
+    days_with_pay: number;
+    days_without_pay: number;
     status: string;
     created_at: string;
   }[];
@@ -136,6 +138,8 @@ export function LeaveLedgerClient({
                 { key: "start_date", header: "Start Date" },
                 { key: "end_date", header: "End Date" },
                 { key: "days_applied", header: "Days" },
+                { key: "days_with_pay", header: "Days w/ Pay" },
+                { key: "days_without_pay", header: "Days w/o Pay" },
                 { key: "status", header: "Status" },
                 { key: "created_at", header: "Filed On" },
               ]}

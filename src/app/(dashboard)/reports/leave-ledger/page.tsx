@@ -71,16 +71,25 @@ export default async function LeaveLedgerPage({
         employees={employees.filter((e) => e.status === "active")}
         selectedEmployeeId={employee_id ?? null}
         year={year}
-        ledgerData={ledger.map((entry) => ({
-          id: entry.id,
-          leave_type: entry.leave_types?.name ?? "Unknown",
-          leave_code: entry.leave_types?.code ?? "",
-          start_date: entry.start_date,
-          end_date: entry.end_date,
-          days_applied: entry.days_applied,
-          status: entry.status,
-          created_at: entry.created_at,
-        }))}
+        ledgerData={ledger.map((entry) => {
+          const daysWithPay = Number(entry.days_with_pay ?? entry.days_applied);
+          const daysWithoutPay = Math.max(
+            0,
+            Number(entry.days_applied) - daysWithPay,
+          );
+          return {
+            id: entry.id,
+            leave_type: entry.leave_types?.name ?? "Unknown",
+            leave_code: entry.leave_types?.code ?? "",
+            start_date: entry.start_date,
+            end_date: entry.end_date,
+            days_applied: entry.days_applied,
+            days_with_pay: daysWithPay,
+            days_without_pay: daysWithoutPay,
+            status: entry.status,
+            created_at: entry.created_at,
+          };
+        })}
       />
 
       {employee_id && (
@@ -132,36 +141,61 @@ export default async function LeaveLedgerPage({
                       <TableHead>Leave Type</TableHead>
                       <TableHead>Date Range</TableHead>
                       <TableHead className="text-center">Days</TableHead>
+                      <TableHead className="text-center">w/ Pay</TableHead>
+                      <TableHead className="text-center">w/o Pay</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Filed On</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {ledger.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{entry.leave_types?.name ?? "—"}</p>
-                            <p className="text-xs text-muted-foreground">{entry.leave_types?.code ?? ""}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {format(new Date(entry.start_date), "MMM d")} –{" "}
-                          {format(new Date(entry.end_date), "MMM d, yyyy")}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="outline">{entry.days_applied}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={statusVariant[entry.status] ?? "outline"}>
-                            {entry.status.charAt(0).toUpperCase() + entry.status.slice(1)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {format(new Date(entry.created_at), "MMM d, yyyy")}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {ledger.map((entry) => {
+                      const fmt3 = (n: number) =>
+                        parseFloat(Number(n).toFixed(3)).toString();
+                      const daysWithPay = Number(
+                        entry.days_with_pay ?? entry.days_applied,
+                      );
+                      const daysWithoutPay = Math.max(
+                        0,
+                        Number(entry.days_applied) - daysWithPay,
+                      );
+                      return (
+                        <TableRow key={entry.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{entry.leave_types?.name ?? "—"}</p>
+                              <p className="text-xs text-muted-foreground">{entry.leave_types?.code ?? ""}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {format(new Date(entry.start_date), "MMM d")} –{" "}
+                            {format(new Date(entry.end_date), "MMM d, yyyy")}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Badge variant="outline">{fmt3(entry.days_applied)}</Badge>
+                          </TableCell>
+                          <TableCell className="text-center text-sm">
+                            {fmt3(daysWithPay)}
+                          </TableCell>
+                          <TableCell className="text-center text-sm">
+                            {daysWithoutPay > 0 ? (
+                              <span className="text-amber-600 dark:text-amber-500 font-medium">
+                                {fmt3(daysWithoutPay)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={statusVariant[entry.status] ?? "outline"}>
+                              {entry.status.charAt(0).toUpperCase() + entry.status.slice(1)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {format(new Date(entry.created_at), "MMM d, yyyy")}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>

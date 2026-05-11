@@ -37,6 +37,8 @@ export interface LeaveCreditRow {
   } | null;
 }
 
+// Note: days_with_pay is the portion of days_applied that consumes credits;
+// (days_applied - days_with_pay) is leave without pay.
 export interface LeaveApplicationWithRelations {
   id: string;
   employee_id: string;
@@ -44,6 +46,7 @@ export interface LeaveApplicationWithRelations {
   start_date: string;
   end_date: string;
   days_applied: number;
+  days_with_pay: number;
   reason: string | null;
   details_of_leave: string | null;
   commutation_requested: boolean;
@@ -486,7 +489,9 @@ export async function createLeaveApplication(input: {
     }
   }
 
-  // Validate credit balance (view = total - approved usage)
+  // Look up current balance to split the application into paid days vs LWOP.
+  // We no longer reject when balance < days_applied; the excess is leave
+  // without pay and won't deduct credits (see `days_with_pay` below).
   const { data: credit } = await supabase
     .schema("hris")
     .from("leave_credit_balances")
@@ -496,9 +501,8 @@ export async function createLeaveApplication(input: {
     .eq("year", year)
     .maybeSingle();
 
-  if (credit && Number(credit.balance) < input.days_applied) {
-    return { error: `Insufficient leave credits. Available: ${credit.balance} days` };
-  }
+  const availableBalance = credit ? Math.max(0, Number(credit.balance)) : 0;
+  const daysWithPay = Math.min(input.days_applied, availableBalance);
 
   // Check for overlapping approved/pending leave using specific dates
   const leaveDates = input.leave_dates ?? [];
@@ -550,7 +554,7 @@ export async function createLeaveApplication(input: {
   const { data, error } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .insert({ ...input, status: "pending" })
+    .insert({ ...input, days_with_pay: daysWithPay, status: "pending" })
     .select()
     .single();
 
@@ -758,6 +762,7 @@ export interface LeaveLedgerEntry {
   start_date: string;
   end_date: string;
   days_applied: number;
+  days_with_pay: number;
   status: string;
   created_at: string;
   leave_types: { code: string; name: string } | null;
@@ -788,7 +793,7 @@ export async function getLeaveLedger(employeeId: string, year: number) {
   const { data, error } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("id, employee_id, leave_type_id, start_date, end_date, days_applied, status, created_at, leave_types(code, name)")
+    .select("id, employee_id, leave_type_id, start_date, end_date, days_applied, days_with_pay, status, created_at, leave_types(code, name)")
     .eq("employee_id", employeeId)
     .gte("start_date", startOfYear)
     .lte("start_date", endOfYear)

@@ -27,6 +27,29 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
   const vlCredit = credits.find((c) => c.leave_types?.code === "VL");
   const slCredit = credits.find((c) => c.leave_types?.code === "SL");
 
+  // CSC Form 6 §7.A is a running ledger: Total Earned − Less this application = Balance.
+  // Only the paid portion (days_with_pay) consumes credits; LWOP excess is shown
+  // separately in §7.C. The DB `balance` already excludes approved paid usage, so
+  // for an already-approved leave we add the paid days back to recover the
+  // pre-deduction "Total Earned" value.
+  const code = leave.leave_types?.code ?? "";
+  const debitsVlBucket = code === "VL" || code === "FL" || code === "SPL";
+  const debitsSlBucket = code === "SL";
+  const debitsVlCredit = code === "VL";
+  const debitsSlCredit = code === "SL";
+  const isApproved = leave.status === "approved";
+  const daysWithPay = Number(leave.days_with_pay ?? leave.days_applied);
+
+  const vlBalanceNow = vlCredit ? Number(vlCredit.balance) : 0;
+  const slBalanceNow = slCredit ? Number(slCredit.balance) : 0;
+  const addBackVl = isApproved && debitsVlCredit ? daysWithPay : 0;
+  const addBackSl = isApproved && debitsSlCredit ? daysWithPay : 0;
+
+  const vlTotalEarned = vlBalanceNow + addBackVl;
+  const slTotalEarned = slBalanceNow + addBackSl;
+  const vlBalanceAfter = vlTotalEarned - (debitsVlBucket ? daysWithPay : 0);
+  const slBalanceAfter = slTotalEarned - (debitsSlBucket ? daysWithPay : 0);
+
   const handleGenerate = async () => {
     setGenerating(true);
     try {
@@ -70,15 +93,16 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
           startDate={leave.start_date}
           endDate={leave.end_date}
           daysApplied={leave.days_applied}
+          daysWithPay={daysWithPay}
           reason={leave.reason}
           detailsOfLeave={leave.details_of_leave}
           commutationRequested={leave.commutation_requested}
-          vlTotal={vlCredit ? Number(vlCredit.total_credits) : 0}
+          vlTotal={vlTotalEarned}
           vlUsed={vlCredit ? Number(vlCredit.used_credits) : 0}
-          vlBalance={vlCredit ? Number(vlCredit.balance) : 0}
-          slTotal={slCredit ? Number(slCredit.total_credits) : 0}
+          vlBalance={vlBalanceAfter}
+          slTotal={slTotalEarned}
           slUsed={slCredit ? Number(slCredit.used_credits) : 0}
-          slBalance={slCredit ? Number(slCredit.balance) : 0}
+          slBalance={slBalanceAfter}
           leaveDates={leave.leave_dates ?? []}
           status={leave.status}
           allLeaveTypeCodes={credits.map((c) => c.leave_types?.code ?? "").filter(Boolean)}

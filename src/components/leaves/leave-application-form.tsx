@@ -430,11 +430,13 @@ export function LeaveApplicationForm({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-3">
                       <span className="text-sm font-medium">Selected:</span>
-                      <Badge variant={insufficientCredits ? "destructive" : "secondary"}>
+                      <Badge variant="secondary">
                         {workingDays} day(s)
                       </Badge>
                       {insufficientCredits && (
-                        <span className="text-xs text-destructive">Exceeds balance</span>
+                        <span className="text-xs text-amber-600 dark:text-amber-500">
+                          {parseFloat(Math.max(0, workingDays - availableBalance).toFixed(3))} day(s) will be leave without pay
+                        </span>
                       )}
                     </div>
                     {sortedDates.length > 0 ? (

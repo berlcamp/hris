@@ -153,6 +153,8 @@ interface LeaveForm6PdfProps {
   reason: string | null;
   detailsOfLeave: string | null;
   commutationRequested: boolean;
+  /** Days that consume leave credits (paid). The LWOP portion is `daysApplied - daysWithPay`. */
+  daysWithPay: number;
   vlTotal: number;
   vlUsed: number;
   vlBalance: number;
@@ -266,6 +268,7 @@ export function LeaveForm6Pdf({
   startDate,
   endDate,
   daysApplied,
+  daysWithPay,
   reason: _reason,
   detailsOfLeave,
   commutationRequested,
@@ -308,9 +311,15 @@ export function LeaveForm6Pdf({
         : `${fmtDate(startDate)} to ${fmtDate(endDate)} (${leaveDates.length} dates)`
       : `${fmtDate(startDate)} to ${fmtDate(endDate)}`;
 
+  // Only the paid portion (daysWithPay) consumes credits; the LWOP portion is
+  // shown separately under §7.C.
   const lessVl =
-    isCode("VL") || isCode("FL") || isCode("SPL") ? daysApplied : 0;
-  const lessSl = isCode("SL") ? daysApplied : 0;
+    isCode("VL") || isCode("FL") || isCode("SPL") ? daysWithPay : 0;
+  const lessSl = isCode("SL") ? daysWithPay : 0;
+  const daysWithoutPay = Math.max(0, daysApplied - daysWithPay);
+  // Trim float artifacts (e.g. 5.806999999) to at most 3 decimal places.
+  const fmt3 = (n: number) =>
+    n === 0 ? "" : parseFloat(n.toFixed(3)).toString();
 
   const resolvedAgencyName =
     agencyName ?? process.env.NEXT_PUBLIC_AGENCY_NAME ?? "Local Government Unit of Ozamiz City";
@@ -606,21 +615,21 @@ export function LeaveForm6Pdf({
                 </View>
                 <View style={s.ledgerRow}>
                   <Text style={[s.ledgerLabelCell, { width: "33.3%" }]}>Total Earned</Text>
-                  <Text style={[s.ledgerCell, { width: "33.3%" }]}>{vlTotal || ""}</Text>
-                  <Text style={[s.ledgerCellLast, { width: "33.4%" }]}>{slTotal || ""}</Text>
+                  <Text style={[s.ledgerCell, { width: "33.3%" }]}>{fmt3(vlTotal)}</Text>
+                  <Text style={[s.ledgerCellLast, { width: "33.4%" }]}>{fmt3(slTotal)}</Text>
                 </View>
                 <View style={s.ledgerRow}>
                   <Text style={[s.ledgerLabelCell, { width: "33.3%" }]}>Less this application</Text>
-                  <Text style={[s.ledgerCell, { width: "33.3%" }]}>{lessVl || ""}</Text>
-                  <Text style={[s.ledgerCellLast, { width: "33.4%" }]}>{lessSl || ""}</Text>
+                  <Text style={[s.ledgerCell, { width: "33.3%" }]}>{fmt3(lessVl)}</Text>
+                  <Text style={[s.ledgerCellLast, { width: "33.4%" }]}>{fmt3(lessSl)}</Text>
                 </View>
                 <View style={s.ledgerRowLast}>
                   <Text style={[s.ledgerLabelCell, { width: "33.3%" }]}>Balance</Text>
                   <Text style={[s.ledgerCell, { width: "33.3%", fontFamily: "Helvetica-Bold" }]}>
-                    {vlBalance || ""}
+                    {fmt3(vlBalance)}
                   </Text>
                   <Text style={[s.ledgerCellLast, { width: "33.4%", fontFamily: "Helvetica-Bold" }]}>
-                    {slBalance || ""}
+                    {fmt3(slBalance)}
                   </Text>
                 </View>
               </View>
@@ -670,12 +679,14 @@ export function LeaveForm6Pdf({
               <Text style={s.cellLabelBold}>7.C APPROVED FOR:</Text>
               <View style={{ flexDirection: "row", alignItems: "flex-end", marginTop: 4 }}>
                 <Text style={{ borderBottom: HAIR, width: 50, fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center" }}>
-                  {status === "approved" ? daysApplied : " "}
+                  {status === "approved" ? fmt3(daysWithPay) : " "}
                 </Text>
                 <Text style={{ fontSize: 8.5, marginLeft: 4 }}>days with pay</Text>
               </View>
               <View style={{ flexDirection: "row", alignItems: "flex-end", marginTop: 4 }}>
-                <Text style={{ borderBottom: HAIR, width: 50 }}> </Text>
+                <Text style={{ borderBottom: HAIR, width: 50, fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center" }}>
+                  {status === "approved" && daysWithoutPay > 0 ? fmt3(daysWithoutPay) : " "}
+                </Text>
                 <Text style={{ fontSize: 8.5, marginLeft: 4 }}>days without pay</Text>
               </View>
               <View style={{ flexDirection: "row", alignItems: "flex-end", marginTop: 4 }}>
