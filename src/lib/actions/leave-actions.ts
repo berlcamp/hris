@@ -332,11 +332,15 @@ export async function adjustLeaveCredit(input: {
     userEmail: user.email,
     action: "adjust_leave_credit",
     tableName: "leave_credits",
+    recordId: input.employee_id,
+    oldValues: { previous_total: currentTotal },
     newValues: {
       employee_id: input.employee_id,
       leave_type_id: input.leave_type_id,
+      leave_type_code: lt?.code ?? null,
       year: input.year,
       adjustment: input.adjustment,
+      new_total: newTotal,
       reason: input.reason,
     },
   });
@@ -559,6 +563,28 @@ export async function createLeaveApplication(input: {
     .single();
 
   if (error) return { error: error.message };
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "create_leave",
+    tableName: "leave_applications",
+    recordId: data.id,
+    newValues: {
+      employee_id: input.employee_id,
+      leave_type_id: input.leave_type_id,
+      leave_type_code: leaveType?.code ?? null,
+      start_date: input.start_date,
+      end_date: input.end_date,
+      days_applied: input.days_applied,
+      days_with_pay: daysWithPay,
+      days_without_pay: Math.max(0, input.days_applied - daysWithPay),
+      commutation_requested: input.commutation_requested ?? false,
+      reason: input.reason,
+      filed_by_role: user.role,
+    },
+  });
+
   revalidatePath("/leaves");
   return { data };
 }
@@ -573,7 +599,7 @@ export async function cancelLeaveApplication(id: string) {
   const { data: app } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("employee_id, status")
+    .select("employee_id, status, leave_type_id, start_date, end_date, days_applied, leave_types(code)")
     .eq("id", id)
     .single();
 
@@ -598,6 +624,31 @@ export async function cancelLeaveApplication(id: string) {
     .eq("id", id);
 
   if (error) return { error: error.message };
+
+  const leaveTypeRel = app.leave_types as { code: string } | { code: string }[] | null;
+  const leaveTypeCode = Array.isArray(leaveTypeRel)
+    ? leaveTypeRel[0]?.code ?? null
+    : leaveTypeRel?.code ?? null;
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "cancel_leave",
+    tableName: "leave_applications",
+    recordId: id,
+    oldValues: { status: "pending" },
+    newValues: {
+      status: "cancelled",
+      employee_id: app.employee_id,
+      leave_type_id: app.leave_type_id,
+      leave_type_code: leaveTypeCode,
+      start_date: app.start_date,
+      end_date: app.end_date,
+      days_applied: app.days_applied,
+      cancelled_by_role: user.role,
+    },
+  });
+
   revalidatePath("/leaves");
   revalidatePath(`/leaves/${id}`);
   return { success: true };
@@ -617,12 +668,17 @@ export async function approveLeave(id: string) {
   const { data: app } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("*, employees(department_id)")
+    .select("*, employees(department_id), leave_types(code)")
     .eq("id", id)
     .single();
 
   if (!app) return { error: "Application not found" };
   if (app.status !== "pending") return { error: "Application is not pending" };
+
+  const leaveTypeRel = app.leave_types as { code: string } | { code: string }[] | null;
+  const leaveTypeCode = Array.isArray(leaveTypeRel)
+    ? leaveTypeRel[0]?.code ?? null
+    : leaveTypeRel?.code ?? null;
 
   // Department Head approval step (Department Admin is view-only)
   if (user.role === "department_head") {
@@ -633,13 +689,14 @@ export async function approveLeave(id: string) {
       return { error: "Cannot approve leave outside your department" };
     if (app.dept_approved_at) return { error: "Department-level approval already recorded" };
 
+    const approvedAt = new Date().toISOString();
     const { error } = await supabase
       .schema("hris")
       .from("leave_applications")
       .update({
         department_head_id: user.id,
-        dept_approved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        dept_approved_at: approvedAt,
+        updated_at: approvedAt,
       })
       .eq("id", id);
 
@@ -651,7 +708,20 @@ export async function approveLeave(id: string) {
       action: "approve_leave_dept",
       tableName: "leave_applications",
       recordId: id,
-      newValues: { dept_approved_by: user.email, role: user.role },
+      oldValues: { dept_approved_at: null, department_head_id: null },
+      newValues: {
+        dept_approved_at: approvedAt,
+        department_head_id: user.id,
+        dept_approved_by: user.email,
+        role: user.role,
+        employee_id: app.employee_id,
+        leave_type_id: app.leave_type_id,
+        leave_type_code: leaveTypeCode,
+        start_date: app.start_date,
+        end_date: app.end_date,
+        days_applied: app.days_applied,
+        days_with_pay: app.days_with_pay,
+      },
     });
 
     revalidatePath(`/leaves/${id}`);
@@ -667,14 +737,15 @@ export async function approveLeave(id: string) {
     if (user.role === "hr_admin" && !app.dept_approved_at) {
       return { error: "Department head must approve this leave first" };
     }
+    const approvedAt = new Date().toISOString();
     const { error } = await supabase
       .schema("hris")
       .from("leave_applications")
       .update({
         status: "approved",
         hr_reviewer_id: user.id,
-        hr_approved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        hr_approved_at: approvedAt,
+        updated_at: approvedAt,
       })
       .eq("id", id);
 
@@ -689,7 +760,23 @@ export async function approveLeave(id: string) {
       action: "approve_leave",
       tableName: "leave_applications",
       recordId: id,
-      newValues: { status: "approved", approved_by: user.email },
+      oldValues: { status: "pending", hr_approved_at: null, hr_reviewer_id: null },
+      newValues: {
+        status: "approved",
+        hr_approved_at: approvedAt,
+        hr_reviewer_id: user.id,
+        approved_by: user.email,
+        role: user.role,
+        employee_id: app.employee_id,
+        leave_type_id: app.leave_type_id,
+        leave_type_code: leaveTypeCode,
+        start_date: app.start_date,
+        end_date: app.end_date,
+        days_applied: app.days_applied,
+        days_with_pay: app.days_with_pay,
+        dept_approved_at: app.dept_approved_at,
+        dept_approved_by_id: app.department_head_id,
+      },
     });
 
     revalidatePath(`/leaves/${id}`);
@@ -712,7 +799,7 @@ export async function rejectLeave(id: string, reason: string) {
   const { data: app } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("dept_approved_at, employees(department_id)")
+    .select("dept_approved_at, employee_id, leave_type_id, start_date, end_date, days_applied, days_with_pay, employees(department_id), leave_types(code)")
     .eq("id", id)
     .maybeSingle();
   if (!app) return { error: "Application not found" };
@@ -748,6 +835,34 @@ export async function rejectLeave(id: string, reason: string) {
     .eq("status", "pending");
 
   if (error) return { error: error.message };
+
+  const leaveTypeRel = app.leave_types as { code: string } | { code: string }[] | null;
+  const leaveTypeCode = Array.isArray(leaveTypeRel)
+    ? leaveTypeRel[0]?.code ?? null
+    : leaveTypeRel?.code ?? null;
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: isDeptScoped ? "reject_leave_dept" : "reject_leave",
+    tableName: "leave_applications",
+    recordId: id,
+    oldValues: { status: "pending" },
+    newValues: {
+      status: "rejected",
+      rejection_reason: reason,
+      rejected_by: user.email,
+      rejected_by_role: user.role,
+      employee_id: app.employee_id,
+      leave_type_id: app.leave_type_id,
+      leave_type_code: leaveTypeCode,
+      start_date: app.start_date,
+      end_date: app.end_date,
+      days_applied: app.days_applied,
+      days_with_pay: app.days_with_pay,
+    },
+  });
+
   revalidatePath(`/leaves/${id}`);
   revalidatePath("/leaves");
   return { success: true };

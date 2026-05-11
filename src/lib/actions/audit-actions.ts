@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { getLeaveApplicationById } from "@/lib/actions/leave-actions";
 
 export interface AuditLogRow {
   id: string;
@@ -53,6 +54,36 @@ export async function getAuditLogs(filters?: {
   }
 
   const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as unknown as AuditLogRow[];
+}
+
+/**
+ * Audit trail for a single leave application — visible to anyone who can
+ * already view the leave (employee owner, dept head/admin of the employee's
+ * dept, hr_admin once dept-approved, or super_admin). Permission is enforced
+ * by piggy-backing on getLeaveApplicationById, which throws otherwise.
+ */
+export async function getLeaveAuditTrail(leaveId: string): Promise<AuditLogRow[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  // Permission check — throws on unauthorized / not found
+  try {
+    await getLeaveApplicationById(leaveId);
+  } catch {
+    return [];
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("audit_log")
+    .select("*, user_profiles:user_id(full_name)")
+    .eq("table_name", "leave_applications")
+    .eq("record_id", leaveId)
+    .order("created_at", { ascending: true });
+
   if (error) throw error;
   return (data ?? []) as unknown as AuditLogRow[];
 }

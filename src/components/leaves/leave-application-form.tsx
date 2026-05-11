@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { format, isWeekend, eachDayOfInterval, addDays } from "date-fns";
+import { format, eachDayOfInterval, addDays } from "date-fns";
 import { Check, ChevronsUpDown, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -113,7 +113,7 @@ export function LeaveApplicationForm({
     setSelectedDates((prev) => prev.filter((d) => d.getTime() !== dateToRemove.getTime()));
   };
 
-  // Handle range mode: first click = start, second click = end, select all weekdays in between
+  // Handle range mode: first click = start, second click = end, select every day in between (weekends included)
   const handleRangeClick = useCallback((day: Date) => {
     if (!rangeStart) {
       setRangeStart(day);
@@ -121,12 +121,11 @@ export function LeaveApplicationForm({
     }
     const [from, to] = rangeStart < day ? [rangeStart, day] : [day, rangeStart];
     const allDays = eachDayOfInterval({ start: from, end: to });
-    const weekdays = allDays.filter((d) => !isWeekend(d));
     // Merge with existing, dedup by time
     setSelectedDates((prev) => {
       const existing = new Set(prev.map((d) => d.getTime()));
       const merged = [...prev];
-      for (const d of weekdays) {
+      for (const d of allDays) {
         if (!existing.has(d.getTime())) merged.push(d);
       }
       return merged;
@@ -410,7 +409,6 @@ export function LeaveApplicationForm({
                       captionLayout="dropdown"
                       fromYear={new Date().getFullYear() - 1}
                       toYear={new Date().getFullYear() + 1}
-                      disabled={(date) => isWeekend(date)}
                       className="rounded-md border"
                     />
                   ) : (
@@ -421,7 +419,6 @@ export function LeaveApplicationForm({
                       captionLayout="dropdown"
                       fromYear={new Date().getFullYear() - 1}
                       toYear={new Date().getFullYear() + 1}
-                      disabled={(date) => isWeekend(date)}
                       modifiers={{ selected: selectedDates, rangeStart: rangeStart ? [rangeStart] : [] }}
                       modifiersClassNames={{ selected: "bg-primary text-primary-foreground", rangeStart: "ring-2 ring-primary" }}
                       className="rounded-md border"
@@ -462,7 +459,7 @@ export function LeaveApplicationForm({
                           <p className="text-sm">
                             {format(sortedDates[0], "MMM d, yyyy")} to{" "}
                             {format(sortedDates[sortedDates.length - 1], "MMM d, yyyy")}{" "}
-                            <span className="text-muted-foreground">({workingDays} weekdays selected)</span>
+                            <span className="text-muted-foreground">({workingDays} day(s) selected)</span>
                           </p>
                         )}
                       </div>

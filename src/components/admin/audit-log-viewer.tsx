@@ -41,8 +41,16 @@ const actionColors: Record<string, string> = {
   create: "bg-green-100 text-green-700",
   update: "bg-blue-100 text-blue-700",
   delete: "bg-red-100 text-red-700",
+  create_leave: "bg-green-100 text-green-700",
+  cancel_leave: "bg-amber-100 text-amber-700",
+  approve_leave_dept: "bg-teal-100 text-teal-700",
   approve_leave: "bg-emerald-100 text-emerald-700",
+  reject_leave_dept: "bg-orange-100 text-orange-700",
   reject_leave: "bg-red-100 text-red-700",
+  adjust_leave_credit: "bg-indigo-100 text-indigo-700",
+  flag_all_vl_sl_manual_entry: "bg-yellow-100 text-yellow-700",
+  monthly_accrual: "bg-cyan-100 text-cyan-700",
+  import_leave_credits: "bg-purple-100 text-purple-700",
   import_attendance: "bg-purple-100 text-purple-700",
   login: "bg-gray-100 text-gray-700",
 };
@@ -51,6 +59,7 @@ const tableOptions = [
   { label: "All Tables", value: "_all" },
   { label: "Employees", value: "employees" },
   { label: "Leave Applications", value: "leave_applications" },
+  { label: "Leave Credits", value: "leave_credits" },
   { label: "Attendance Logs", value: "attendance_logs" },
   { label: "NOSI Records", value: "nosi_records" },
   { label: "NOSA Records", value: "nosa_records" },
@@ -58,11 +67,71 @@ const tableOptions = [
   { label: "User Profiles", value: "user_profiles" },
 ];
 
+const actionOptions = [
+  { label: "All Actions", value: "_all" },
+  { label: "Create Leave", value: "create_leave" },
+  { label: "Cancel Leave", value: "cancel_leave" },
+  { label: "Dept Approve Leave", value: "approve_leave_dept" },
+  { label: "HR Approve Leave", value: "approve_leave" },
+  { label: "Dept Reject Leave", value: "reject_leave_dept" },
+  { label: "HR Reject Leave", value: "reject_leave" },
+  { label: "Adjust Leave Credit", value: "adjust_leave_credit" },
+  { label: "Flag VL/SL Manual Entry", value: "flag_all_vl_sl_manual_entry" },
+  { label: "Monthly Accrual", value: "monthly_accrual" },
+  { label: "Import Leave Credits", value: "import_leave_credits" },
+  { label: "Create", value: "create" },
+  { label: "Update", value: "update" },
+  { label: "Delete", value: "delete" },
+];
+
+// Build a human-readable one-line summary from new_values for common actions.
+function summarizeLog(action: string, newValues: Record<string, unknown> | null): string | null {
+  if (!newValues) return null;
+  const v = newValues;
+  const code = (v.leave_type_code as string | null) ?? null;
+  const dates =
+    v.start_date && v.end_date
+      ? v.start_date === v.end_date
+        ? String(v.start_date)
+        : `${v.start_date} → ${v.end_date}`
+      : null;
+  const days = v.days_applied != null ? `${v.days_applied}d` : null;
+  const withPay = v.days_with_pay != null ? `${v.days_with_pay} paid` : null;
+
+  switch (action) {
+    case "create_leave":
+    case "cancel_leave":
+    case "approve_leave_dept":
+    case "approve_leave":
+      return [code, dates, days, withPay].filter(Boolean).join(" • ");
+    case "reject_leave":
+    case "reject_leave_dept":
+      return [code, dates, days, v.rejection_reason ? `"${v.rejection_reason}"` : null]
+        .filter(Boolean)
+        .join(" • ");
+    case "adjust_leave_credit": {
+      const adj = v.adjustment as number | undefined;
+      const sign = adj != null && adj >= 0 ? "+" : "";
+      return [
+        code,
+        adj != null ? `${sign}${adj}` : null,
+        v.new_total != null ? `→ ${v.new_total}` : null,
+        v.reason ? `"${v.reason}"` : null,
+      ]
+        .filter(Boolean)
+        .join(" • ");
+    }
+    default:
+      return null;
+  }
+}
+
 export function AuditLogViewer() {
   const [logs, setLogs] = useState<AuditLogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [userEmail, setUserEmail] = useState("");
   const [tableName, setTableName] = useState("_all");
+  const [action, setAction] = useState("_all");
   const [startDate, setStartDate] = useState<Date | undefined>();
   const [endDate, setEndDate] = useState<Date | undefined>();
   const [startOpen, setStartOpen] = useState(false);
@@ -74,6 +143,7 @@ export function AuditLogViewer() {
       const data = await getAuditLogs({
         userEmail: userEmail || undefined,
         tableName: tableName === "_all" ? undefined : tableName,
+        action: action === "_all" ? undefined : action,
         startDate: startDate ? format(startDate, "yyyy-MM-dd") : undefined,
         endDate: endDate ? format(endDate, "yyyy-MM-dd") : undefined,
       });
@@ -87,7 +157,7 @@ export function AuditLogViewer() {
 
   useEffect(() => {
     loadLogs();
-  }, [tableName, startDate, endDate]);
+  }, [tableName, action, startDate, endDate]);
 
   const handleSearch = () => {
     loadLogs();
@@ -128,6 +198,20 @@ export function AuditLogViewer() {
         </div>
 
         <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Action</label>
+          <Select value={action} items={actionOptions} onValueChange={(v) => v && setAction(v)}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {actionOptions.map((a) => (
+                <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">From</label>
           <Popover open={startOpen} onOpenChange={setStartOpen}>
             <PopoverTrigger
@@ -157,13 +241,14 @@ export function AuditLogViewer() {
           </Popover>
         </div>
 
-        {(userEmail || tableName !== "_all" || startDate || endDate) && (
+        {(userEmail || tableName !== "_all" || action !== "_all" || startDate || endDate) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setUserEmail("");
               setTableName("_all");
+              setAction("_all");
               setStartDate(undefined);
               setEndDate(undefined);
             }}
@@ -190,6 +275,7 @@ export function AuditLogViewer() {
                   <TableHead className="text-xs">User</TableHead>
                   <TableHead className="text-xs text-center">Action</TableHead>
                   <TableHead className="text-xs">Table</TableHead>
+                  <TableHead className="text-xs">Summary</TableHead>
                   <TableHead className="text-xs">Record ID</TableHead>
                   <TableHead className="text-xs text-center">Details</TableHead>
                 </TableRow>
@@ -197,12 +283,14 @@ export function AuditLogViewer() {
               <TableBody>
                 {logs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                       No audit log entries found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  logs.map((log) => (
+                  logs.map((log) => {
+                    const summary = summarizeLog(log.action, log.new_values);
+                    return (
                     <TableRow key={log.id}>
                       <TableCell className="text-xs font-mono">
                         {format(new Date(log.created_at), "MMM d, HH:mm:ss")}
@@ -228,7 +316,10 @@ export function AuditLogViewer() {
                       <TableCell className="text-xs font-mono">
                         {log.table_name ?? "—"}
                       </TableCell>
-                      <TableCell className="text-xs font-mono truncate max-w-[120px]">
+                      <TableCell className="text-xs max-w-[260px] truncate" title={summary ?? undefined}>
+                        {summary ?? <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="text-xs font-mono truncate max-w-[120px]" title={log.record_id ?? undefined}>
                         {log.record_id ? log.record_id.slice(0, 8) + "..." : "—"}
                       </TableCell>
                       <TableCell className="text-center">
@@ -244,6 +335,32 @@ export function AuditLogViewer() {
                                 <DialogTitle>Audit Details</DialogTitle>
                               </DialogHeader>
                               <div className="space-y-3">
+                                <div className="text-xs space-y-1">
+                                  <div>
+                                    <span className="font-semibold text-muted-foreground">Action:</span>{" "}
+                                    <span className="font-mono">{log.action}</span>
+                                  </div>
+                                  <div>
+                                    <span className="font-semibold text-muted-foreground">When:</span>{" "}
+                                    {format(new Date(log.created_at), "PPpp")}
+                                  </div>
+                                  <div>
+                                    <span className="font-semibold text-muted-foreground">User:</span>{" "}
+                                    {log.user_email ?? "System"}
+                                  </div>
+                                  {log.table_name && (
+                                    <div>
+                                      <span className="font-semibold text-muted-foreground">Table:</span>{" "}
+                                      <span className="font-mono">{log.table_name}</span>
+                                    </div>
+                                  )}
+                                  {log.record_id && (
+                                    <div>
+                                      <span className="font-semibold text-muted-foreground">Record ID:</span>{" "}
+                                      <span className="font-mono">{log.record_id}</span>
+                                    </div>
+                                  )}
+                                </div>
                                 {log.old_values && (
                                   <div>
                                     <p className="text-xs font-semibold text-muted-foreground mb-1">Old Values</p>
@@ -268,7 +385,8 @@ export function AuditLogViewer() {
                         )}
                       </TableCell>
                     </TableRow>
-                  ))
+                    );
+                  })
                 )}
               </TableBody>
             </Table>

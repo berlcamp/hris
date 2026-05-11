@@ -22,6 +22,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
 import { LeavePdfButton } from "@/components/leaves/leave-pdf-button";
+import { LeaveAuditTrail } from "@/components/leaves/leave-audit-trail";
 
 const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
   pending: "secondary",
@@ -281,6 +282,9 @@ export default async function LeaveDetailPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Activity Log (audit trail) */}
+      <LeaveAuditTrail leaveId={leave.id} />
     </div>
   );
 }
