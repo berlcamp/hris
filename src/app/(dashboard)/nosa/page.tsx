@@ -9,7 +9,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 export default async function NosaPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role === "employee") redirect("/dashboard");
+  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
 
   const records = await getNosaRecords();
   const canCreate = ["super_admin", "hr_admin"].includes(user.role);

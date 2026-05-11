@@ -1,16 +1,20 @@
+import { redirect } from "next/navigation";
 import { EmployeeForm } from "@/components/forms/employee-form";
 import { getDepartments } from "@/lib/actions/user-actions";
 import {
   getPositions,
-  getUnlinkedUserProfiles,
   generateEmployeeNo,
 } from "@/lib/actions/employee-actions";
+import { getCurrentUser } from "@/lib/actions/auth-actions";
 
 export default async function NewEmployeePage() {
-  const [departments, positions, userProfiles, employeeNo] = await Promise.all([
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/employees");
+
+  const [departments, positions, employeeNo] = await Promise.all([
     getDepartments(),
     getPositions(),
-    getUnlinkedUserProfiles(),
     generateEmployeeNo(),
   ]);
 
@@ -26,7 +30,6 @@ export default async function NewEmployeePage() {
       <EmployeeForm
         departments={departments ?? []}
         positions={positions ?? []}
-        userProfiles={userProfiles ?? []}
         mode="create"
         employeeNo={employeeNo}
       />

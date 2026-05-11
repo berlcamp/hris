@@ -1145,7 +1145,12 @@ export type Database = {
         | "salary_standardization"
         | "adjustment"
         | "demotion"
-      user_role: "super_admin" | "hr_admin" | "department_head" | "employee"
+      user_role:
+        | "super_admin"
+        | "hr_admin"
+        | "department_head"
+        | "department_admin"
+        | "employee"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1322,7 +1327,13 @@ export const Constants = {
         "adjustment",
         "demotion",
       ],
-      user_role: ["super_admin", "hr_admin", "department_head", "employee"],
+      user_role: [
+        "super_admin",
+        "hr_admin",
+        "department_head",
+        "department_admin",
+        "employee",
+      ],
     },
   },
 } as const

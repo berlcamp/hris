@@ -29,6 +29,14 @@ export default async function LeaveApplyPage() {
 
   const isEmployee = user.role === "employee";
 
+  // Department Admins can only file leave for plantilla employees of their department.
+  // getEmployees() already scopes to the user's department for department_admin/_head.
+  const formEmployees = (employees ?? [])
+    .filter((e) => e.status === "active")
+    .filter((e) =>
+      user.role === "department_admin" ? e.employment_type === "plantilla" : true
+    );
+
   return (
     <div className="max-w-2xl space-y-6">
       <div>
@@ -38,7 +46,7 @@ export default async function LeaveApplyPage() {
         </p>
       </div>
       <LeaveApplicationForm
-        employees={(employees ?? []).filter((e) => e.status === "active")}
+        employees={formEmployees}
         leaveTypes={leaveTypes}
         currentEmployeeId={currentEmployeeId}
         isEmployee={isEmployee}

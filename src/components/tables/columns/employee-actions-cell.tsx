@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Eye, Pencil, UserX } from "lucide-react";
+import { MoreHorizontal, Eye, Pencil, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -23,12 +23,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { deactivateEmployee } from "@/lib/actions/employee-actions";
+import {
+  deactivateEmployee,
+  reactivateEmployee,
+} from "@/lib/actions/employee-actions";
+import { useUser } from "@/hooks/use-user";
 import type { EmployeeRow } from "./employee-columns";
 
 export function EmployeeActionsCell({ employee }: { employee: EmployeeRow }) {
   const router = useRouter();
+  const { user } = useUser();
+  const canEdit =
+    !!user && ["super_admin", "hr_admin"].includes(user.role);
   const [showDeactivate, setShowDeactivate] = useState(false);
+  const [showReactivate, setShowReactivate] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const fullName = [employee.first_name, employee.last_name]
@@ -50,6 +58,21 @@ export function EmployeeActionsCell({ employee }: { employee: EmployeeRow }) {
     router.refresh();
   };
 
+  const handleReactivate = async () => {
+    setLoading(true);
+    const result = await reactivateEmployee(employee.id);
+
+    if (result.error) {
+      toast.error(result.error);
+    } else {
+      toast.success(`${fullName} has been reactivated.`);
+    }
+
+    setLoading(false);
+    setShowReactivate(false);
+    router.refresh();
+  };
+
   return (
     <>
       <DropdownMenu>
@@ -68,13 +91,15 @@ export function EmployeeActionsCell({ employee }: { employee: EmployeeRow }) {
             <Eye className="h-4 w-4" />
             View
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => router.push(`/employees/${employee.id}/edit`)}
-          >
-            <Pencil className="h-4 w-4" />
-            Edit
-          </DropdownMenuItem>
-          {employee.status === "active" && (
+          {canEdit && (
+            <DropdownMenuItem
+              onClick={() => router.push(`/employees/${employee.id}/edit`)}
+            >
+              <Pencil className="h-4 w-4" />
+              Edit
+            </DropdownMenuItem>
+          )}
+          {canEdit && employee.status === "active" && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -83,6 +108,15 @@ export function EmployeeActionsCell({ employee }: { employee: EmployeeRow }) {
               >
                 <UserX className="h-4 w-4" />
                 Deactivate
+              </DropdownMenuItem>
+            </>
+          )}
+          {canEdit && employee.status !== "active" && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowReactivate(true)}>
+                <UserCheck className="h-4 w-4" />
+                Reactivate
               </DropdownMenuItem>
             </>
           )}
@@ -107,6 +141,27 @@ export function EmployeeActionsCell({ employee }: { employee: EmployeeRow }) {
               className="bg-destructive/10 text-destructive hover:bg-destructive/20"
             >
               {loading ? "Deactivating..." : "Deactivate"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showReactivate} onOpenChange={setShowReactivate}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reactivate Employee</AlertDialogTitle>
+            <AlertDialogDescription>
+              Reactivate <strong>{fullName}</strong>? Their status will be set
+              back to active.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReactivate}
+              disabled={loading}
+            >
+              {loading ? "Reactivating..." : "Reactivate"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

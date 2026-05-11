@@ -115,7 +115,10 @@ export async function getLeaveCreditsForYear(year: number): Promise<LeaveCreditR
       .maybeSingle();
     if (!emp) return [];
     query = query.eq("employee_id", emp.id);
-  } else if (user.role === "department_head" && user.departmentId) {
+  } else if (
+    (user.role === "department_head" || user.role === "department_admin") &&
+    user.departmentId
+  ) {
     const { data: deptEmps } = await supabase
       .schema("hris")
       .from("employees")
@@ -355,7 +358,10 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
       .maybeSingle();
     if (!emp) return [];
     query = query.eq("employee_id", emp.id);
-  } else if (user.role === "department_head" && user.departmentId) {
+  } else if (
+    (user.role === "department_head" || user.role === "department_admin") &&
+    user.departmentId
+  ) {
     const { data: deptEmps } = await supabase
       .schema("hris")
       .from("employees")
@@ -428,6 +434,26 @@ export async function createLeaveApplication(input: {
       .maybeSingle();
     if (!emp || emp.department_id !== user.departmentId) {
       return { error: "Insufficient permissions" };
+    }
+  }
+
+  // Department Admins can only file leave for plantilla employees in their own department.
+  if (user.role === "department_admin") {
+    if (!user.departmentId) {
+      return { error: "Department Admin must be assigned to a department" };
+    }
+    const { data: target } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id, employment_type")
+      .eq("id", input.employee_id)
+      .maybeSingle();
+    if (!target) return { error: "Employee not found" };
+    if (target.department_id !== user.departmentId) {
+      return { error: "Department Admins can only file leave for employees in their department" };
+    }
+    if (target.employment_type !== "plantilla") {
+      return { error: "Department Admins can only file leave for plantilla employees" };
     }
   }
 

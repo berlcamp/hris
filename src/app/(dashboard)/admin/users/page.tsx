@@ -38,6 +38,7 @@ export default async function UsersPage() {
               { label: "Super Admin", value: "super_admin" },
               { label: "HR Admin", value: "hr_admin" },
               { label: "Dept Head", value: "department_head" },
+              { label: "Dept Admin", value: "department_admin" },
               { label: "Employee", value: "employee" },
             ],
           },

@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 export const employeeFormSchema = z.object({
-  user_profile_id: z.string().nullable(),
   first_name: z
     .string()
     .min(1, "First name is required")

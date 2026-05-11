@@ -25,7 +25,7 @@ const UPCOMING_DAYS_AHEAD = 30;
 export default async function NosiPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role === "employee") redirect("/dashboard");
+  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
 
   const [{ eligible, upcoming, missingNosiBasis }, records] = await Promise.all([
     getNosiEligibilityOverview(UPCOMING_DAYS_AHEAD),

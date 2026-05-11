@@ -57,7 +57,6 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
 
       const blob = await pdf(
         <LeaveForm6Pdf
-          logoSrc={logo2}
           titleLogos={[logo1, logo2, logo3, logo4]}
           employeeName={employeeName}
           employeeNo={emp != null ? String(emp.biometric_no) : ""}

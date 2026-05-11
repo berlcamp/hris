@@ -32,7 +32,11 @@ export default async function EditUserPage({
           id: user.id,
           full_name: user.full_name,
           email: user.email,
-          role: user.role as "hr_admin" | "department_head" | "employee",
+          role: user.role as
+            | "hr_admin"
+            | "department_head"
+            | "department_admin"
+            | "employee",
           department_id: user.department_id,
           is_active: user.is_active ?? true,
         }}

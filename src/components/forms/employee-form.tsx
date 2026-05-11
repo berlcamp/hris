@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { CalendarIcon, Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { CalendarIcon, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,26 +33,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import {
   employeeFormSchema,
   type EmployeeFormValues,
 } from "@/lib/validations/employee-schema";
 import { createEmployee, updateEmployee } from "@/lib/actions/employee-actions";
-
-interface UserProfileOption {
-  id: string;
-  email: string;
-  full_name: string;
-}
 
 interface Department {
   id: string;
@@ -71,7 +57,6 @@ interface Position {
 interface EmployeeFormProps {
   departments: Department[];
   positions: Position[];
-  userProfiles: UserProfileOption[];
   defaultValues?: EmployeeFormValues & { id?: string };
   mode: "create" | "edit";
   employeeNo?: string;
@@ -93,14 +78,12 @@ const civilStatusOptions = [
 export function EmployeeForm({
   departments,
   positions,
-  userProfiles,
   defaultValues,
   mode,
   employeeNo,
 }: EmployeeFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
 
   const {
     register,
@@ -112,7 +95,6 @@ export function EmployeeForm({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(employeeFormSchema) as any,
     defaultValues: defaultValues ?? {
-      user_profile_id: null,
       first_name: "",
       middle_name: null,
       last_name: "",
@@ -134,7 +116,6 @@ export function EmployeeForm({
 
   const watchEmploymentType = watch("employment_type");
   const watchDepartment = watch("department_id");
-  const watchUserProfile = watch("user_profile_id");
   const watchPosition = watch("position_id");
   const watchHireDate = watch("hire_date");
   const watchBirthDate = watch("birth_date");
@@ -163,28 +144,6 @@ export function EmployeeForm({
     }
   };
 
-  // When a user profile is selected, auto-fill name
-  const handleProfileSelect = (profileId: string) => {
-    setValue("user_profile_id", profileId, { shouldValidate: true });
-    const profile = userProfiles.find((p) => p.id === profileId);
-    if (profile) {
-      const nameParts = profile.full_name.split(" ");
-      if (nameParts.length >= 2) {
-        setValue("first_name", nameParts[0], { shouldValidate: true });
-        setValue("last_name", nameParts.slice(1).join(" "), {
-          shouldValidate: true,
-        });
-      } else {
-        setValue("first_name", profile.full_name, { shouldValidate: true });
-      }
-    }
-    setProfileOpen(false);
-  };
-
-  const selectedProfile = userProfiles.find(
-    (p) => p.id === watchUserProfile
-  );
-
   const onSubmit = async (data: EmployeeFormValues) => {
     setLoading(true);
 
@@ -210,16 +169,15 @@ export function EmployeeForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      {/* Link to User Profile */}
-      <Card>
-        <CardHeader>
-          <CardTitle>System Account</CardTitle>
-          <CardDescription>
-            Link this employee to an existing user profile for system access.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {mode === "create" && employeeNo && (
+      {mode === "create" && employeeNo && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Identification</CardTitle>
+            <CardDescription>
+              Auto-generated identifier for this employee.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             <div className="space-y-2">
               <Label>Employee Number</Label>
               <Input value={employeeNo} disabled />
@@ -227,72 +185,9 @@ export function EmployeeForm({
                 Auto-generated upon creation.
               </p>
             </div>
-          )}
-
-          <div className="space-y-2">
-            <Label>User Profile (Optional)</Label>
-            <Popover open={profileOpen} onOpenChange={setProfileOpen}>
-              <PopoverTrigger
-                render={
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={profileOpen}
-                    className="w-full justify-between"
-                  />
-                }
-              >
-                {selectedProfile
-                  ? `${selectedProfile.full_name} (${selectedProfile.email})`
-                  : "Select a user profile..."}
-                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-              </PopoverTrigger>
-              <PopoverContent className="w-full p-0" align="start">
-                <Command>
-                  <CommandInput placeholder="Search by name or email..." />
-                  <CommandList>
-                    <CommandEmpty>No profiles found.</CommandEmpty>
-                    <CommandGroup>
-                      {userProfiles.map((profile) => (
-                        <CommandItem
-                          key={profile.id}
-                          value={`${profile.full_name} ${profile.email}`}
-                          onSelect={() => handleProfileSelect(profile.id)}
-                        >
-                          <Check
-                            className={cn(
-                              "mr-2 h-4 w-4",
-                              watchUserProfile === profile.id
-                                ? "opacity-100"
-                                : "opacity-0"
-                            )}
-                          />
-                          <div>
-                            <p className="font-medium">{profile.full_name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {profile.email}
-                            </p>
-                          </div>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-            {watchUserProfile && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setValue("user_profile_id", null)}
-              >
-                Clear selection
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Personal Information */}
       <Card>

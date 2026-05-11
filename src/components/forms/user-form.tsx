@@ -43,6 +43,7 @@ interface UserFormProps {
 const roleOptions = [
   { value: "hr_admin", label: "HR Admin" },
   { value: "department_head", label: "Department Head" },
+  { value: "department_admin", label: "Department Admin" },
   { value: "employee", label: "Employee" },
 ];
 

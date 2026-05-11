@@ -176,7 +176,10 @@ export async function getAttendanceLogs(filters?: {
     } else {
       return [];
     }
-  } else if (user.role === "department_head" && user.departmentId) {
+  } else if (
+    (user.role === "department_head" || user.role === "department_admin") &&
+    user.departmentId
+  ) {
     const { data: deptEmployees } = await supabase
       .schema("hris")
       .from("employees")

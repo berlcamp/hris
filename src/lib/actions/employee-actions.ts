@@ -54,7 +54,10 @@ export async function getEmployees() {
     .order("created_at", { ascending: false });
 
   // Role-based filtering
-  if (user.role === "department_head" && user.departmentId) {
+  if (
+    (user.role === "department_head" || user.role === "department_admin") &&
+    user.departmentId
+  ) {
     query = query.eq("department_id", user.departmentId);
   }
 
@@ -107,34 +110,6 @@ export async function getPositions(departmentId?: string | null) {
   return data;
 }
 
-export async function getUnlinkedUserProfiles() {
-  const supabase = createAdminClient();
-
-  // Get user profiles that are not yet linked to an employee
-  const { data: linkedIds } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select("user_profile_id")
-    .not("user_profile_id", "is", null);
-
-  const linked = (linkedIds ?? []).map((e) => e.user_profile_id).filter(Boolean);
-
-  let query = supabase
-    .schema("hris")
-    .from("user_profiles")
-    .select("id, email, full_name")
-    .eq("is_active", true)
-    .order("full_name");
-
-  if (linked.length > 0) {
-    query = query.not("id", "in", `(${linked.join(",")})`);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return data;
-}
-
 /**
  * Next employee / biometric number for display on the create form (not reserved;
  * the DB assigns `biometric_no` on insert via serial).
@@ -156,13 +131,17 @@ export async function generateEmployeeNo(): Promise<string> {
 }
 
 export async function createEmployee(input: EmployeeFormValues) {
+  const user = await getCurrentUser();
+  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+    return { error: "Only HR Admin or Super Admin can create employees." };
+  }
+
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .schema("hris")
     .from("employees")
     .insert({
-      user_profile_id: input.user_profile_id,
       first_name: input.first_name,
       middle_name: input.middle_name,
       last_name: input.last_name,
@@ -200,10 +179,9 @@ export async function createEmployee(input: EmployeeFormValues) {
     reason: "initial",
   });
 
-  const user = await getCurrentUser();
   await logAudit({
-    userId: user?.id,
-    userEmail: user?.email,
+    userId: user.id,
+    userEmail: user.email,
     action: "create",
     tableName: "employees",
     recordId: data.id,
@@ -218,13 +196,17 @@ export async function updateEmployee(
   id: string,
   input: EmployeeFormValues
 ) {
+  const user = await getCurrentUser();
+  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+    return { error: "Only HR Admin or Super Admin can edit employees." };
+  }
+
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .schema("hris")
     .from("employees")
     .update({
-      user_profile_id: input.user_profile_id,
       first_name: input.first_name,
       middle_name: input.middle_name,
       last_name: input.last_name,
@@ -253,10 +235,9 @@ export async function updateEmployee(
     return { error: error.message };
   }
 
-  const currentUser = await getCurrentUser();
   await logAudit({
-    userId: currentUser?.id,
-    userEmail: currentUser?.email,
+    userId: user.id,
+    userEmail: user.email,
     action: "update",
     tableName: "employees",
     recordId: id,
@@ -269,6 +250,11 @@ export async function updateEmployee(
 }
 
 export async function deactivateEmployee(id: string) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !["super_admin", "hr_admin"].includes(currentUser.role)) {
+    return { error: "Only HR Admin or Super Admin can deactivate employees." };
+  }
+
   const supabase = createAdminClient();
 
   const { error } = await supabase
@@ -279,7 +265,45 @@ export async function deactivateEmployee(id: string) {
 
   if (error) return { error: error.message };
 
+  await logAudit({
+    userId: currentUser?.id,
+    userEmail: currentUser?.email,
+    action: "update",
+    tableName: "employees",
+    recordId: id,
+    newValues: { status: "inactive" },
+  });
+
   revalidatePath("/employees");
+  return { success: true };
+}
+
+export async function reactivateEmployee(id: string) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !["super_admin", "hr_admin"].includes(currentUser.role)) {
+    return { error: "Only HR Admin or Super Admin can reactivate employees." };
+  }
+
+  const supabase = createAdminClient();
+
+  const { error } = await supabase
+    .schema("hris")
+    .from("employees")
+    .update({ status: "active" })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+  await logAudit({
+    userId: currentUser?.id,
+    userEmail: currentUser?.email,
+    action: "update",
+    tableName: "employees",
+    recordId: id,
+    newValues: { status: "active" },
+  });
+
+  revalidatePath("/employees");
+  revalidatePath(`/employees/${id}`);
   return { success: true };
 }
 

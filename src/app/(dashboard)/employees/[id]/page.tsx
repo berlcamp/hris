@@ -69,6 +69,7 @@ export default async function EmployeeProfilePage({
 
   const canEditPlantilla = ["super_admin", "hr_admin"].includes(currentUser?.role ?? "");
   const canManageSalaryHistory = canEditPlantilla;
+  const canEditEmployee = canEditPlantilla;
 
   if (!employee) notFound();
 
@@ -140,12 +141,14 @@ export default async function EmployeeProfilePage({
             })()}
           </div>
         </div>
-        <Link href={`/employees/${id}/edit`}>
-          <Button variant="outline" size="sm">
-            <Pencil className="h-4 w-4" />
-            Edit
-          </Button>
-        </Link>
+        {canEditEmployee && (
+          <Link href={`/employees/${id}/edit`}>
+            <Button variant="outline" size="sm">
+              <Pencil className="h-4 w-4" />
+              Edit
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Tabs */}

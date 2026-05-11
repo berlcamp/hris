@@ -71,7 +71,8 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
   const supabase = createAdminClient();
 
   const isDeptHead =
-    user.role === "department_head" && !!user.departmentId;
+    (user.role === "department_head" || user.role === "department_admin") &&
+    !!user.departmentId;
   const deptId = user.departmentId ?? null;
 
   // For department_head: pre-compute employee IDs in their dept so we can
@@ -285,7 +286,10 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
     .order("created_at", { ascending: false })
     .limit(10);
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (
+    (user.role === "department_head" || user.role === "department_admin") &&
+    user.departmentId
+  ) {
     leaveQuery = leaveQuery.eq("employees.department_id", user.departmentId);
   }
 

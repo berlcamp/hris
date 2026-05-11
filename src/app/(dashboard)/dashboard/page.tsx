@@ -33,8 +33,8 @@ import { getRatingColor } from "@/lib/ipcr-utils";
 
 const quickActions = [
   { title: "Add Employee", icon: Users, href: "/employees/new", roles: ["super_admin", "hr_admin"] },
-  { title: "Process Leave", icon: CalendarDays, href: "/leaves", roles: ["super_admin", "hr_admin", "department_head", "employee"] },
-  { title: "View DTR", icon: Clock, href: "/attendance", roles: ["super_admin", "hr_admin", "department_head", "employee"] },
+  { title: "Process Leave", icon: CalendarDays, href: "/leaves", roles: ["super_admin", "hr_admin", "department_head", "department_admin", "employee"] },
+  { title: "View DTR", icon: Clock, href: "/attendance", roles: ["super_admin", "hr_admin", "department_head", "department_admin", "employee"] },
   { title: "Generate Report", icon: FileText, href: "/reports", roles: ["super_admin", "hr_admin"] },
   { title: "NOSI", icon: TrendingUp, href: "/nosi", roles: ["super_admin", "hr_admin"] },
   { title: "IPCR", icon: Star, href: "/performance", roles: ["super_admin", "hr_admin", "department_head"] },

@@ -1,7 +1,12 @@
 // Database types — these will be replaced with auto-generated types from Supabase
 // Run: supabase gen types typescript --schema hris > src/lib/database.types.ts
 
-export type UserRole = "super_admin" | "hr_admin" | "department_head" | "employee";
+export type UserRole =
+  | "super_admin"
+  | "hr_admin"
+  | "department_head"
+  | "department_admin"
+  | "employee";
 export type EmploymentType = "plantilla" | "jo" | "cos";
 export type EmployeeStatus = "active" | "inactive" | "retired" | "terminated" | "resigned";
 export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled";

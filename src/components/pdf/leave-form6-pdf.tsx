@@ -44,22 +44,24 @@ const s = StyleSheet.create({
   // Page title row (logos | title | logos)
   titleRow: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 4,
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginTop: -16,
     marginBottom: 6,
   },
   titleSideLogos: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 6,
   },
   titleLogo: { width: 38, height: 38 },
   title: {
+    flex: 1,
     fontSize: 16,
     fontFamily: "Helvetica-Bold",
     textAlign: "center",
     marginHorizontal: 12,
+    marginTop: 14,
   },
 
   // Outer form box
@@ -319,9 +321,9 @@ export function LeaveForm6Pdf({
   const lessSl = isCode("SL") ? daysApplied : 0;
 
   const resolvedAgencyName =
-    agencyName ?? process.env.NEXT_PUBLIC_AGENCY_NAME ?? "(Agency Name)";
+    agencyName ?? process.env.NEXT_PUBLIC_AGENCY_NAME ?? "Local Government Unit of Ozamiz City";
   const resolvedAgencyAddr =
-    agencyAddress ?? process.env.NEXT_PUBLIC_AGENCY_ADDRESS ?? "(Agency Address)";
+    agencyAddress ?? process.env.NEXT_PUBLIC_AGENCY_ADDRESS ?? "City of Ozamiz";
 
   return (
     <Document>

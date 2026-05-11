@@ -66,8 +66,27 @@ interface NavGroup {
   items: NavItem[];
 }
 
-const allRoles: UserRole[] = ["super_admin", "hr_admin", "department_head", "employee"];
+const allRoles: UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "department_head",
+  "department_admin",
+  "employee",
+];
 const adminRoles: UserRole[] = ["super_admin", "hr_admin"];
+const deptManagerRoles: UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "department_head",
+  "department_admin",
+];
+const leaveAttendanceRoles: UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "department_head",
+  "department_admin",
+  "employee",
+];
 
 const navGroups: NavGroup[] = [
   {
@@ -79,9 +98,9 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Employee Management",
-    roles: ["super_admin", "hr_admin", "department_head"],
+    roles: deptManagerRoles,
     items: [
-      { title: "Employees", href: "/employees", icon: Users, roles: ["super_admin", "hr_admin", "department_head"] },
+      { title: "Employees", href: "/employees", icon: Users, roles: deptManagerRoles },
       { title: "Plantilla", href: "/plantilla", icon: ScrollText, roles: adminRoles },
       {
         title: "Employee ID Generator",
@@ -102,18 +121,28 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Leave & Attendance",
-    roles: allRoles,
+    roles: leaveAttendanceRoles,
     items: [
-      { title: "Leave Management", href: "/leaves", icon: CalendarDays, roles: allRoles },
-      { title: "Leave Credits", href: "/leaves/credits", icon: CreditCard, roles: ["super_admin"] },
-      { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: allRoles },
+      { title: "Leave Management", href: "/leaves", icon: CalendarDays, roles: leaveAttendanceRoles },
+      {
+        title: "Leave Credits",
+        href: "/leaves/credits",
+        icon: CreditCard,
+        roles: ["super_admin", "hr_admin", "department_admin"],
+      },
+      { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: leaveAttendanceRoles },
     ],
   },
   {
     label: "Performance",
     roles: ["super_admin"],
     items: [
-      { title: "IPCR", href: "/performance", icon: ClipboardList, roles: ["super_admin"] },
+      {
+        title: "IPCR",
+        href: "/performance",
+        icon: ClipboardList,
+        roles: ["super_admin", "hr_admin", "department_head", "employee"],
+      },
     ],
   },
   {
@@ -135,7 +164,7 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Administration",
-    roles: ["super_admin", "hr_admin"],
+    roles: ["super_admin"],
     items: [
       { title: "User Management", href: "/admin/users", icon: UserPlus, roles: ["super_admin"] },
       { title: "Salary Grades", href: "/admin/salary-grades", icon: Building2, roles: ["super_admin"] },
@@ -162,6 +191,7 @@ const roleLabels: Record<UserRole, string> = {
   super_admin: "Super Admin",
   hr_admin: "HR Admin",
   department_head: "Dept Head",
+  department_admin: "Dept Admin",
   employee: "Employee",
 };
 

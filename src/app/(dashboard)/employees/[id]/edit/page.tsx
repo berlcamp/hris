@@ -1,11 +1,11 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { EmployeeForm } from "@/components/forms/employee-form";
 import { getDepartments } from "@/lib/actions/user-actions";
 import {
   getEmployeeById,
   getPositions,
-  getUnlinkedUserProfiles,
 } from "@/lib/actions/employee-actions";
+import { getCurrentUser } from "@/lib/actions/auth-actions";
 
 export default async function EditEmployeePage({
   params,
@@ -14,29 +14,19 @@ export default async function EditEmployeePage({
 }) {
   const { id } = await params;
 
-  const [employee, departments, positions, userProfiles] = await Promise.all([
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (!["super_admin", "hr_admin"].includes(user.role)) {
+    redirect(`/employees/${id}`);
+  }
+
+  const [employee, departments, positions] = await Promise.all([
     getEmployeeById(id).catch(() => null),
     getDepartments(),
     getPositions(),
-    getUnlinkedUserProfiles(),
   ]);
 
   if (!employee) notFound();
-
-  // Include the current employee's linked profile in the options
-  const allProfiles = userProfiles ?? [];
-  if (
-    employee.user_profile_id &&
-    !allProfiles.find((p) => p.id === employee.user_profile_id)
-  ) {
-    // The profile is already linked to this employee, so it won't be in the "unlinked" list
-    // We need to fetch it separately
-    allProfiles.unshift({
-      id: employee.user_profile_id,
-      email: "",
-      full_name: `${employee.first_name} ${employee.last_name}`,
-    });
-  }
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -52,11 +42,9 @@ export default async function EditEmployeePage({
       <EmployeeForm
         departments={departments ?? []}
         positions={positions ?? []}
-        userProfiles={allProfiles}
         mode="edit"
         defaultValues={{
           id: employee.id,
-          user_profile_id: employee.user_profile_id,
           first_name: employee.first_name,
           middle_name: employee.middle_name,
           last_name: employee.last_name,

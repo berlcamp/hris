@@ -59,6 +59,10 @@ export default async function LeaveDetailPage({
   const allCredits = await getEmployeeLeaveCredits(leave.employee_id, year);
   const credit = allCredits.find((c) => c.leave_type_id === leave.leave_type_id);
 
+  // The view's `balance` already subtracts approved leave usage, so projecting
+  // "balance after this leave" only makes sense before a decision is made.
+  const showProjection = leave.status === "draft" || leave.status === "pending";
+
   const timeline = [
     { label: "Submitted", done: true, date: leave.created_at },
     { label: "Dept Approved", done: !!leave.dept_approved_at, date: leave.dept_approved_at },
@@ -158,9 +162,11 @@ export default async function LeaveDetailPage({
                   <TableHead className="text-right">Total Earned</TableHead>
                   <TableHead className="text-right">Used</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
-                  <TableHead className="text-right">
-                    Balance After This Leave
-                  </TableHead>
+                  {showProjection && (
+                    <TableHead className="text-right">
+                      Balance After This Leave
+                    </TableHead>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -174,9 +180,10 @@ export default async function LeaveDetailPage({
                   .map((c) => {
                     const isRequested = c.leave_type_id === leave.leave_type_id;
                     const balance = Number(c.balance);
-                    const projected = isRequested
-                      ? balance - Number(leave.days_applied)
-                      : null;
+                    const projected =
+                      showProjection && isRequested
+                        ? balance - Number(leave.days_applied)
+                        : null;
                     return (
                       <TableRow
                         key={c.id}
@@ -208,31 +215,35 @@ export default async function LeaveDetailPage({
                           {Number(c.used_credits)}
                         </TableCell>
                         <TableCell className="text-right">{balance}</TableCell>
-                        <TableCell className="text-right">
-                          {projected === null ? (
-                            "—"
-                          ) : (
-                            <span
-                              className={cn(
-                                projected < 0 && "text-destructive font-semibold"
-                              )}
-                            >
-                              {projected}
-                            </span>
-                          )}
-                        </TableCell>
+                        {showProjection && (
+                          <TableCell className="text-right">
+                            {projected === null ? (
+                              "—"
+                            ) : (
+                              <span
+                                className={cn(
+                                  projected < 0 && "text-destructive font-semibold"
+                                )}
+                              >
+                                {projected}
+                              </span>
+                            )}
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })}
               </TableBody>
             </Table>
           )}
-          {credit && Number(credit.balance) - Number(leave.days_applied) < 0 && (
-            <p className="mt-3 text-sm text-destructive">
-              Warning: insufficient balance. Approving this leave will result
-              in a negative balance for {credit.leave_types?.name ?? "this leave type"}.
-            </p>
-          )}
+          {showProjection &&
+            credit &&
+            Number(credit.balance) - Number(leave.days_applied) < 0 && (
+              <p className="mt-3 text-sm text-destructive">
+                Warning: insufficient balance. Approving this leave will result
+                in a negative balance for {credit.leave_types?.name ?? "this leave type"}.
+              </p>
+            )}
         </CardContent>
       </Card>
 
