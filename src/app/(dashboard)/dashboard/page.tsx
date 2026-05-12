@@ -12,6 +12,7 @@ import {
   ArrowRight,
   CalendarClock,
   Star,
+  AlertTriangle,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -364,6 +365,19 @@ export default async function DashboardPage() {
                               <p className="text-xs text-muted-foreground truncate">
                                 {item.detail}
                               </p>
+                              {item.type === "leave" &&
+                                item.needs_vl_sl_reconcile && (
+                                  <p
+                                    className="mt-0.5 flex items-start gap-1 text-[11px] leading-tight text-amber-700"
+                                    title="VL/SL credits never set — refer to HR"
+                                  >
+                                    <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                                    <span>
+                                      VL/SL needs manual entry — please refer
+                                      to HR to reconcile leave credits.
+                                    </span>
+                                  </p>
+                                )}
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">

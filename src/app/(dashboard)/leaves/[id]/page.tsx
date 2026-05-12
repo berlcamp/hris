@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { format } from "date-fns";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { AlertTriangle, ArrowLeft } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,10 @@ export default async function LeaveDetailPage({
 
   const emp = leave.employees;
   const fullName = emp ? `${emp.first_name} ${emp.last_name}` : "—";
+  const needsVlSlReconcile =
+    !!emp &&
+    emp.employment_type === "plantilla" &&
+    emp.vl_sl_needs_manual_entry;
 
   // Get leave credits for PDF generation and display
   const year = new Date(leave.start_date).getFullYear();
@@ -103,6 +107,24 @@ export default async function LeaveDetailPage({
           />
         </div>
       </div>
+
+      {needsVlSlReconcile && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-700" />
+          <div>
+            <p className="font-medium">
+              VL/SL credits need manual entry for this employee.
+            </p>
+            <p className="text-xs text-amber-800">
+              Please refer to HR to reconcile leave credits before approving
+              this application.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>

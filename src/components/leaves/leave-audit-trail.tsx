@@ -1,4 +1,4 @@
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
   FileText,
   CheckCircle2,
@@ -8,6 +8,34 @@ import {
   Activity,
   Clock,
 } from "lucide-react";
+
+const MANILA_TZ = "Asia/Manila";
+
+const manilaShortFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: MANILA_TZ,
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+
+const manilaLongFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: MANILA_TZ,
+  dateStyle: "long",
+  timeStyle: "long",
+});
+
+/** "Mar 5, 2026 at 9:30 AM" in Asia/Manila. */
+function formatManila(d: Date): string {
+  const parts = manilaShortFmt.formatToParts(d);
+  const get = (t: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("month")} ${get("day")}, ${get("year")} at ${get("hour")}:${get(
+    "minute"
+  )} ${get("dayPeriod")}`;
+}
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -181,10 +209,10 @@ export async function LeaveAuditTrail({ leaveId }: { leaveId: string }) {
                         </Badge>
                         <span
                           className="text-xs text-muted-foreground"
-                          title={format(when, "PPpp")}
+                          title={`${manilaLongFmt.format(when)} (Manila)`}
                         >
                           {formatDistanceToNow(when, { addSuffix: true })} ·{" "}
-                          {format(when, "MMM d, yyyy 'at' h:mm a")}
+                          {formatManila(when)}
                         </span>
                       </div>
                       <p className="text-sm mt-1">{describe(log)}</p>

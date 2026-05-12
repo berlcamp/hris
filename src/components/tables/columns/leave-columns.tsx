@@ -6,7 +6,7 @@ import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
-import { Eye } from "lucide-react";
+import { AlertTriangle, Eye } from "lucide-react";
 import type { LeaveApplicationWithRelations } from "@/lib/actions/leave-actions";
 
 const statusVariant: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
@@ -24,11 +24,26 @@ export const leaveColumns: ColumnDef<LeaveApplicationWithRelations>[] = [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Employee" />,
     cell: ({ row }) => {
       const emp = row.original.employees;
-      return emp ? (
-        <div>
+      if (!emp) return <span className="text-muted-foreground">—</span>;
+      const needsReconcile =
+        emp.employment_type === "plantilla" && emp.vl_sl_needs_manual_entry;
+      return (
+        <div className="space-y-0.5">
           <p className="font-medium">{emp.last_name}, {emp.first_name}</p>
+          {needsReconcile && (
+            <p
+              className="flex items-start gap-1 text-[11px] leading-tight text-amber-700"
+              title="VL/SL credits never set — refer to HR"
+            >
+              <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+              <span>
+                VL/SL needs manual entry — please refer to HR to reconcile
+                leave credits.
+              </span>
+            </p>
+          )}
         </div>
-      ) : <span className="text-muted-foreground">—</span>;
+      );
     },
   },
   {

@@ -66,6 +66,8 @@ export interface LeaveApplicationWithRelations {
     salary_grade: number;
     biometric_no: number;
     department_id: string | null;
+    employment_type: string;
+    vl_sl_needs_manual_entry: boolean;
     departments: { name: string; code: string } | null;
     positions: { title: string } | null;
     plantilla: { position_title: string | null }[] | null;
@@ -364,7 +366,7 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
     .select(`
       *,
       employees(
-        first_name, last_name, department_id, biometric_no,
+        first_name, last_name, department_id, biometric_no, employment_type, vl_sl_needs_manual_entry,
         departments!employees_department_id_fkey(name, code),
         positions(title),
         plantilla(position_title)
@@ -416,7 +418,7 @@ export async function getLeaveApplicationById(id: string) {
     .select(`
       *,
       employees(
-        first_name, last_name, middle_name, salary_grade, biometric_no, department_id,
+        first_name, last_name, middle_name, salary_grade, biometric_no, department_id, employment_type, vl_sl_needs_manual_entry,
         departments!employees_department_id_fkey(name, code),
         positions(title),
         plantilla(position_title)

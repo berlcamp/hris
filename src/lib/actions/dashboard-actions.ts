@@ -39,6 +39,8 @@ export interface PendingApprovalItem {
   employee_name: string;
   detail: string;
   created_at: string;
+  /** Plantilla employee whose VL/SL credits were never reconciled — HR action required. */
+  needs_vl_sl_reconcile?: boolean;
 }
 
 export interface UpcomingIncrementItem {
@@ -298,7 +300,7 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
   let leaveQuery = supabase
     .schema("hris")
     .from("leave_applications")
-    .select("id, created_at, days_applied, employees!inner(first_name, last_name, department_id), leave_types!inner(name)")
+    .select("id, created_at, days_applied, employees!inner(first_name, last_name, department_id, employment_type, vl_sl_needs_manual_entry), leave_types!inner(name)")
     .eq("status", "pending")
     .order("created_at", { ascending: false })
     .limit(10);
@@ -312,7 +314,12 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
 
   const { data: leaves } = await leaveQuery;
   for (const l of leaves ?? []) {
-    const emp = l.employees as unknown as { first_name: string; last_name: string } | null;
+    const emp = l.employees as unknown as {
+      first_name: string;
+      last_name: string;
+      employment_type: string;
+      vl_sl_needs_manual_entry: boolean;
+    } | null;
     const lt = l.leave_types as unknown as { name: string } | null;
     if (!emp) continue;
     items.push({
@@ -321,6 +328,8 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
       employee_name: `${emp.last_name}, ${emp.first_name}`,
       detail: `${lt?.name ?? "Leave"} — ${l.days_applied} day(s)`,
       created_at: l.created_at,
+      needs_vl_sl_reconcile:
+        emp.employment_type === "plantilla" && emp.vl_sl_needs_manual_entry,
     });
   }
 
