@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/card";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import { getEffectivePosition } from "@/lib/employee-position";
+import { EMPLOYEE_STATUS_LABELS } from "@/lib/constants";
 
 const employmentTypeLabels: Record<string, string> = {
   plantilla: "Plantilla",
@@ -62,12 +63,28 @@ export function EmploymentTab({
             label="Status"
             badge={{
               text:
+                EMPLOYEE_STATUS_LABELS[employee.status] ??
                 employee.status.charAt(0).toUpperCase() +
-                employee.status.slice(1),
+                  employee.status.slice(1),
               variant:
                 employee.status === "active" ? "secondary" : "destructive",
             }}
           />
+          {employee.status !== "active" && employee.status_effective_date && (
+            <InfoRow
+              label="Status Effective"
+              value={format(
+                new Date(employee.status_effective_date),
+                "MMMM d, yyyy"
+              )}
+            />
+          )}
+          {employee.status !== "active" && employee.status_remarks && (
+            <InfoRow
+              label="Status Remarks"
+              value={employee.status_remarks}
+            />
+          )}
           <InfoRow
             label="Hire Date"
             value={format(new Date(employee.hire_date), "MMMM d, yyyy")}

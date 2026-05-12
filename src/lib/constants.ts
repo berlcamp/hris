@@ -21,7 +21,53 @@ export const EMPLOYEE_STATUSES = {
   RETIRED: "retired",
   TERMINATED: "terminated",
   RESIGNED: "resigned",
+  SUSPENDED: "suspended",
+  AWOL: "awol",
+  DROPPED: "dropped",
+  DECEASED: "deceased",
 } as const;
+
+/** Display labels (CSC-aligned wording) for the employee_status enum. */
+export const EMPLOYEE_STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  inactive: "Inactive",
+  retired: "Retired",
+  terminated: "Terminated",
+  resigned: "Resigned",
+  suspended: "Suspended",
+  awol: "AWOL",
+  dropped: "Dropped From the Rolls",
+  deceased: "Deceased",
+};
+
+/** Short description shown beside each status in the change-status dialog. */
+export const EMPLOYEE_STATUS_DESCRIPTIONS: Record<string, string> = {
+  active: "Currently employed and reporting for duty.",
+  inactive: "On extended leave or temporarily not in service.",
+  retired: "Compulsory (65) or optional (60) retirement under CSC/GSIS rules.",
+  terminated: "Dismissed from service after due process (CSC penalty).",
+  resigned: "Voluntary separation accepted by appointing authority.",
+  suspended: "Preventive or punitive suspension under CSC Rule X.",
+  awol: "Absent Without Official Leave — pending Dropped From the Rolls.",
+  dropped: "Dropped From the Rolls (CSC MC 14, s. 2018) — AWOL > 30 days.",
+  deceased: "Separated from service due to death.",
+};
+
+/**
+ * Only employees with `active` status participate in HR automation
+ * (leave-credit accrual, payroll runs, dashboard headcounts). Everything
+ * else here is excluded.
+ */
+export const NON_ACTIVE_EMPLOYEE_STATUSES = [
+  "inactive",
+  "retired",
+  "terminated",
+  "resigned",
+  "suspended",
+  "awol",
+  "dropped",
+  "deceased",
+] as const;
 
 export const APPROVAL_STATUSES = {
   DRAFT: "draft",

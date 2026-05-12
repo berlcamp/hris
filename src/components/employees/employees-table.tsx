@@ -3,6 +3,7 @@
 import { DataTable } from "@/components/tables/data-table";
 import { employeeColumns, type EmployeeRow } from "@/components/tables/columns/employee-columns";
 import { ExportCsvButton } from "@/components/tables/export-csv-button";
+import { EMPLOYEE_STATUS_LABELS } from "@/lib/constants";
 
 interface EmployeesTableProps {
   data: EmployeeRow[];
@@ -34,12 +35,19 @@ export function EmployeesTable({ data, departmentOptions }: EmployeesTableProps)
           id: "status",
           title: "Status",
           options: [
-            { label: "Active", value: "active" },
-            { label: "Inactive", value: "inactive" },
-            { label: "Retired", value: "retired" },
-            { label: "Terminated", value: "terminated" },
-            { label: "Resigned", value: "resigned" },
-          ],
+            "active",
+            "inactive",
+            "retired",
+            "resigned",
+            "terminated",
+            "suspended",
+            "awol",
+            "dropped",
+            "deceased",
+          ].map((value) => ({
+            label: EMPLOYEE_STATUS_LABELS[value] ?? value,
+            value,
+          })),
         },
         {
           id: "vl_sl_status",

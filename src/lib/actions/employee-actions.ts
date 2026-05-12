@@ -32,6 +32,8 @@ export interface EmployeeWithRelations {
   hire_date: string;
   end_of_contract: string | null;
   status: string;
+  status_effective_date: string | null;
+  status_remarks: string | null;
   user_profile_id: string | null;
   vl_sl_needs_manual_entry: boolean;
   created_at: string;
@@ -247,61 +249,84 @@ export async function updateEmployee(
   return { data };
 }
 
-export async function deactivateEmployee(id: string) {
+const ALLOWED_EMPLOYEE_STATUSES = [
+  "active",
+  "inactive",
+  "retired",
+  "terminated",
+  "resigned",
+  "suspended",
+  "awol",
+  "dropped",
+  "deceased",
+] as const;
+
+type AllowedEmployeeStatus = (typeof ALLOWED_EMPLOYEE_STATUSES)[number];
+
+export async function changeEmployeeStatus(input: {
+  id: string;
+  status: AllowedEmployeeStatus;
+  effective_date?: string | null;
+  remarks?: string | null;
+}): Promise<{ success: true } | { error: string }> {
   const currentUser = await getCurrentUser();
   if (!currentUser || !["super_admin", "hr_admin"].includes(currentUser.role)) {
-    return { error: "Only HR Admin or Super Admin can deactivate employees." };
+    return { error: "Only HR Admin or Super Admin can change employee status." };
+  }
+
+  if (!ALLOWED_EMPLOYEE_STATUSES.includes(input.status)) {
+    return { error: "Invalid status." };
   }
 
   const supabase = createAdminClient();
 
-  const { error } = await supabase
+  const { data: existing, error: fetchError } = await supabase
     .schema("hris")
     .from("employees")
-    .update({ status: "inactive" })
-    .eq("id", id);
+    .select("status, status_effective_date, status_remarks")
+    .eq("id", input.id)
+    .single();
 
-  if (error) return { error: error.message };
+  if (fetchError || !existing) return { error: "Employee not found." };
 
-  await logAudit({
-    userId: currentUser?.id,
-    userEmail: currentUser?.email,
-    action: "update",
-    tableName: "employees",
-    recordId: id,
-    newValues: { status: "inactive" },
-  });
-
-  revalidatePath("/employees");
-  return { success: true };
-}
-
-export async function reactivateEmployee(id: string) {
-  const currentUser = await getCurrentUser();
-  if (!currentUser || !["super_admin", "hr_admin"].includes(currentUser.role)) {
-    return { error: "Only HR Admin or Super Admin can reactivate employees." };
-  }
-
-  const supabase = createAdminClient();
+  // Active = clear the metadata; non-active = require/accept it.
+  const nextEffective =
+    input.status === "active" ? null : input.effective_date || null;
+  const nextRemarks =
+    input.status === "active" ? null : (input.remarks ?? null);
 
   const { error } = await supabase
     .schema("hris")
     .from("employees")
-    .update({ status: "active" })
-    .eq("id", id);
+    .update({
+      status: input.status,
+      status_effective_date: nextEffective,
+      status_remarks: nextRemarks,
+    })
+    .eq("id", input.id);
 
   if (error) return { error: error.message };
+
   await logAudit({
-    userId: currentUser?.id,
-    userEmail: currentUser?.email,
-    action: "update",
+    userId: currentUser.id,
+    userEmail: currentUser.email,
+    action: "employee_status_change",
     tableName: "employees",
-    recordId: id,
-    newValues: { status: "active" },
+    recordId: input.id,
+    oldValues: {
+      status: existing.status,
+      status_effective_date: existing.status_effective_date,
+      status_remarks: existing.status_remarks,
+    },
+    newValues: {
+      status: input.status,
+      status_effective_date: nextEffective,
+      status_remarks: nextRemarks,
+    },
   });
 
   revalidatePath("/employees");
-  revalidatePath(`/employees/${id}`);
+  revalidatePath(`/employees/${input.id}`);
   return { success: true };
 }
 

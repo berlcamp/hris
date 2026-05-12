@@ -8,7 +8,16 @@ export type UserRole =
   | "department_admin"
   | "employee";
 export type EmploymentType = "plantilla" | "jo" | "cos";
-export type EmployeeStatus = "active" | "inactive" | "retired" | "terminated" | "resigned";
+export type EmployeeStatus =
+  | "active"
+  | "inactive"
+  | "retired"
+  | "terminated"
+  | "resigned"
+  | "suspended"
+  | "awol"
+  | "dropped"
+  | "deceased";
 export type ApprovalStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled";
 export type LeaveTypeCode =
   | "VL" | "SL" | "ML" | "PL" | "SPL" | "FL"
@@ -71,6 +80,8 @@ export interface Employee {
   hire_date: string;
   end_of_contract: string | null;
   status: EmployeeStatus;
+  status_effective_date: string | null;
+  status_remarks: string | null;
   vl_sl_needs_manual_entry: boolean;
   created_at: string;
   updated_at: string;

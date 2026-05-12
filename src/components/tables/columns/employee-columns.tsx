@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
 import { EmployeeActionsCell } from "./employee-actions-cell";
 import { getEffectivePosition } from "@/lib/employee-position";
+import { EMPLOYEE_STATUS_LABELS } from "@/lib/constants";
 
 export type EmployeeRow = {
   id: string;
@@ -45,6 +46,10 @@ const statusBadgeVariant: Record<string, "default" | "secondary" | "destructive"
   retired: "outline",
   terminated: "destructive",
   resigned: "outline",
+  suspended: "destructive",
+  awol: "destructive",
+  dropped: "destructive",
+  deceased: "outline",
 };
 
 export const employeeColumns: ColumnDef<EmployeeRow>[] = [
@@ -182,7 +187,8 @@ export const employeeColumns: ColumnDef<EmployeeRow>[] = [
       const status = row.getValue("status") as string;
       return (
         <Badge variant={statusBadgeVariant[status] ?? "outline"}>
-          {status.charAt(0).toUpperCase() + status.slice(1)}
+          {EMPLOYEE_STATUS_LABELS[status] ??
+            status.charAt(0).toUpperCase() + status.slice(1)}
         </Badge>
       );
     },
