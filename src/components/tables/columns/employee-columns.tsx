@@ -155,7 +155,12 @@ export const employeeColumns: ColumnDef<EmployeeRow>[] = [
     cell: ({ row }) => {
       const title = getEffectivePosition(row.original);
       return title ? (
-        <span>{title}</span>
+        <span
+          className="block max-w-[14rem] truncate"
+          title={title}
+        >
+          {title}
+        </span>
       ) : (
         <span className="text-muted-foreground">—</span>
       );
