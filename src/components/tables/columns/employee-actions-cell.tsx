@@ -37,7 +37,6 @@ import {
   EMPLOYEE_STATUS_DESCRIPTIONS,
   EMPLOYEE_STATUS_LABELS,
 } from "@/lib/constants";
-import { useUser } from "@/hooks/use-user";
 import type { EmployeeStatus } from "@/lib/types";
 import type { EmployeeRow } from "./employee-columns";
 
@@ -53,11 +52,14 @@ const STATUS_OPTIONS: { value: EmployeeStatus; label: string }[] = [
   { value: "deceased", label: EMPLOYEE_STATUS_LABELS.deceased },
 ];
 
-export function EmployeeActionsCell({ employee }: { employee: EmployeeRow }) {
+export function EmployeeActionsCell({
+  employee,
+  canEdit,
+}: {
+  employee: EmployeeRow;
+  canEdit: boolean;
+}) {
   const router = useRouter();
-  const { user } = useUser();
-  const canEdit =
-    !!user && ["super_admin", "hr_admin"].includes(user.role);
   const [showStatus, setShowStatus] = useState(false);
   const [status, setStatus] = useState<EmployeeStatus>(
     (employee.status as EmployeeStatus) ?? "active"

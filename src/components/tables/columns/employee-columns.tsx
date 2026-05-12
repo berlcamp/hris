@@ -52,7 +52,12 @@ const statusBadgeVariant: Record<string, "default" | "secondary" | "destructive"
   deceased: "outline",
 };
 
-export const employeeColumns: ColumnDef<EmployeeRow>[] = [
+export function getEmployeeColumns({
+  canEdit,
+}: {
+  canEdit: boolean;
+}): ColumnDef<EmployeeRow>[] {
+  return [
   {
     id: "select",
     header: ({ table }) => (
@@ -225,6 +230,9 @@ export const employeeColumns: ColumnDef<EmployeeRow>[] = [
   },
   {
     id: "actions",
-    cell: ({ row }) => <EmployeeActionsCell employee={row.original} />,
+    cell: ({ row }) => (
+      <EmployeeActionsCell employee={row.original} canEdit={canEdit} />
+    ),
   },
-];
+  ];
+}

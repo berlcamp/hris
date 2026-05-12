@@ -49,7 +49,11 @@ export default async function EmployeesPage() {
         )}
       </div>
 
-      <EmployeesTable data={employees ?? []} departmentOptions={departmentOptions} />
+      <EmployeesTable
+        data={employees ?? []}
+        departmentOptions={departmentOptions}
+        canEdit={canCreate}
+      />
     </div>
   );
 }

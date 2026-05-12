@@ -1,19 +1,29 @@
 "use client";
 
+import { useMemo } from "react";
 import { DataTable } from "@/components/tables/data-table";
-import { employeeColumns, type EmployeeRow } from "@/components/tables/columns/employee-columns";
+import {
+  getEmployeeColumns,
+  type EmployeeRow,
+} from "@/components/tables/columns/employee-columns";
 import { ExportCsvButton } from "@/components/tables/export-csv-button";
 import { EMPLOYEE_STATUS_LABELS } from "@/lib/constants";
 
 interface EmployeesTableProps {
   data: EmployeeRow[];
   departmentOptions: { label: string; value: string }[];
+  canEdit: boolean;
 }
 
-export function EmployeesTable({ data, departmentOptions }: EmployeesTableProps) {
+export function EmployeesTable({
+  data,
+  departmentOptions,
+  canEdit,
+}: EmployeesTableProps) {
+  const columns = useMemo(() => getEmployeeColumns({ canEdit }), [canEdit]);
   return (
     <DataTable
-      columns={employeeColumns}
+      columns={columns}
       data={data}
       searchableColumns={[{ id: "full_name", title: "name" }]}
       filterableColumns={[
