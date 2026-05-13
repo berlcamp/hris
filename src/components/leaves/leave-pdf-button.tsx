@@ -29,6 +29,7 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
   const [open, setOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [signatory7A, setSignatory7A] = useState("");
+  const [signatory7APosition, setSignatory7APosition] = useState("");
   const [signatory7B, setSignatory7B] = useState("");
   const [signatory7BPosition, setSignatory7BPosition] = useState("");
   const [signatoryFinal, setSignatoryFinal] = useState("");
@@ -49,22 +50,22 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
   // for an already-approved leave we add the paid days back to recover the
   // pre-deduction "Total Earned" value.
   const code = leave.leave_types?.code ?? "";
-  const debitsVlBucket = code === "VL" || code === "FL" || code === "SPL";
-  const debitsSlBucket = code === "SL";
-  const debitsVlCredit = code === "VL";
-  const debitsSlCredit = code === "SL";
+  // §7.A only certifies VL and SL credits — any other leave type (FL, SPL, ML,
+  // PL, …) leaves the ledger untouched on the printed form.
+  const debitsVl = code === "VL";
+  const debitsSl = code === "SL";
   const isApproved = leave.status === "approved";
   const daysWithPay = Number(leave.days_with_pay ?? leave.days_applied);
 
   const vlBalanceNow = vlCredit ? Number(vlCredit.balance) : 0;
   const slBalanceNow = slCredit ? Number(slCredit.balance) : 0;
-  const addBackVl = isApproved && debitsVlCredit ? daysWithPay : 0;
-  const addBackSl = isApproved && debitsSlCredit ? daysWithPay : 0;
+  const addBackVl = isApproved && debitsVl ? daysWithPay : 0;
+  const addBackSl = isApproved && debitsSl ? daysWithPay : 0;
 
   const vlTotalEarned = vlBalanceNow + addBackVl;
   const slTotalEarned = slBalanceNow + addBackSl;
-  const vlBalanceAfter = vlTotalEarned - (debitsVlBucket ? daysWithPay : 0);
-  const slBalanceAfter = slTotalEarned - (debitsSlBucket ? daysWithPay : 0);
+  const vlBalanceAfter = vlTotalEarned - (debitsVl ? daysWithPay : 0);
+  const slBalanceAfter = slTotalEarned - (debitsSl ? daysWithPay : 0);
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -123,6 +124,7 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
           status={leave.status}
           allLeaveTypeCodes={credits.map((c) => c.leave_types?.code ?? "").filter(Boolean)}
           signatory7A={signatory7A.trim()}
+          signatory7APosition={signatory7APosition.trim()}
           signatory7B={signatory7B.trim()}
           signatory7BPosition={signatory7BPosition.trim()}
           signatoryFinal={signatoryFinal.trim()}
@@ -164,13 +166,26 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label htmlFor="sig-7a">7.A Certification of Leave Credits</Label>
-              <Input
-                id="sig-7a"
-                value={signatory7A}
-                onChange={(e) => setSignatory7A(e.target.value)}
-                autoFocus
-              />
+              <Label>7.A Certification of Leave Credits</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  id="sig-7a"
+                  value={signatory7A}
+                  onChange={(e) => setSignatory7A(e.target.value)}
+                  aria-label="7.A name"
+                  autoFocus
+                />
+                <Input
+                  id="sig-7a-position"
+                  value={signatory7APosition}
+                  onChange={(e) => setSignatory7APosition(e.target.value)}
+                  aria-label="7.A position"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                <span>Name</span>
+                <span>Position (e.g., HRMO)</span>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label>7.B Recommendation</Label>

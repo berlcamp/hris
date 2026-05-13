@@ -182,6 +182,8 @@ interface LeaveForm6PdfProps {
   titleLogos?: (string | undefined)[];
   /** Name printed above "(Authorized Officer)" under §7.A (leave-credits certifier). */
   signatory7A?: string;
+  /** Position printed under the §7.A signatory's name (e.g. "HRMO"). */
+  signatory7APosition?: string;
   /** Name printed above "(Authorized Officer)" under §7.B (recommending officer). */
   signatory7B?: string;
   /** Position printed under the §7.B signatory's name (e.g. "Department Head"). */
@@ -296,6 +298,7 @@ export function LeaveForm6Pdf({
   logoSrc,
   titleLogos,
   signatory7A,
+  signatory7APosition,
   signatory7B,
   signatory7BPosition,
   signatoryFinal,
@@ -326,10 +329,11 @@ export function LeaveForm6Pdf({
         : `${fmtDate(startDate)} to ${fmtDate(endDate)} (${leaveDates.length} dates)`
       : `${fmtDate(startDate)} to ${fmtDate(endDate)}`;
 
-  // Only the paid portion (daysWithPay) consumes credits; the LWOP portion is
-  // shown separately under §7.C.
-  const lessVl =
-    isCode("VL") || isCode("FL") || isCode("SPL") ? daysWithPay : 0;
+  // §7.A only certifies VL and SL credits. Any other leave type (FL, SPL, ML,
+  // PL, …) leaves both "Less this application" cells blank — Total Earned and
+  // Balance stay equal. Only the paid portion (daysWithPay) consumes credits;
+  // the LWOP portion is shown separately under §7.C.
+  const lessVl = isCode("VL") ? daysWithPay : 0;
   const lessSl = isCode("SL") ? daysWithPay : 0;
   const daysWithoutPay = Math.max(0, daysApplied - daysWithPay);
   // Trim float artifacts (e.g. 5.806999999) to at most 3 decimal places.
@@ -655,6 +659,11 @@ export function LeaveForm6Pdf({
                 <Text style={{ borderBottom: HAIR, width: "70%", alignSelf: "center", fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center", minHeight: 11 }}>
                   {signatory7A || " "}
                 </Text>
+                {signatory7APosition ? (
+                  <Text style={{ fontSize: 8.5, textAlign: "center", marginTop: 1 }}>
+                    {signatory7APosition}
+                  </Text>
+                ) : null}
                 <Text style={[s.italic, { fontSize: 8.5, textAlign: "center", marginTop: 1 }]}>
                   (Authorized Officer)
                 </Text>
