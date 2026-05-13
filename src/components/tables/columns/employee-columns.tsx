@@ -220,7 +220,7 @@ export function getEmployeeColumns({
     cell: ({ row }) =>
       row.original.employment_type === "plantilla" &&
       row.original.vl_sl_needs_manual_entry ? (
-        <Badge variant="destructive">Needs entry</Badge>
+        <Badge variant="destructive">Needs reconciliation</Badge>
       ) : (
         <span className="text-muted-foreground">—</span>
       ),

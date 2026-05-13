@@ -37,7 +37,9 @@ export interface PendingApprovalItem {
   id: string;
   type: "leave" | "nosi" | "nosa";
   employee_name: string;
+  department: string | null;
   detail: string;
+  current_status: string;
   created_at: string;
   /** Plantilla employee whose VL/SL credits were never reconciled — HR action required. */
   needs_vl_sl_reconcile?: boolean;
@@ -296,14 +298,17 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
   const supabase = createAdminClient();
   const items: PendingApprovalItem[] = [];
 
-  // Pending leaves
+  const isHrPath = ["super_admin", "hr_admin"].includes(user.role);
+
+  // Pending leaves — HR/super admin get a wider window so leaves "Awaiting HR"
+  // aren't crowded out of the list by newer "Awaiting Dept Head" items.
   let leaveQuery = supabase
     .schema("hris")
     .from("leave_applications")
-    .select("id, created_at, days_applied, employees!inner(first_name, last_name, department_id, employment_type, vl_sl_needs_manual_entry), leave_types!inner(name)")
+    .select("id, created_at, days_applied, dept_approved_at, employees!inner(first_name, last_name, department_id, employment_type, vl_sl_needs_manual_entry, departments!employees_department_id_fkey(name, code)), leave_types!inner(name)")
     .eq("status", "pending")
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(isHrPath ? 20 : 10);
 
   if (
     (user.role === "department_head" || user.role === "department_admin") &&
@@ -319,6 +324,7 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
       last_name: string;
       employment_type: string;
       vl_sl_needs_manual_entry: boolean;
+      departments: { name: string; code: string } | null;
     } | null;
     const lt = l.leave_types as unknown as { name: string } | null;
     if (!emp) continue;
@@ -326,7 +332,9 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
       id: l.id,
       type: "leave",
       employee_name: `${emp.last_name}, ${emp.first_name}`,
+      department: emp.departments?.code ?? emp.departments?.name ?? null,
       detail: `${lt?.name ?? "Leave"} — ${l.days_applied} day(s)`,
+      current_status: l.dept_approved_at ? "Awaiting HR" : "Awaiting Dept Head",
       created_at: l.created_at,
       needs_vl_sl_reconcile:
         emp.employment_type === "plantilla" && emp.vl_sl_needs_manual_entry,
@@ -338,19 +346,25 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
     const { data: nosis } = await supabase
       .schema("hris")
       .from("nosi_records")
-      .select("id, created_at, current_step, new_step, employees!inner(first_name, last_name)")
+      .select("id, created_at, current_step, new_step, employees!inner(first_name, last_name, departments!employees_department_id_fkey(name, code))")
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(5);
 
     for (const n of nosis ?? []) {
-      const emp = n.employees as unknown as { first_name: string; last_name: string } | null;
+      const emp = n.employees as unknown as {
+        first_name: string;
+        last_name: string;
+        departments: { name: string; code: string } | null;
+      } | null;
       if (!emp) continue;
       items.push({
         id: n.id,
         type: "nosi",
         employee_name: `${emp.last_name}, ${emp.first_name}`,
+        department: emp.departments?.code ?? emp.departments?.name ?? null,
         detail: `Step ${n.current_step} → ${n.new_step}`,
+        current_status: "Awaiting HR",
         created_at: n.created_at,
       });
     }
@@ -359,25 +373,48 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
     const { data: nosas } = await supabase
       .schema("hris")
       .from("nosa_records")
-      .select("id, created_at, reason, employees!inner(first_name, last_name)")
+      .select("id, created_at, reason, employees!inner(first_name, last_name, departments!employees_department_id_fkey(name, code))")
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(5);
 
     for (const n of nosas ?? []) {
-      const emp = n.employees as unknown as { first_name: string; last_name: string } | null;
+      const emp = n.employees as unknown as {
+        first_name: string;
+        last_name: string;
+        departments: { name: string; code: string } | null;
+      } | null;
       if (!emp) continue;
       items.push({
         id: n.id,
         type: "nosa",
         employee_name: `${emp.last_name}, ${emp.first_name}`,
+        department: emp.departments?.code ?? emp.departments?.name ?? null,
         detail: (n.reason as string).replace(/_/g, " "),
+        current_status: "Awaiting HR",
         created_at: n.created_at,
       });
     }
   }
 
-  return items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  // Surface items needing the current user's action first; then most recent.
+  // - HR admin / super admin: leaves "Awaiting HR" + all NOSI/NOSA are actionable.
+  // - Dept head / dept admin: leaves "Awaiting Dept Head" are actionable.
+  const needsAction = (item: PendingApprovalItem): boolean => {
+    if (isHrPath) {
+      if (item.type === "leave") return item.current_status === "Awaiting HR";
+      return true;
+    }
+    if (item.type === "leave") return item.current_status === "Awaiting Dept Head";
+    return false;
+  };
+
+  return items.sort((a, b) => {
+    const aAct = needsAction(a) ? 0 : 1;
+    const bAct = needsAction(b) ? 0 : 1;
+    if (aAct !== bAct) return aAct - bAct;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
 }
 
 // --- Employee-specific dashboard ---

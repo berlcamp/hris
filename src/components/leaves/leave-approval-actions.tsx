@@ -24,7 +24,7 @@ interface LeaveApprovalActionsProps {
   leaveId: string;
   status: string;
   deptApprovedAt: string | null;
-  employeeId: string;
+  canCancel: boolean;
   user: AuthUserData;
 }
 
@@ -32,7 +32,7 @@ export function LeaveApprovalActions({
   leaveId,
   status,
   deptApprovedAt,
-  employeeId,
+  canCancel,
   user,
 }: LeaveApprovalActionsProps) {
   const router = useRouter();
@@ -52,6 +52,9 @@ export function LeaveApprovalActions({
     setLoading(false);
   };
 
+  // Status stays "pending" through dept-head approval; only HR final approval
+  // flips it to "approved". So gating on "pending" keeps Cancel/Approve/Reject
+  // visible in the dept-approved-but-not-HR-approved in-between state.
   if (status !== "pending") return null;
 
   // HR can only act once the department head has approved. super_admin can act anytime.
@@ -121,15 +124,18 @@ export function LeaveApprovalActions({
         </Dialog>
       )}
 
-      {/* Cancel button for the applicant or HR */}
-      <Button
-        variant="outline"
-        onClick={() => handle(() => cancelLeaveApplication(leaveId))}
-        disabled={loading}
-      >
-        {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-        Cancel Application
-      </Button>
+      {/* Cancel — applicant or HR, at any point before HR final approval
+          (dept-head approval does not lock the application). */}
+      {canCancel && (
+        <Button
+          variant="outline"
+          onClick={() => handle(() => cancelLeaveApplication(leaveId))}
+          disabled={loading}
+        >
+          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+          Cancel Application
+        </Button>
+      )}
     </div>
   );
 }

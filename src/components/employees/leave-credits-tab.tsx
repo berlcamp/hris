@@ -69,7 +69,7 @@ export function LeaveCreditsTab({
           <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
             <p className="font-medium text-amber-900 dark:text-amber-200">
-              VL/SL needs manual entry
+              VL/SL needs reconciliation
             </p>
             <p className="text-amber-800 dark:text-amber-300">
               This employee was not in the legacy CSV import, so their VL and SL

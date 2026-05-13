@@ -76,7 +76,7 @@ const actionOptions = [
   { label: "Dept Reject Leave", value: "reject_leave_dept" },
   { label: "HR Reject Leave", value: "reject_leave" },
   { label: "Adjust Leave Credit", value: "adjust_leave_credit" },
-  { label: "Flag VL/SL Manual Entry", value: "flag_all_vl_sl_manual_entry" },
+  { label: "Flag VL/SL Reconciliation", value: "flag_all_vl_sl_manual_entry" },
   { label: "Monthly Accrual", value: "monthly_accrual" },
   { label: "Import Leave Credits", value: "import_leave_credits" },
   { label: "Create", value: "create" },

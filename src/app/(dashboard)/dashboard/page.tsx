@@ -359,12 +359,43 @@ export default async function DashboardPage() {
                               {item.type.toUpperCase()}
                             </Badge>
                             <div className="min-w-0">
-                              <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                                {item.employee_name}
-                              </p>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+                                  {item.employee_name}
+                                </p>
+                                {item.department && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] shrink-0 font-normal"
+                                  >
+                                    {item.department}
+                                  </Badge>
+                                )}
+                              </div>
                               <p className="text-xs text-muted-foreground truncate">
                                 {item.detail}
                               </p>
+                              {(() => {
+                                const needsMyAction = isAdmin
+                                  ? item.type !== "leave" ||
+                                    item.current_status === "Awaiting HR"
+                                  : item.type === "leave" &&
+                                    item.current_status === "Awaiting Dept Head";
+                                return (
+                                  <p className="text-[11px] text-muted-foreground/80 mt-0.5">
+                                    Status:{" "}
+                                    <span
+                                      className={
+                                        needsMyAction
+                                          ? "font-semibold text-amber-700"
+                                          : "font-medium text-foreground/80"
+                                      }
+                                    >
+                                      {item.current_status}
+                                    </span>
+                                  </p>
+                                );
+                              })()}
                               {item.type === "leave" &&
                                 item.needs_vl_sl_reconcile && (
                                   <p
@@ -373,7 +404,7 @@ export default async function DashboardPage() {
                                   >
                                     <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
                                     <span>
-                                      VL/SL needs manual entry — please refer
+                                      VL/SL needs reconciliation — please refer
                                       to HR to reconcile leave credits.
                                     </span>
                                   </p>

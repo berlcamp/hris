@@ -313,7 +313,7 @@ export async function adjustLeaveCredit(input: {
   });
   if (recomputeError) return { error: recomputeError };
 
-  // If this adjustment was for VL or SL, clear the "needs manual entry" flag —
+  // If this adjustment was for VL or SL, clear the "needs reconciliation" flag —
   // HR has now engaged with this employee's leave-credit baseline.
   const { data: lt } = await supabase
     .schema("hris")
@@ -597,26 +597,48 @@ export async function cancelLeaveApplication(id: string) {
 
   const supabase = createAdminClient();
 
-  // Only pending leaves can be cancelled, and only by the applicant or HR
+  // Only pending leaves can be cancelled.
   const { data: app } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("employee_id, status, leave_type_id, start_date, end_date, days_applied, leave_types(code)")
+    .select(
+      "employee_id, status, leave_type_id, start_date, end_date, days_applied, employees(department_id, employment_type), leave_types(code)"
+    )
     .eq("id", id)
     .single();
 
   if (!app) return { error: "Application not found" };
   if (app.status !== "pending") return { error: "Only pending applications can be cancelled" };
 
-  // Check if user owns this leave or is HR
+  // Authorization mirrors createLeaveApplication:
+  //   super_admin / hr_admin       — any leave
+  //   applicant                    — their own leave
+  //   department_head              — any employee in their department
+  //   department_admin             — plantilla employees in their department
   if (!["super_admin", "hr_admin"].includes(user.role)) {
-    const { data: emp } = await supabase
+    const empRel = app.employees as
+      | { department_id: string | null; employment_type: string }
+      | { department_id: string | null; employment_type: string }[]
+      | null;
+    const appEmp = Array.isArray(empRel) ? empRel[0] ?? null : empRel;
+
+    const { data: userEmp } = await supabase
       .schema("hris")
       .from("employees")
       .select("id")
       .eq("user_profile_id", user.id)
       .maybeSingle();
-    if (!emp || emp.id !== app.employee_id) return { error: "Unauthorized" };
+    const isApplicant = !!userEmp && userEmp.id === app.employee_id;
+
+    const inSameDept =
+      !!appEmp && !!user.departmentId && appEmp.department_id === user.departmentId;
+    const canByDeptRole =
+      (user.role === "department_head" && inSameDept) ||
+      (user.role === "department_admin" &&
+        inSameDept &&
+        appEmp?.employment_type === "plantilla");
+
+    if (!isApplicant && !canByDeptRole) return { error: "Unauthorized" };
   }
 
   const { error } = await supabase

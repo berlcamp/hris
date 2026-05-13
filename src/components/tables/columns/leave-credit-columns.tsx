@@ -44,7 +44,7 @@ export function getLeaveCreditColumns({
                 className="border-amber-500 text-amber-700 dark:text-amber-400 gap-1"
               >
                 <AlertTriangle className="h-3 w-3" />
-                Needs entry
+                Needs reconciliation
               </Badge>
             )}
           </div>

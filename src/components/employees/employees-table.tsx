@@ -63,7 +63,7 @@ export function EmployeesTable({
           id: "vl_sl_status",
           title: "VL/SL",
           options: [
-            { label: "Needs manual entry", value: "missing" },
+            { label: "Needs reconciliation", value: "missing" },
             { label: "OK", value: "ok" },
           ],
         },

@@ -29,7 +29,17 @@ export const leaveColumns: ColumnDef<LeaveApplicationWithRelations>[] = [
         emp.employment_type === "plantilla" && emp.vl_sl_needs_manual_entry;
       return (
         <div className="space-y-0.5">
-          <p className="font-medium">{emp.last_name}, {emp.first_name}</p>
+          <Link
+            href={`/leaves/${row.original.id}`}
+            className="font-medium hover:underline"
+          >
+            {emp.last_name}, {emp.first_name}
+          </Link>
+          {emp.departments && (
+            <p className="text-xs text-muted-foreground">
+              {emp.departments.code} — {emp.departments.name}
+            </p>
+          )}
           {needsReconcile && (
             <p
               className="flex items-start gap-1 text-[11px] leading-tight text-amber-700"
@@ -37,7 +47,7 @@ export const leaveColumns: ColumnDef<LeaveApplicationWithRelations>[] = [
             >
               <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
               <span>
-                VL/SL needs manual entry — please refer to HR to reconcile
+                VL/SL needs reconciliation — please refer to HR to reconcile
                 leave credits.
               </span>
             </p>

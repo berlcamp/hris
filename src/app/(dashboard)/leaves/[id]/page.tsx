@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 import { getLeaveApplicationById, getEmployeeLeaveCredits } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
 import { LeavePdfButton } from "@/components/leaves/leave-pdf-button";
@@ -68,6 +69,35 @@ export default async function LeaveDetailPage({
   // "balance after this leave" only makes sense before a decision is made.
   const showProjection = leave.status === "draft" || leave.status === "pending";
 
+  // Cancellation is allowed while the application is still in flight — i.e.
+  // status is "pending", which covers both pre- and post-dept-head approval.
+  // Permission mirrors the server-side rule in cancelLeaveApplication:
+  //   HR/super_admin: any leave; applicant: own leave;
+  //   department_head: any employee in their dept;
+  //   department_admin: plantilla employees in their dept.
+  const isPrivileged = ["hr_admin", "super_admin"].includes(user.role);
+  let userIsApplicant = false;
+  if (!isPrivileged) {
+    const { data: userEmp } = await createAdminClient()
+      .schema("hris")
+      .from("employees")
+      .select("id")
+      .eq("user_profile_id", user.id)
+      .maybeSingle();
+    userIsApplicant = !!userEmp && userEmp.id === leave.employee_id;
+  }
+  const inSameDept =
+    !!user.departmentId &&
+    leave.employees?.department_id === user.departmentId;
+  const canCancelByDeptRole =
+    (user.role === "department_head" && inSameDept) ||
+    (user.role === "department_admin" &&
+      inSameDept &&
+      leave.employees?.employment_type === "plantilla");
+  const canCancel =
+    leave.status === "pending" &&
+    (isPrivileged || userIsApplicant || canCancelByDeptRole);
+
   const timeline = [
     { label: "Submitted", done: true, date: leave.created_at },
     { label: "Dept Approved", done: !!leave.dept_approved_at, date: leave.dept_approved_at },
@@ -102,7 +132,7 @@ export default async function LeaveDetailPage({
             leaveId={leave.id}
             status={leave.status}
             deptApprovedAt={leave.dept_approved_at}
-            employeeId={leave.employee_id}
+            canCancel={canCancel}
             user={user}
           />
         </div>
@@ -116,7 +146,7 @@ export default async function LeaveDetailPage({
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-700" />
           <div>
             <p className="font-medium">
-              VL/SL credits need manual entry for this employee.
+              VL/SL credits need reconciliation for this employee.
             </p>
             <p className="text-xs text-amber-800">
               Please refer to HR to reconcile leave credits before approving
