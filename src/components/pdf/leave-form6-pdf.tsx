@@ -184,8 +184,12 @@ interface LeaveForm6PdfProps {
   signatory7A?: string;
   /** Name printed above "(Authorized Officer)" under §7.B (recommending officer). */
   signatory7B?: string;
+  /** Position printed under the §7.B signatory's name (e.g. "Department Head"). */
+  signatory7BPosition?: string;
   /** Name printed above "(Authorized Official)" at the bottom (final approver). */
   signatoryFinal?: string;
+  /** Position printed under the final approver's name (e.g. "City Mayor"). */
+  signatoryFinalPosition?: string;
 }
 
 function fmtDate(dateStr: string) {
@@ -293,7 +297,9 @@ export function LeaveForm6Pdf({
   titleLogos,
   signatory7A,
   signatory7B,
+  signatory7BPosition,
   signatoryFinal,
+  signatoryFinalPosition,
 }: LeaveForm6PdfProps) {
   const isCode = (code: string) => leaveTypeCode === code;
   const { last, first, middle } = splitName(employeeName, middleName);
@@ -681,6 +687,11 @@ export function LeaveForm6Pdf({
                 <Text style={{ borderBottom: HAIR, width: "70%", alignSelf: "center", fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center", minHeight: 11 }}>
                   {signatory7B || " "}
                 </Text>
+                {signatory7BPosition ? (
+                  <Text style={{ fontSize: 8.5, textAlign: "center", marginTop: 1 }}>
+                    {signatory7BPosition}
+                  </Text>
+                ) : null}
                 <Text style={[s.italic, { fontSize: 8.5, textAlign: "center", marginTop: 1 }]}>
                   (Authorized Officer)
                 </Text>
@@ -725,6 +736,11 @@ export function LeaveForm6Pdf({
                   {signatoryFinal || " "}
                 </Text>
               </View>
+              {signatoryFinalPosition ? (
+                <Text style={{ fontSize: 8.5, textAlign: "center", marginTop: 1 }}>
+                  {signatoryFinalPosition}
+                </Text>
+              ) : null}
               <Text style={s.sigCenterCaption}>(Authorized Official)</Text>
             </View>
           </View>

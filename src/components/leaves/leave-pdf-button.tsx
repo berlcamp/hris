@@ -30,7 +30,9 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
   const [generating, setGenerating] = useState(false);
   const [signatory7A, setSignatory7A] = useState("");
   const [signatory7B, setSignatory7B] = useState("");
+  const [signatory7BPosition, setSignatory7BPosition] = useState("");
   const [signatoryFinal, setSignatoryFinal] = useState("");
+  const [signatoryFinalPosition, setSignatoryFinalPosition] = useState("");
 
   const emp = leave.employees;
   const employeeName = emp
@@ -122,7 +124,9 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
           allLeaveTypeCodes={credits.map((c) => c.leave_types?.code ?? "").filter(Boolean)}
           signatory7A={signatory7A.trim()}
           signatory7B={signatory7B.trim()}
+          signatory7BPosition={signatory7BPosition.trim()}
           signatoryFinal={signatoryFinal.trim()}
+          signatoryFinalPosition={signatoryFinalPosition.trim()}
         />
       ).toBlob();
       const url = URL.createObjectURL(blob);
@@ -169,20 +173,46 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="sig-7b">7.B Recommendation</Label>
-              <Input
-                id="sig-7b"
-                value={signatory7B}
-                onChange={(e) => setSignatory7B(e.target.value)}
-              />
+              <Label>7.B Recommendation</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  id="sig-7b"
+                  value={signatory7B}
+                  onChange={(e) => setSignatory7B(e.target.value)}
+                  aria-label="7.B name"
+                />
+                <Input
+                  id="sig-7b-position"
+                  value={signatory7BPosition}
+                  onChange={(e) => setSignatory7BPosition(e.target.value)}
+                  aria-label="7.B position"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                <span>Name</span>
+                <span>Position (e.g., Department Head)</span>
+              </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="sig-final">Final Leave Approval</Label>
-              <Input
-                id="sig-final"
-                value={signatoryFinal}
-                onChange={(e) => setSignatoryFinal(e.target.value)}
-              />
+              <Label>Final Leave Approval</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  id="sig-final"
+                  value={signatoryFinal}
+                  onChange={(e) => setSignatoryFinal(e.target.value)}
+                  aria-label="Final approver name"
+                />
+                <Input
+                  id="sig-final-position"
+                  value={signatoryFinalPosition}
+                  onChange={(e) => setSignatoryFinalPosition(e.target.value)}
+                  aria-label="Final approver position"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                <span>Name</span>
+                <span>Position (e.g., City Mayor)</span>
+              </div>
             </div>
           </div>
           <DialogFooter>
