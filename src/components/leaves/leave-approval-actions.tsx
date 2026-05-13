@@ -17,7 +17,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { approveLeave, rejectLeave, cancelLeaveApplication } from "@/lib/actions/leave-actions";
+import {
+  approveLeave,
+  rejectLeave,
+  cancelLeaveApplication,
+  cancelApprovedLeaveApplication,
+} from "@/lib/actions/leave-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
 
 interface LeaveApprovalActionsProps {
@@ -39,6 +44,8 @@ export function LeaveApprovalActions({
   const [loading, setLoading] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [cancelApprovedOpen, setCancelApprovedOpen] = useState(false);
+  const [cancelApprovedReason, setCancelApprovedReason] = useState("");
 
   const handle = async (action: () => Promise<{ success?: boolean; error?: string; message?: string }>) => {
     setLoading(true);
@@ -51,6 +58,72 @@ export function LeaveApprovalActions({
     }
     setLoading(false);
   };
+
+  // HR Admin / Super Admin can cancel an already-approved leave, with a
+  // mandatory written reason. Credits are refunded automatically because the
+  // balance view only counts approved rows.
+  const canCancelApproved =
+    status === "approved" &&
+    (user.role === "super_admin" || user.role === "hr_admin");
+
+  if (status === "approved") {
+    if (!canCancelApproved) return null;
+    return (
+      <div className="flex gap-2 flex-wrap">
+        <Dialog open={cancelApprovedOpen} onOpenChange={setCancelApprovedOpen}>
+          <DialogTrigger
+            render={<Button variant="destructive" disabled={loading} />}
+          >
+            Cancel Approved Leave
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cancel Approved Leave</DialogTitle>
+              <DialogDescription>
+                This leave has already been approved. Cancelling it will refund
+                the deducted credits. Provide a reason for the cancellation —
+                it will be recorded in the audit trail.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label>Cancellation Reason</Label>
+              <Textarea
+                value={cancelApprovedReason}
+                onChange={(e) => setCancelApprovedReason(e.target.value)}
+                placeholder="e.g. Employee request — leave no longer needed"
+                rows={3}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setCancelApprovedOpen(false)}
+              >
+                Keep Approved
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={loading || !cancelApprovedReason.trim()}
+                onClick={() =>
+                  handle(async () => {
+                    const r = await cancelApprovedLeaveApplication(
+                      leaveId,
+                      cancelApprovedReason,
+                    );
+                    setCancelApprovedOpen(false);
+                    return r;
+                  })
+                }
+              >
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                Confirm Cancellation
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
 
   // Status stays "pending" through dept-head approval; only HR final approval
   // flips it to "approved". So gating on "pending" keeps Cancel/Approve/Reject

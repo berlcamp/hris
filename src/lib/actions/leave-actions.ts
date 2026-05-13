@@ -671,6 +671,87 @@ export async function cancelLeaveApplication(id: string) {
   return { success: true };
 }
 
+// Cancel an already-approved leave. Restricted to super_admin / hr_admin and
+// requires a written reason for audit. The `leave_credit_balances` view
+// derives used_credits from approved rows only, so flipping status to
+// "cancelled" automatically refunds the deducted credits — no ledger
+// adjustment needed. The cancellation reason is stored in `rejection_reason`
+// (the same column reused for rejected leaves); the detail page distinguishes
+// the two via the `status` field.
+export async function cancelApprovedLeaveApplication(id: string, reason: string) {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Unauthorized" };
+  if (!["super_admin", "hr_admin"].includes(user.role))
+    return { error: "Only HR Admin or Super Admin can cancel an approved leave" };
+
+  const trimmed = (reason ?? "").trim();
+  if (!trimmed) return { error: "Cancellation reason is required" };
+
+  const supabase = createAdminClient();
+
+  const { data: app } = await supabase
+    .schema("hris")
+    .from("leave_applications")
+    .select(
+      "employee_id, status, leave_type_id, start_date, end_date, days_applied, days_with_pay, hr_approved_at, hr_reviewer_id, leave_types(code)"
+    )
+    .eq("id", id)
+    .single();
+
+  if (!app) return { error: "Application not found" };
+  if (app.status !== "approved")
+    return { error: "Only approved applications can be cancelled here" };
+
+  const cancelledAt = new Date().toISOString();
+  const { error } = await supabase
+    .schema("hris")
+    .from("leave_applications")
+    .update({
+      status: "cancelled",
+      rejection_reason: trimmed,
+      updated_at: cancelledAt,
+    })
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+
+  const leaveTypeRel = app.leave_types as { code: string } | { code: string }[] | null;
+  const leaveTypeCode = Array.isArray(leaveTypeRel)
+    ? leaveTypeRel[0]?.code ?? null
+    : leaveTypeRel?.code ?? null;
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "cancel_approved_leave",
+    tableName: "leave_applications",
+    recordId: id,
+    oldValues: {
+      status: "approved",
+      hr_approved_at: app.hr_approved_at,
+      hr_reviewer_id: app.hr_reviewer_id,
+    },
+    newValues: {
+      status: "cancelled",
+      cancellation_reason: trimmed,
+      cancelled_by: user.email,
+      cancelled_by_role: user.role,
+      employee_id: app.employee_id,
+      leave_type_id: app.leave_type_id,
+      leave_type_code: leaveTypeCode,
+      start_date: app.start_date,
+      end_date: app.end_date,
+      days_applied: app.days_applied,
+      days_with_pay_refunded: app.days_with_pay,
+    },
+  });
+
+  revalidatePath("/leaves");
+  revalidatePath(`/leaves/${id}`);
+  revalidatePath("/leaves/credits");
+  return { success: true, message: "Approved leave cancelled and credits refunded" };
+}
+
 // ── Leave Approval Workflow (3-step) ───────────────────────────────
 // 1. Employee submits → pending
 // 2. Department Head approves → dept_approved_at set

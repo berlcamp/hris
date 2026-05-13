@@ -70,6 +70,8 @@ function eventStyle(action: string): EventStyle {
       return { icon: XCircle, label: "HR Rejected", tone: "danger" };
     case "cancel_leave":
       return { icon: Ban, label: "Cancelled", tone: "warning" };
+    case "cancel_approved_leave":
+      return { icon: Ban, label: "Approved Leave Cancelled", tone: "danger" };
     default:
       return { icon: Activity, label: action.replace(/_/g, " "), tone: "neutral" };
   }
@@ -113,6 +115,8 @@ function describe(log: AuditLogRow): string {
   const filedByRole = v.filed_by_role as string | undefined;
   const reason = v.rejection_reason as string | undefined;
   const adjustedReason = v.reason as string | undefined;
+  const cancellationReason = v.cancellation_reason as string | undefined;
+  const cancelledByRole = v.cancelled_by_role as string | undefined;
 
   switch (log.action) {
     case "create_leave": {
@@ -136,6 +140,15 @@ function describe(log: AuditLogRow): string {
         : `${actor} rejected at HR review.`;
     case "cancel_leave":
       return `${actor} cancelled this application.`;
+    case "cancel_approved_leave": {
+      const roleSuffix =
+        cancelledByRole && roleLabel[cancelledByRole]
+          ? ` (${roleLabel[cancelledByRole]})`
+          : "";
+      return cancellationReason
+        ? `${actor}${roleSuffix} cancelled this approved leave: "${cancellationReason}".`
+        : `${actor}${roleSuffix} cancelled this approved leave.`;
+    }
     default:
       return adjustedReason
         ? `${actor} performed ${log.action}: "${adjustedReason}".`

@@ -309,10 +309,17 @@ export default async function LeaveDetailPage({
         </CardContent>
       </Card>
 
-      {/* Rejection Reason */}
+      {/* Rejection / Cancellation Reason — rejection_reason is reused for
+          approved-leave cancellations; differentiate the label by status. */}
       {leave.rejection_reason && (
         <Card>
-          <CardHeader><CardTitle className="text-base">Rejection Reason</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {leave.status === "cancelled"
+                ? "Cancellation Reason"
+                : "Rejection Reason"}
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <p className="text-sm text-destructive">{leave.rejection_reason}</p>
           </CardContent>
