@@ -14,12 +14,12 @@ import type { LeaveCreditTableRow } from "@/components/tables/columns/leave-cred
 export default async function LeaveCreditsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "super_admin" && user.role !== "hr_admin") {
+  if (user.role !== "super_admin") {
     redirect("/dashboard");
   }
 
   const currentYear = new Date().getFullYear();
-  const isAdmin = user.role === "super_admin" || user.role === "hr_admin";
+  const isAdmin = user.role === "super_admin";
 
   const [credits, leaveTypes] = await Promise.all([
     getLeaveCreditsForYear(currentYear),

@@ -14,7 +14,7 @@ export default async function LeavesPage() {
 
   const applications = await getLeaveApplications();
 
-  const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
+  const isSuperAdmin = user.role === "super_admin";
 
   return (
     <div className="space-y-6">
@@ -26,7 +26,7 @@ export default async function LeavesPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {isAdmin && (
+          {isSuperAdmin && (
             <Link href="/leaves/credits">
               <Button variant="outline" size="sm">
                 <CreditCard className="h-4 w-4" />

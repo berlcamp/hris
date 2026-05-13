@@ -128,7 +128,7 @@ const navGroups: NavGroup[] = [
         title: "Leave Credits",
         href: "/leaves/credits",
         icon: CreditCard,
-        roles: ["super_admin", "hr_admin"],
+        roles: ["super_admin"],
       },
       { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: leaveAttendanceRoles },
     ],
