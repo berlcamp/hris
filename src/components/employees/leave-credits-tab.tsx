@@ -73,9 +73,8 @@ export function LeaveCreditsTab({
             </p>
             <p className="text-amber-800 dark:text-amber-300">
               This employee was not in the legacy CSV import, so their VL and SL
-              balances were reset to zero. Use the pencil button on the VL or
-              SL card to enter the correct starting balance — this will clear
-              the warning.
+              balances were reset to zero. Please input the correct VL/SL
+              balance as of May 8, 2026.
             </p>
           </div>
         </div>

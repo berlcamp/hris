@@ -51,6 +51,7 @@ interface DataTableProps<TData, TValue> {
   // When true, the table body scrolls inside a bounded parent instead of
   // growing and causing page-level scroll. The parent must constrain height.
   fillHeight?: boolean;
+  initialColumnVisibility?: VisibilityState;
 }
 
 export function DataTable<TData, TValue>({
@@ -62,9 +63,12 @@ export function DataTable<TData, TValue>({
   isLoading = false,
   toolbar,
   fillHeight = false,
+  initialColumnVisibility,
 }: DataTableProps<TData, TValue>) {
   const [rowSelection, setRowSelection] = React.useState({});
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
+    initialColumnVisibility ?? {},
+  );
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [sorting, setSorting] = React.useState<SortingState>([]);
 

@@ -7,12 +7,16 @@ import { DataTable } from "@/components/tables/data-table";
 import { leaveColumns } from "@/components/tables/columns/leave-columns";
 import { getLeaveApplications } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { getDepartments } from "@/lib/actions/user-actions";
 
 export default async function LeavesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const applications = await getLeaveApplications();
+  const [applications, departments] = await Promise.all([
+    getLeaveApplications(),
+    getDepartments(),
+  ]);
 
   const isSuperAdmin = user.role === "super_admin";
 
@@ -46,7 +50,16 @@ export default async function LeavesPage() {
       <DataTable
         columns={leaveColumns}
         data={applications}
+        initialColumnVisibility={{ department: false }}
         filterableColumns={[
+          {
+            id: "department",
+            title: "Department",
+            options: departments.map((d) => ({
+              label: d.code ? `${d.code} — ${d.name}` : d.name,
+              value: d.code ?? "",
+            })),
+          },
           {
             id: "status",
             title: "Status",
