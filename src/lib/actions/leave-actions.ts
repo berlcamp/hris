@@ -313,21 +313,14 @@ export async function adjustLeaveCredit(input: {
   });
   if (recomputeError) return { error: recomputeError };
 
-  // If this adjustment was for VL or SL, clear the "needs reconciliation" flag —
-  // HR has now engaged with this employee's leave-credit baseline.
+  // The "needs reconciliation" flag is cleared by a DB trigger
+  // (migration 027) once HR has adjusted BOTH VL and SL.
   const { data: lt } = await supabase
     .schema("hris")
     .from("leave_types")
     .select("code")
     .eq("id", input.leave_type_id)
     .maybeSingle();
-  if (lt?.code === "VL" || lt?.code === "SL") {
-    await supabase
-      .schema("hris")
-      .from("employees")
-      .update({ vl_sl_needs_manual_entry: false })
-      .eq("id", input.employee_id);
-  }
 
   await logAudit({
     userId: user.id,
