@@ -124,10 +124,12 @@ export default async function LeaveDetailPage({
           </p>
         </div>
         <div className="flex gap-2">
-          <LeavePdfButton
-            leave={leave}
-            credits={allCredits}
-          />
+          {leave.status === "approved" && (
+            <LeavePdfButton
+              leave={leave}
+              credits={allCredits}
+            />
+          )}
           <LeaveApprovalActions
             leaveId={leave.id}
             status={leave.status}

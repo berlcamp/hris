@@ -180,6 +180,12 @@ interface LeaveForm6PdfProps {
    * Any entry that's `undefined` is skipped so the slot stays empty.
    */
   titleLogos?: (string | undefined)[];
+  /** Name printed above "(Authorized Officer)" under §7.A (leave-credits certifier). */
+  signatory7A?: string;
+  /** Name printed above "(Authorized Officer)" under §7.B (recommending officer). */
+  signatory7B?: string;
+  /** Name printed above "(Authorized Official)" at the bottom (final approver). */
+  signatoryFinal?: string;
 }
 
 function fmtDate(dateStr: string) {
@@ -285,6 +291,9 @@ export function LeaveForm6Pdf({
   agencyAddress,
   logoSrc,
   titleLogos,
+  signatory7A,
+  signatory7B,
+  signatoryFinal,
 }: LeaveForm6PdfProps) {
   const isCode = (code: string) => leaveTypeCode === code;
   const { last, first, middle } = splitName(employeeName, middleName);
@@ -584,7 +593,9 @@ export function LeaveForm6Pdf({
                 <CheckLine checked={commutationRequested} main="Requested" />
               </View>
               <View style={{ marginTop: 22 }}>
-                <Text style={{ borderBottom: HAIR }}> </Text>
+                <Text style={{ borderBottom: HAIR, fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center", minHeight: 11 }}>
+                  {employeeName || " "}
+                </Text>
                 <Text style={[s.italic, { fontSize: 8.5, textAlign: "center", marginTop: 1 }]}>
                   (Signature of Applicant)
                 </Text>
@@ -635,7 +646,9 @@ export function LeaveForm6Pdf({
               </View>
 
               <View style={{ marginTop: 16 }}>
-                <Text style={{ borderBottom: HAIR, width: "70%", alignSelf: "center" }}> </Text>
+                <Text style={{ borderBottom: HAIR, width: "70%", alignSelf: "center", fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center", minHeight: 11 }}>
+                  {signatory7A || " "}
+                </Text>
                 <Text style={[s.italic, { fontSize: 8.5, textAlign: "center", marginTop: 1 }]}>
                   (Authorized Officer)
                 </Text>
@@ -665,7 +678,9 @@ export function LeaveForm6Pdf({
               </View>
 
               <View style={{ marginTop: 14 }}>
-                <Text style={{ borderBottom: HAIR, width: "70%", alignSelf: "center" }}> </Text>
+                <Text style={{ borderBottom: HAIR, width: "70%", alignSelf: "center", fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center", minHeight: 11 }}>
+                  {signatory7B || " "}
+                </Text>
                 <Text style={[s.italic, { fontSize: 8.5, textAlign: "center", marginTop: 1 }]}>
                   (Authorized Officer)
                 </Text>
@@ -705,7 +720,11 @@ export function LeaveForm6Pdf({
           {/* Final centered "Authorized Official" */}
           <View style={s.rowOpen}>
             <View style={{ width: "100%", padding: 6, paddingTop: 30, paddingBottom: 8 }}>
-              <View style={s.sigCenterLine} />
+              <View style={s.sigCenterLine}>
+                <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center", marginTop: 8 }}>
+                  {signatoryFinal || " "}
+                </Text>
+              </View>
               <Text style={s.sigCenterCaption}>(Authorized Official)</Text>
             </View>
           </View>

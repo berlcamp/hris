@@ -4,6 +4,16 @@ import { useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { pdf } from "@react-pdf/renderer";
 import { LeaveForm6Pdf } from "@/components/pdf/leave-form6-pdf";
 import type { LeaveApplicationWithRelations, LeaveCreditRow } from "@/lib/actions/leave-actions";
@@ -16,7 +26,11 @@ interface LeavePdfButtonProps {
 }
 
 export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
+  const [open, setOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [signatory7A, setSignatory7A] = useState("");
+  const [signatory7B, setSignatory7B] = useState("");
+  const [signatoryFinal, setSignatoryFinal] = useState("");
 
   const emp = leave.employees;
   const employeeName = emp
@@ -106,6 +120,9 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
           leaveDates={leave.leave_dates ?? []}
           status={leave.status}
           allLeaveTypeCodes={credits.map((c) => c.leave_types?.code ?? "").filter(Boolean)}
+          signatory7A={signatory7A.trim()}
+          signatory7B={signatory7B.trim()}
+          signatoryFinal={signatoryFinal.trim()}
         />
       ).toBlob();
       const url = URL.createObjectURL(blob);
@@ -114,6 +131,7 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
       link.download = `Leave-Form6-${leave.start_date}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
+      setOpen(false);
     } catch (err) {
       console.error("Failed to render CSC Form 6 PDF:", err);
       toast.error(
@@ -127,9 +145,62 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={handleGenerate} disabled={generating}>
-      {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-      CSC Form 6
-    </Button>
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <FileText className="h-4 w-4" />
+        CSC Form 6
+      </Button>
+      <Dialog open={open} onOpenChange={(v) => !generating && setOpen(v)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Signatories for CSC Form 6</DialogTitle>
+            <DialogDescription>
+              Enter the names to print on the signature lines. Leave a field blank to keep it empty.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="sig-7a">7.A Certification of Leave Credits</Label>
+              <Input
+                id="sig-7a"
+                value={signatory7A}
+                onChange={(e) => setSignatory7A(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sig-7b">7.B Recommendation</Label>
+              <Input
+                id="sig-7b"
+                value={signatory7B}
+                onChange={(e) => setSignatory7B(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sig-final">Final Leave Approval</Label>
+              <Input
+                id="sig-final"
+                value={signatoryFinal}
+                onChange={(e) => setSignatoryFinal(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={generating}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleGenerate} disabled={generating}>
+              {generating && <Loader2 className="h-4 w-4 animate-spin" />}
+              Generate PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
