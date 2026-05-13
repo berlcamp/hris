@@ -12,8 +12,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { cn } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { getLeaveLedger, getEmployeeLeaveCredits } from "@/lib/actions/leave-actions";
+import {
+  getLeaveLedger,
+  getEmployeeLeaveCredits,
+  getLeaveCreditAdjustments,
+} from "@/lib/actions/leave-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { LeaveLedgerClient } from "@/components/leaves/leave-ledger-client";
 
@@ -39,11 +44,13 @@ export default async function LeaveLedgerPage({
 
   let ledger: Awaited<ReturnType<typeof getLeaveLedger>> = [];
   let credits: Awaited<ReturnType<typeof getEmployeeLeaveCredits>> = [];
+  let adjustments: Awaited<ReturnType<typeof getLeaveCreditAdjustments>> = [];
 
   if (employee_id) {
-    [ledger, credits] = await Promise.all([
+    [ledger, credits, adjustments] = await Promise.all([
       getLeaveLedger(employee_id, year),
       getEmployeeLeaveCredits(employee_id, year),
+      getLeaveCreditAdjustments(employee_id, year),
     ]);
   }
 
@@ -118,6 +125,69 @@ export default async function LeaveLedgerPage({
                 </Card>
               ))}
             </div>
+          )}
+
+          {/* Manual Adjustments */}
+          {adjustments.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Manual Adjustments — {selectedEmployee ? `${selectedEmployee.last_name}, ${selectedEmployee.first_name}` : ""} ({year})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Leave Type</TableHead>
+                      <TableHead className="text-center">Adjustment</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Adjusted By</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {adjustments.map((adj) => {
+                      const fmt3 = (n: number) =>
+                        parseFloat(Number(n).toFixed(3)).toString();
+                      const isCredit = adj.amount >= 0;
+                      return (
+                        <TableRow key={adj.id}>
+                          <TableCell>
+                            {format(new Date(adj.created_at), "MMM d, yyyy")}
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{adj.leave_types?.name ?? "—"}</p>
+                              <p className="text-xs text-muted-foreground">{adj.leave_types?.code ?? ""}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span
+                              className={cn(
+                                "font-medium",
+                                isCredit
+                                  ? "text-emerald-600 dark:text-emerald-500"
+                                  : "text-red-600 dark:text-red-500",
+                              )}
+                            >
+                              {isCredit ? "+" : ""}
+                              {fmt3(adj.amount)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {adj.notes ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {adj.created_by_name ?? "—"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
           )}
 
           {/* Ledger Table */}

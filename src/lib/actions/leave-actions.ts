@@ -761,12 +761,32 @@ export async function approveLeave(id: string) {
     if (user.role === "hr_admin" && !app.dept_approved_at) {
       return { error: "Department head must approve this leave first" };
     }
+
+    // Recompute days_with_pay from the current credit balance. The view
+    // excludes pending leaves, so the lookup balance represents what's
+    // available before this application gets approved. This corrects stale
+    // values when credits were seeded/imported after the leave was filed.
+    const appYear = new Date(app.start_date).getFullYear();
+    const { data: currentCredit } = await supabase
+      .schema("hris")
+      .from("leave_credit_balances")
+      .select("balance")
+      .eq("employee_id", app.employee_id)
+      .eq("leave_type_id", app.leave_type_id)
+      .eq("year", appYear)
+      .maybeSingle();
+    const availableBalance = currentCredit
+      ? Math.max(0, Number(currentCredit.balance))
+      : 0;
+    const newDaysWithPay = Math.min(Number(app.days_applied), availableBalance);
+
     const approvedAt = new Date().toISOString();
     const { error } = await supabase
       .schema("hris")
       .from("leave_applications")
       .update({
         status: "approved",
+        days_with_pay: newDaysWithPay,
         hr_reviewer_id: user.id,
         hr_approved_at: approvedAt,
         updated_at: approvedAt,
@@ -776,7 +796,7 @@ export async function approveLeave(id: string) {
     if (error) return { error: error.message };
 
     // No need to mutate used_credits: the leave_credit_balances view derives
-    // used = SUM(approved leave_applications.days_applied) for the year.
+    // used = SUM(approved leave_applications.days_with_pay) for the year.
 
     await logAudit({
       userId: user.id,
@@ -784,7 +804,12 @@ export async function approveLeave(id: string) {
       action: "approve_leave",
       tableName: "leave_applications",
       recordId: id,
-      oldValues: { status: "pending", hr_approved_at: null, hr_reviewer_id: null },
+      oldValues: {
+        status: "pending",
+        hr_approved_at: null,
+        hr_reviewer_id: null,
+        days_with_pay: app.days_with_pay,
+      },
       newValues: {
         status: "approved",
         hr_approved_at: approvedAt,
@@ -797,7 +822,7 @@ export async function approveLeave(id: string) {
         start_date: app.start_date,
         end_date: app.end_date,
         days_applied: app.days_applied,
-        days_with_pay: app.days_with_pay,
+        days_with_pay: newDaysWithPay,
         dept_approved_at: app.dept_approved_at,
         dept_approved_by_id: app.department_head_id,
       },
@@ -944,6 +969,67 @@ export async function getLeaveLedger(employeeId: string, year: number) {
     ...d,
     leave_types: Array.isArray(d.leave_types) ? d.leave_types[0] ?? null : d.leave_types,
   })) as LeaveLedgerEntry[];
+}
+
+// ── Manual Credit Adjustments (ledger view) ────────────────────────
+
+export interface LeaveCreditAdjustmentEntry {
+  id: string;
+  amount: number;
+  notes: string | null;
+  created_at: string;
+  leave_types: { code: string; name: string } | null;
+  created_by_name: string | null;
+}
+
+export async function getLeaveCreditAdjustments(
+  employeeId: string,
+  year: number,
+): Promise<LeaveCreditAdjustmentEntry[]> {
+  const user = await getCurrentUser();
+  const supabase = createAdminClient();
+
+  if (
+    user &&
+    (user.role === "department_head" || user.role === "department_admin")
+  ) {
+    if (!user.departmentId) return [];
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) return [];
+  }
+
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("leave_credit_accruals")
+    .select(
+      "id, amount, notes, created_at, leave_types(code, name), creator:user_profiles!leave_credit_accruals_created_by_fkey(full_name)",
+    )
+    .eq("employee_id", employeeId)
+    .eq("year", year)
+    .eq("source", "adjustment")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  return (data ?? []).map((d) => {
+    const lt = Array.isArray(d.leave_types)
+      ? d.leave_types[0] ?? null
+      : d.leave_types;
+    const creator = Array.isArray(d.creator) ? d.creator[0] ?? null : d.creator;
+    return {
+      id: d.id,
+      amount: Number(d.amount),
+      notes: d.notes,
+      created_at: d.created_at,
+      leave_types: lt,
+      created_by_name: creator?.full_name ?? null,
+    };
+  });
 }
 
 // ── Bulk Provisioning ──────────────────────────────────────────────

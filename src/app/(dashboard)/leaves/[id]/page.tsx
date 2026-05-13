@@ -69,6 +69,18 @@ export default async function LeaveDetailPage({
   // "balance after this leave" only makes sense before a decision is made.
   const showProjection = leave.status === "draft" || leave.status === "pending";
 
+  // For pending leaves the stored `days_with_pay` is the value computed when
+  // the leave was filed — it can be stale if credits were seeded/imported
+  // afterwards. Recompute live against the current balance so the projection
+  // (LWOP note, "Balance After" column) matches what the approver will see.
+  const liveDaysWithPay = showProjection && credit
+    ? Math.min(
+        Number(leave.days_applied),
+        Math.max(0, Number(credit.balance))
+      )
+    : Number(leave.days_with_pay ?? leave.days_applied);
+  const liveDaysWithoutPay = Math.max(0, Number(leave.days_applied) - liveDaysWithPay);
+
   // Cancellation is allowed while the application is still in flight — i.e.
   // status is "pending", which covers both pre- and post-dept-head approval.
   // Permission mirrors the server-side rule in cancelLeaveApplication:
@@ -222,11 +234,6 @@ export default async function LeaveDetailPage({
                   <TableHead className="text-right">Total Earned</TableHead>
                   <TableHead className="text-right">Used</TableHead>
                   <TableHead className="text-right">Balance</TableHead>
-                  {showProjection && (
-                    <TableHead className="text-right">
-                      Balance After This Leave
-                    </TableHead>
-                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -239,12 +246,17 @@ export default async function LeaveDetailPage({
                   )
                   .map((c) => {
                     const isRequested = c.leave_type_id === leave.leave_type_id;
-                    const balance = Number(c.balance);
-                    // Only the paid portion deducts from credits; LWOP days don't.
-                    const projected =
-                      showProjection && isRequested
-                        ? balance - Number(leave.days_with_pay ?? leave.days_applied)
-                        : null;
+                    // For a pending/draft leave, project Used + Balance on the
+                    // requested row so the deduction is visible in both columns
+                    // (instead of only on a separate "Balance After" column).
+                    // Only the paid portion deducts from credits.
+                    const projectThisRow = showProjection && isRequested;
+                    const used =
+                      Number(c.used_credits) +
+                      (projectThisRow ? liveDaysWithPay : 0);
+                    const balance =
+                      Number(c.balance) -
+                      (projectThisRow ? liveDaysWithPay : 0);
                     return (
                       <TableRow
                         key={c.id}
@@ -272,38 +284,28 @@ export default async function LeaveDetailPage({
                         <TableCell className="text-right">
                           {Number(c.total_credits)}
                         </TableCell>
+                        <TableCell className="text-right">{used}</TableCell>
                         <TableCell className="text-right">
-                          {Number(c.used_credits)}
-                        </TableCell>
-                        <TableCell className="text-right">{balance}</TableCell>
-                        {showProjection && (
-                          <TableCell className="text-right">
-                            {projected === null ? (
-                              "—"
-                            ) : (
-                              <span
-                                className={cn(
-                                  projected < 0 && "text-destructive font-semibold"
-                                )}
-                              >
-                                {projected}
-                              </span>
+                          <span
+                            className={cn(
+                              balance < 0 && "text-destructive font-semibold"
                             )}
-                          </TableCell>
-                        )}
+                          >
+                            {balance}
+                          </span>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
               </TableBody>
             </Table>
           )}
-          {showProjection &&
-            leave.days_applied > Number(leave.days_with_pay ?? leave.days_applied) && (
-              <p className="mt-3 text-sm text-amber-700 dark:text-amber-500">
-                Note: {leave.days_applied - Number(leave.days_with_pay ?? leave.days_applied)} day(s)
-                will be leave without pay (excess over available credits).
-              </p>
-            )}
+          {showProjection && liveDaysWithoutPay > 0 && (
+            <p className="mt-3 text-sm text-amber-700 dark:text-amber-500">
+              Note: {liveDaysWithoutPay} day(s) will be leave without pay
+              (excess over available credits).
+            </p>
+          )}
         </CardContent>
       </Card>
 

@@ -33,7 +33,11 @@ import {
 } from "@/lib/actions/employee-actions";
 import { getDocuments } from "@/lib/actions/document-actions";
 import { getPlantillaByEmployee } from "@/lib/actions/plantilla-actions";
-import { getLeaveTypes } from "@/lib/actions/leave-actions";
+import {
+  getLeaveTypes,
+  getLeaveLedger,
+  getLeaveCreditAdjustments,
+} from "@/lib/actions/leave-actions";
 import { PersonalInfoTab } from "@/components/employees/personal-info-tab";
 import { EmploymentTab } from "@/components/employees/employment-tab";
 import { SalaryHistoryTab } from "@/components/employees/salary-history-tab";
@@ -51,16 +55,28 @@ export default async function EmployeeProfilePage({
 }) {
   const { id } = await params;
 
-  const [employee, salaryHistory, leaveCredits, leaveTypes, serviceRecords, documents, currentUser] =
-    await Promise.all([
-      getEmployeeById(id).catch(() => null),
-      getSalaryHistory(id),
-      getLeaveCredits(id),
-      getLeaveTypes(),
-      getServiceRecords(id),
-      getDocuments(id),
-      getCurrentUser(),
-    ]);
+  const currentYear = new Date().getFullYear();
+  const [
+    employee,
+    salaryHistory,
+    leaveCredits,
+    leaveTypes,
+    leaveLedger,
+    leaveAdjustments,
+    serviceRecords,
+    documents,
+    currentUser,
+  ] = await Promise.all([
+    getEmployeeById(id).catch(() => null),
+    getSalaryHistory(id),
+    getLeaveCredits(id),
+    getLeaveTypes(),
+    getLeaveLedger(id, currentYear),
+    getLeaveCreditAdjustments(id, currentYear),
+    getServiceRecords(id),
+    getDocuments(id),
+    getCurrentUser(),
+  ]);
 
   const plantilla =
     employee?.employment_type === "plantilla"
@@ -222,6 +238,9 @@ export default async function EmployeeProfilePage({
         <TabsContent value="leave">
           <LeaveCreditsTab
             leaveCredits={leaveCredits ?? []}
+            ledger={leaveLedger ?? []}
+            adjustments={leaveAdjustments ?? []}
+            ledgerYear={currentYear}
             employeeId={id}
             employeeName={fullName}
             leaveTypes={leaveTypes}
