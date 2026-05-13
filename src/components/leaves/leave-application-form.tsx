@@ -308,9 +308,17 @@ export function LeaveApplicationForm({
                     <p className="text-xs text-muted-foreground">In case of Vacation/Special Privilege Leave:</p>
                     <div className="flex flex-col gap-1.5">
                       <label className="flex items-center gap-2 text-sm">
-                        <input type="radio" name="leave_detail" value="Within the Philippines" checked={detailsOfLeave === "Within the Philippines"} onChange={() => setDetailsOfLeave("Within the Philippines")} className="accent-primary" />
-                        Within the Philippines
+                        <input type="radio" name="leave_detail" value="Within the Philippines" checked={detailsOfLeave.startsWith("Within the Philippines")} onChange={() => setDetailsOfLeave("Within the Philippines")} className="accent-primary" />
+                        Within the Philippines (Specify)
                       </label>
+                      {detailsOfLeave.startsWith("Within the Philippines") && (
+                        <Input
+                          placeholder="Specify location (e.g., city, province)"
+                          value={detailsOfLeave === "Within the Philippines" ? "" : detailsOfLeave.replace("Within the Philippines: ", "")}
+                          onChange={(e) => setDetailsOfLeave(e.target.value ? `Within the Philippines: ${e.target.value}` : "Within the Philippines")}
+                          className="ml-6 w-auto"
+                        />
+                      )}
                       <label className="flex items-center gap-2 text-sm">
                         <input type="radio" name="leave_detail" value="Abroad" checked={detailsOfLeave.startsWith("Abroad")} onChange={() => setDetailsOfLeave("Abroad")} className="accent-primary" />
                         Abroad (Specify)
