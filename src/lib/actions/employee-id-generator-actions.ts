@@ -1,6 +1,7 @@
 "use server";
 
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptHead } from "@/lib/auth-helpers";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { findEmployeeBySearchedName, type EmployeeNameRow } from "@/lib/employee-name-match";
 
@@ -17,7 +18,10 @@ export async function matchSearchedNamesToEmployees(
   if (!user) {
     throw new Error("Unauthorized");
   }
-  if (!["super_admin", "hr_admin", "department_head"].includes(user.role)) {
+  if (
+    !["super_admin", "hr_admin"].includes(user.role) &&
+    !isDeptHead(user.role)
+  ) {
     throw new Error("Forbidden");
   }
 

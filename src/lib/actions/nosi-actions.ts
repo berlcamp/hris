@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { addYears, differenceInCalendarDays, startOfDay } from "date-fns";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptHead } from "@/lib/auth-helpers";
 import { getSystemSettings } from "@/lib/actions/settings-actions";
 import { NOSI_BASIS_SALARY_REASONS } from "@/lib/constants";
 
@@ -125,7 +126,7 @@ async function loadNosiEligibilityData(): Promise<{
     .eq("status", "active")
     .eq("employment_type", "plantilla");
 
-  if (user?.role === "department_head" && user.departmentId) {
+  if (user && isDeptHead(user.role) && user.departmentId) {
     employeesQuery = employeesQuery.eq("department_id", user.departmentId);
   }
 
@@ -418,7 +419,7 @@ export async function getNosisRecords() {
     `)
     .order("created_at", { ascending: false });
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (isDeptHead(user.role) && user.departmentId) {
     // Filter by employees in this department
     const { data: deptEmployees } = await supabase
       .schema("hris")
@@ -458,7 +459,7 @@ export async function getNosiById(id: string) {
     .single();
   if (error) throw error;
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (isDeptHead(user.role) && user.departmentId) {
     const empDeptId =
       (data?.employees as { department_id?: string | null } | null)?.department_id ?? null;
     if (empDeptId !== user.departmentId) throw new Error("Not found");
@@ -485,7 +486,10 @@ export async function getNosiSalaryContextForEmployee(
 ): Promise<NosiSalaryContext | { error: string }> {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin", "department_head"].includes(user.role)) {
+  if (
+    !["super_admin", "hr_admin"].includes(user.role) &&
+    !isDeptHead(user.role)
+  ) {
     return { error: "Insufficient permissions" };
   }
 
@@ -500,7 +504,7 @@ export async function getNosiSalaryContextForEmployee(
   if (e1 || !emp) return { error: "Employee not found" };
 
   if (
-    user.role === "department_head" &&
+    isDeptHead(user.role) &&
     user.departmentId &&
     emp.department_id !== user.departmentId
   ) {
@@ -654,7 +658,10 @@ export async function deleteDraftNosi(id: string) {
 export async function reviewNosi(id: string, approved: boolean, remarks?: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["department_head", "hr_admin", "super_admin"].includes(user.role))
+  if (
+    !["hr_admin", "super_admin"].includes(user.role) &&
+    !isDeptHead(user.role)
+  )
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();

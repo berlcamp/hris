@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 import { getLeaveApplicationById, getEmployeeLeaveCredits } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptHead } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
@@ -101,8 +102,9 @@ export default async function LeaveDetailPage({
   const inSameDept =
     !!user.departmentId &&
     leave.employees?.department_id === user.departmentId;
+  // Composite dept_admin+head role takes the dept_head path (broader).
   const canCancelByDeptRole =
-    (user.role === "department_head" && inSameDept) ||
+    (isDeptHead(user.role) && inSameDept) ||
     (user.role === "department_admin" &&
       inSameDept &&
       leave.employees?.employment_type === "plantilla");

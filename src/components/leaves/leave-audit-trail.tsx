@@ -47,6 +47,7 @@ const roleLabel: Record<string, string> = {
   hr_admin: "HR",
   department_head: "Department Head",
   department_admin: "Department Admin",
+  department_admin_and_department_head: "Department Admin + Head",
   employee: "Employee",
 };
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptHead } from "@/lib/auth-helpers";
 
 export interface NosaWithRelations {
   id: string;
@@ -58,7 +59,7 @@ export async function getNosaRecords() {
     `)
     .order("created_at", { ascending: false });
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (isDeptHead(user.role) && user.departmentId) {
     const { data: deptEmployees } = await supabase
       .schema("hris")
       .from("employees")
@@ -96,7 +97,7 @@ export async function getNosaById(id: string) {
     .single();
   if (error) throw error;
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (isDeptHead(user.role) && user.departmentId) {
     const empDeptId =
       (data?.employees as { department_id?: string | null } | null)?.department_id ?? null;
     if (empDeptId !== user.departmentId) throw new Error("Not found");
@@ -155,7 +156,10 @@ export async function submitNosa(id: string) {
 export async function reviewNosa(id: string, approved: boolean, remarks?: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["department_head", "hr_admin", "super_admin"].includes(user.role))
+  if (
+    !["hr_admin", "super_admin"].includes(user.role) &&
+    !isDeptHead(user.role)
+  )
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();

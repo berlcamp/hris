@@ -26,6 +26,7 @@ import {
   overrideApprovedLeaveDaysWithPay,
 } from "@/lib/actions/leave-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
+import { isDeptHead } from "@/lib/auth-helpers";
 
 interface LeaveApprovalActionsProps {
   leaveId: string;
@@ -288,7 +289,7 @@ export function LeaveApprovalActions({
   return (
     <div className="flex gap-2 flex-wrap">
       {/* Only Department Head can approve at dept level (Dept Admin is view-only) */}
-      {user.role === "department_head" && !deptApprovedAt && (
+      {isDeptHead(user.role) && !deptApprovedAt && (
         <Button onClick={() => handle(() => approveLeave(leaveId))} disabled={loading}>
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           Approve (Dept Head)
@@ -304,7 +305,7 @@ export function LeaveApprovalActions({
       )}
 
       {/* Reject — dept head anytime; HR only after dept approval; super_admin anytime */}
-      {(user.role === "department_head" || hrCanAct) && (
+      {(isDeptHead(user.role) || hrCanAct) && (
         <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
           <DialogTrigger
             render={<Button variant="destructive" disabled={loading} />}

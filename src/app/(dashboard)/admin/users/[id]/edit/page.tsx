@@ -36,6 +36,7 @@ export default async function EditUserPage({
             | "hr_admin"
             | "department_head"
             | "department_admin"
+            | "department_admin_and_department_head"
             | "employee",
           department_id: user.department_id,
           is_active: user.is_active ?? true,

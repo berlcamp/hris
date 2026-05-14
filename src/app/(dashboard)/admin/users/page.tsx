@@ -39,6 +39,10 @@ export default async function UsersPage() {
               { label: "HR Admin", value: "hr_admin" },
               { label: "Dept Head", value: "department_head" },
               { label: "Dept Admin", value: "department_admin" },
+              {
+                label: "Dept Admin + Head",
+                value: "department_admin_and_department_head",
+              },
               { label: "Employee", value: "employee" },
             ],
           },

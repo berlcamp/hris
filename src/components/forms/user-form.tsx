@@ -44,6 +44,10 @@ const roleOptions = [
   { value: "hr_admin", label: "HR Admin" },
   { value: "department_head", label: "Department Head" },
   { value: "department_admin", label: "Department Admin" },
+  {
+    value: "department_admin_and_department_head",
+    label: "Department Admin + Head",
+  },
   { value: "employee", label: "Employee" },
 ];
 

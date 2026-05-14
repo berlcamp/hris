@@ -71,6 +71,7 @@ const allRoles: UserRole[] = [
   "hr_admin",
   "department_head",
   "department_admin",
+  "department_admin_and_department_head",
   "employee",
 ];
 const adminRoles: UserRole[] = ["super_admin", "hr_admin"];
@@ -79,12 +80,14 @@ const deptManagerRoles: UserRole[] = [
   "hr_admin",
   "department_head",
   "department_admin",
+  "department_admin_and_department_head",
 ];
 const leaveAttendanceRoles: UserRole[] = [
   "super_admin",
   "hr_admin",
   "department_head",
   "department_admin",
+  "department_admin_and_department_head",
   "employee",
 ];
 
@@ -141,7 +144,13 @@ const navGroups: NavGroup[] = [
         title: "IPCR",
         href: "/performance",
         icon: ClipboardList,
-        roles: ["super_admin", "hr_admin", "department_head", "employee"],
+        roles: [
+          "super_admin",
+          "hr_admin",
+          "department_head",
+          "department_admin_and_department_head",
+          "employee",
+        ],
       },
     ],
   },
@@ -192,6 +201,7 @@ const roleLabels: Record<UserRole, string> = {
   hr_admin: "HR Admin",
   department_head: "Dept Head",
   department_admin: "Dept Admin",
+  department_admin_and_department_head: "Dept Admin + Head",
   employee: "Employee",
 };
 

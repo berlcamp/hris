@@ -3,6 +3,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
+import {
+  isDeptHead as roleIsDeptHead,
+  isDeptScoped as roleIsDeptScoped,
+} from "@/lib/auth-helpers";
 import { getSystemSettings } from "@/lib/actions/settings-actions";
 import { NOSI_BASIS_SALARY_REASONS } from "@/lib/constants";
 
@@ -75,15 +79,13 @@ export interface EmployeeDashboardData {
 export async function getDashboardStats(user: AuthUserData): Promise<DashboardStats> {
   const supabase = createAdminClient();
 
-  const isDeptHead =
-    (user.role === "department_head" || user.role === "department_admin") &&
-    !!user.departmentId;
+  const isDeptScopedView = roleIsDeptScoped(user.role) && !!user.departmentId;
   const deptId = user.departmentId ?? null;
 
-  // For department_head: pre-compute employee IDs in their dept so we can
-  // scope record-counts (leaves/NOSI/NOSA/IPCR) to "their employees only".
+  // For department-scoped roles: pre-compute employee IDs in their dept so we
+  // can scope record-counts (leaves/NOSI/NOSA/IPCR) to "their employees only".
   let deptEmployeeIds: string[] = [];
-  if (isDeptHead && deptId) {
+  if (isDeptScopedView && deptId) {
     const { data: deptEmps } = await supabase
       .schema("hris")
       .from("employees")
@@ -91,14 +93,14 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
       .eq("department_id", deptId);
     deptEmployeeIds = (deptEmps ?? []).map((e) => e.id);
   }
-  const noDeptEmployees = isDeptHead && deptEmployeeIds.length === 0;
+  const noDeptEmployees = isDeptScopedView && deptEmployeeIds.length === 0;
 
   // Employee counts (filterable directly by department_id)
   let totalQuery = supabase
     .schema("hris")
     .from("employees")
     .select("id", { count: "exact", head: true });
-  if (isDeptHead && deptId) totalQuery = totalQuery.eq("department_id", deptId);
+  if (isDeptScopedView && deptId) totalQuery = totalQuery.eq("department_id", deptId);
   const { count: totalEmployees } = await totalQuery;
 
   let activeQuery = supabase
@@ -106,7 +108,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
     .from("employees")
     .select("id", { count: "exact", head: true })
     .eq("status", "active");
-  if (isDeptHead && deptId) activeQuery = activeQuery.eq("department_id", deptId);
+  if (isDeptScopedView && deptId) activeQuery = activeQuery.eq("department_id", deptId);
   const { count: activeEmployees } = await activeQuery;
 
   let plantillaQuery = supabase
@@ -115,7 +117,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
     .select("id", { count: "exact", head: true })
     .eq("status", "active")
     .eq("employment_type", "plantilla");
-  if (isDeptHead && deptId) plantillaQuery = plantillaQuery.eq("department_id", deptId);
+  if (isDeptScopedView && deptId) plantillaQuery = plantillaQuery.eq("department_id", deptId);
   const { count: plantillaCount } = await plantillaQuery;
 
   let joQuery = supabase
@@ -124,7 +126,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
     .select("id", { count: "exact", head: true })
     .eq("status", "active")
     .eq("employment_type", "jo");
-  if (isDeptHead && deptId) joQuery = joQuery.eq("department_id", deptId);
+  if (isDeptScopedView && deptId) joQuery = joQuery.eq("department_id", deptId);
   const { count: joCount } = await joQuery;
 
   let cosQuery = supabase
@@ -133,7 +135,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
     .select("id", { count: "exact", head: true })
     .eq("status", "active")
     .eq("employment_type", "cos");
-  if (isDeptHead && deptId) cosQuery = cosQuery.eq("department_id", deptId);
+  if (isDeptScopedView && deptId) cosQuery = cosQuery.eq("department_id", deptId);
   const { count: cosCount } = await cosQuery;
 
   // Pending approvals — for dept_head, scope by employee_id list
@@ -149,7 +151,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
       .from("leave_applications")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending");
-    if (isDeptHead) leavesQuery = leavesQuery.in("employee_id", deptEmployeeIds);
+    if (isDeptScopedView) leavesQuery = leavesQuery.in("employee_id", deptEmployeeIds);
     const { count } = await leavesQuery;
     pendingLeaves = count ?? 0;
 
@@ -163,7 +165,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
       .eq("status", "approved")
       .gte("start_date", yearStart)
       .lte("start_date", yearEnd);
-    if (isDeptHead) approvedQuery = approvedQuery.in("employee_id", deptEmployeeIds);
+    if (isDeptScopedView) approvedQuery = approvedQuery.in("employee_id", deptEmployeeIds);
     const { count: approvedCount } = await approvedQuery;
     approvedLeaves = approvedCount ?? 0;
 
@@ -172,7 +174,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
       .from("nosi_records")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending");
-    if (isDeptHead) nosiQuery = nosiQuery.in("employee_id", deptEmployeeIds);
+    if (isDeptScopedView) nosiQuery = nosiQuery.in("employee_id", deptEmployeeIds);
     const { count: nosiCount } = await nosiQuery;
     pendingNosi = nosiCount ?? 0;
 
@@ -181,7 +183,7 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
       .from("nosa_records")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending");
-    if (isDeptHead) nosaQuery = nosaQuery.in("employee_id", deptEmployeeIds);
+    if (isDeptScopedView) nosaQuery = nosaQuery.in("employee_id", deptEmployeeIds);
     const { count: nosaCount } = await nosaQuery;
     pendingNosa = nosaCount ?? 0;
 
@@ -190,13 +192,13 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
       .from("ipcr_records")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending");
-    if (isDeptHead) ipcrQuery = ipcrQuery.in("employee_id", deptEmployeeIds);
+    if (isDeptScopedView) ipcrQuery = ipcrQuery.in("employee_id", deptEmployeeIds);
     const { count: ipcrCount } = await ipcrQuery;
     pendingIpcr = ipcrCount ?? 0;
   }
 
   let departmentCount = 0;
-  if (isDeptHead) {
+  if (isDeptScopedView) {
     departmentCount = 1;
   } else {
     const { count } = await supabase
@@ -233,7 +235,7 @@ export async function getEmployeesByDepartment(): Promise<DeptEmployeeCount[]> {
     .select("department_id, departments!employees_department_id_fkey(name, code)")
     .eq("status", "active");
 
-  if (user?.role === "department_head" && user.departmentId) {
+  if (user && roleIsDeptHead(user.role) && user.departmentId) {
     query = query.eq("department_id", user.departmentId);
   }
 
@@ -266,7 +268,7 @@ export async function getEmployeesByType(): Promise<EmployeeTypeCount[]> {
     .select("employment_type")
     .eq("status", "active");
 
-  if (user?.role === "department_head" && user.departmentId) {
+  if (user && roleIsDeptHead(user.role) && user.departmentId) {
     query = query.eq("department_id", user.departmentId);
   }
 
@@ -310,10 +312,7 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
     .order("created_at", { ascending: false })
     .limit(isHrPath ? 20 : 10);
 
-  if (
-    (user.role === "department_head" || user.role === "department_admin") &&
-    user.departmentId
-  ) {
+  if (roleIsDeptScoped(user.role) && user.departmentId) {
     leaveQuery = leaveQuery.eq("employees.department_id", user.departmentId);
   }
 
@@ -539,7 +538,7 @@ export async function getReportPlantilla() {
     `)
     .order("salary_grade", { ascending: false });
 
-  if (user?.role === "department_head" && user.departmentId) {
+  if (user && roleIsDeptHead(user.role) && user.departmentId) {
     query = query.eq("department_id", user.departmentId);
   }
 
@@ -564,7 +563,7 @@ export async function getReportNosiSummary(startDate?: string, endDate?: string)
 
   if (startDate) query = query.gte("effective_date", startDate);
   if (endDate) query = query.lte("effective_date", endDate);
-  if (user?.role === "department_head" && user.departmentId) {
+  if (user && roleIsDeptHead(user.role) && user.departmentId) {
     query = query.eq("employees.department_id", user.departmentId);
   }
 
@@ -589,7 +588,7 @@ export async function getReportNosaSummary(startDate?: string, endDate?: string)
 
   if (startDate) query = query.gte("effective_date", startDate);
   if (endDate) query = query.lte("effective_date", endDate);
-  if (user?.role === "department_head" && user.departmentId) {
+  if (user && roleIsDeptHead(user.role) && user.departmentId) {
     query = query.eq("employees.department_id", user.departmentId);
   }
 
@@ -613,7 +612,7 @@ export async function getReportIpcrSummary(periodId?: string) {
     .order("numerical_rating", { ascending: false });
 
   if (periodId) query = query.eq("period_id", periodId);
-  if (user?.role === "department_head" && user.departmentId) {
+  if (user && roleIsDeptHead(user.role) && user.departmentId) {
     query = query.eq("employees.department_id", user.departmentId);
   }
 

@@ -6,6 +6,7 @@ export type UserRole =
   | "hr_admin"
   | "department_head"
   | "department_admin"
+  | "department_admin_and_department_head"
   | "employee";
 export type EmploymentType = "plantilla" | "jo" | "cos";
 export type EmployeeStatus =

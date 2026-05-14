@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptScoped } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 
 // --- Types ---
@@ -176,10 +177,7 @@ export async function getAttendanceLogs(filters?: {
     } else {
       return [];
     }
-  } else if (
-    (user.role === "department_head" || user.role === "department_admin") &&
-    user.departmentId
-  ) {
+  } else if (isDeptScoped(user.role) && user.departmentId) {
     const { data: deptEmployees } = await supabase
       .schema("hris")
       .from("employees")

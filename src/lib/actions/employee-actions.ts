@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import type { EmployeeFormValues } from "@/lib/validations/employee-schema";
 import {
@@ -56,7 +57,7 @@ export async function getEmployees() {
     .order("created_at", { ascending: false });
 
   // Role-based filtering
-  if (user.role === "department_head" || user.role === "department_admin") {
+  if (isDeptScoped(user.role)) {
     if (!user.departmentId) return [];
     query = query.eq("department_id", user.departmentId);
   }
@@ -82,7 +83,7 @@ export async function getEmployeeById(id: string) {
   if (error) throw error;
 
   if (
-    user.role === "department_head" &&
+    isDeptHead(user.role) &&
     user.departmentId &&
     (data as EmployeeWithRelations).department_id !== user.departmentId
   ) {

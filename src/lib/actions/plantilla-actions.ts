@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptHead } from "@/lib/auth-helpers";
 
 export interface PlantillaRecord {
   id: string;
@@ -60,7 +61,7 @@ export async function getAllPlantilla(): Promise<PlantillaListRow[]> {
     .order("organizational_unit", { ascending: true })
     .order("item_number", { ascending: true });
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (isDeptHead(user.role) && user.departmentId) {
     const { data: deptEmps } = await supabase
       .schema("hris")
       .from("employees")
@@ -85,7 +86,7 @@ export async function getPlantillaByEmployee(employeeId: string): Promise<Planti
 
   const supabase = createAdminClient();
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (isDeptHead(user.role) && user.departmentId) {
     const { data: emp } = await supabase
       .schema("hris")
       .from("employees")

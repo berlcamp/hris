@@ -22,6 +22,7 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptScoped as roleIsDeptScoped } from "@/lib/auth-helpers";
 import {
   getDashboardStats,
   getEmployeesByDepartment,
@@ -34,8 +35,8 @@ import { getRatingColor } from "@/lib/ipcr-utils";
 
 const quickActions = [
   { title: "Add Employee", icon: Users, href: "/employees/new", roles: ["super_admin", "hr_admin"] },
-  { title: "Process Leave", icon: CalendarDays, href: "/leaves", roles: ["super_admin", "hr_admin", "department_head", "department_admin", "employee"] },
-  { title: "View DTR", icon: Clock, href: "/attendance", roles: ["super_admin", "hr_admin", "department_head", "department_admin", "employee"] },
+  { title: "Process Leave", icon: CalendarDays, href: "/leaves", roles: ["super_admin", "hr_admin", "department_head", "department_admin", "department_admin_and_department_head", "employee"] },
+  { title: "View DTR", icon: Clock, href: "/attendance", roles: ["super_admin", "hr_admin", "department_head", "department_admin", "department_admin_and_department_head", "employee"] },
   { title: "Generate Report", icon: FileText, href: "/reports", roles: ["super_admin", "hr_admin"] },
   { title: "NOSI", icon: TrendingUp, href: "/nosi", roles: ["super_admin", "hr_admin"] },
 ];
@@ -51,9 +52,7 @@ export default async function DashboardPage() {
   if (!user) redirect("/login");
 
   const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
-  const isDeptHead = user.role === "department_head";
-  const isDeptAdmin = user.role === "department_admin";
-  const isDeptScoped = isDeptHead || isDeptAdmin;
+  const isDeptScoped = roleIsDeptScoped(user.role);
   const isEmployee = user.role === "employee";
 
   const stats = await getDashboardStats(user);

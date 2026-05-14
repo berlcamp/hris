@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptHead } from "@/lib/auth-helpers";
 import { getAdjectivalRating } from "@/lib/ipcr-utils";
 
 // --- Types ---
@@ -257,7 +258,7 @@ export async function getIpcrRecords(periodId?: string): Promise<IpcrRecordWithR
     } else {
       return [];
     }
-  } else if (user.role === "department_head" && user.departmentId) {
+  } else if (isDeptHead(user.role) && user.departmentId) {
     const { data: deptEmps } = await supabase
       .schema("hris")
       .from("employees")
@@ -301,7 +302,7 @@ export async function getIpcrRecordById(id: string): Promise<IpcrRecordWithRelat
 
   if (error) throw error;
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (isDeptHead(user.role) && user.departmentId) {
     const empDeptId = data?.employees?.department_id ?? null;
     if (empDeptId !== user.departmentId) return null;
   }
@@ -316,7 +317,10 @@ export async function createIpcrRecord(input: {
   remarks?: string;
 }) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin", "department_head"].includes(user.role)) {
+  if (
+    !user ||
+    (!["super_admin", "hr_admin"].includes(user.role) && !isDeptHead(user.role))
+  ) {
     throw new Error("Unauthorized");
   }
 
@@ -366,7 +370,10 @@ export async function updateIpcrRating(
   }
 ) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin", "department_head"].includes(user.role)) {
+  if (
+    !user ||
+    (!["super_admin", "hr_admin"].includes(user.role) && !isDeptHead(user.role))
+  ) {
     throw new Error("Unauthorized");
   }
 
@@ -430,7 +437,10 @@ export async function reviewIpcrRecord(
   remarks?: string
 ) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin", "department_head"].includes(user.role)) {
+  if (
+    !user ||
+    (!["super_admin", "hr_admin"].includes(user.role) && !isDeptHead(user.role))
+  ) {
     throw new Error("Unauthorized");
   }
 
@@ -488,7 +498,7 @@ export async function getEmployeeIpcrHistory(employeeId: string): Promise<IpcrRe
 
   const supabase = createAdminClient();
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (isDeptHead(user.role) && user.departmentId) {
     const { data: emp } = await supabase
       .schema("hris")
       .from("employees")

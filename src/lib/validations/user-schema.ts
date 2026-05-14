@@ -9,9 +9,18 @@ export const userFormSchema = z.object({
     .string()
     .email("Please enter a valid email address")
     .min(1, "Email is required"),
-  role: z.enum(["hr_admin", "department_head", "department_admin", "employee"], {
-    message: "Please select a role",
-  }),
+  role: z.enum(
+    [
+      "hr_admin",
+      "department_head",
+      "department_admin",
+      "department_admin_and_department_head",
+      "employee",
+    ],
+    {
+      message: "Please select a role",
+    },
+  ),
   department_id: z.string().nullable(),
   is_active: z.boolean(),
 });

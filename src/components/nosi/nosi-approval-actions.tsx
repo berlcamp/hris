@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { submitNosi, reviewNosi } from "@/lib/actions/nosi-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
+import { isDeptHead } from "@/lib/auth-helpers";
 
 interface NosiApprovalActionsProps {
   nosiId: string;
@@ -56,7 +57,7 @@ export function NosiApprovalActions({ nosiId, status, user }: NosiApprovalAction
   if (status === "pending") {
     return (
       <div className="flex gap-2 flex-wrap">
-        {["department_head", "hr_admin", "super_admin"].includes(user.role) && (
+        {(["hr_admin", "super_admin"].includes(user.role) || isDeptHead(user.role)) && (
           <>
             <Button
               onClick={() => handle(() => reviewNosi(nosiId, true))}

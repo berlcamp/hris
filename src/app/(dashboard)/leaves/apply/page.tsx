@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { getLeaveTypes } from "@/lib/actions/leave-actions";
 import { LeaveApplicationForm } from "@/components/leaves/leave-application-form";
+import { isDeptHead } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function LeaveApplyPage() {
@@ -31,11 +32,12 @@ export default async function LeaveApplyPage() {
 
   // Department Admins can only file leave for plantilla employees of their department.
   // getEmployees() already scopes to the user's department for department_admin/_head.
+  // The composite dept_admin+head role takes the dept_head treatment (no plantilla restriction).
+  const restrictToPlantilla =
+    user.role === "department_admin" && !isDeptHead(user.role);
   const formEmployees = (employees ?? [])
     .filter((e) => e.status === "active")
-    .filter((e) =>
-      user.role === "department_admin" ? e.employment_type === "plantilla" : true
-    );
+    .filter((e) => (restrictToPlantilla ? e.employment_type === "plantilla" : true));
 
   return (
     <div className="max-w-2xl space-y-6">

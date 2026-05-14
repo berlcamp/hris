@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   addLedgerEntry,
@@ -120,10 +121,7 @@ export async function getLeaveCreditsForYear(year: number): Promise<LeaveCreditR
       .maybeSingle();
     if (!emp) return [];
     query = query.eq("employee_id", emp.id);
-  } else if (
-    (user.role === "department_head" || user.role === "department_admin") &&
-    user.departmentId
-  ) {
+  } else if (isDeptScoped(user.role) && user.departmentId) {
     const { data: deptEmps } = await supabase
       .schema("hris")
       .from("employees")
@@ -144,10 +142,7 @@ export async function getEmployeeLeaveCredits(employeeId: string, year: number) 
   const supabase = createAdminClient();
 
   // Department-scoped users can only read credits for employees in their own department.
-  if (
-    user &&
-    (user.role === "department_head" || user.role === "department_admin")
-  ) {
+  if (user && isDeptScoped(user.role)) {
     if (!user.departmentId) return [];
     const { data: emp } = await supabase
       .schema("hris")
@@ -377,10 +372,7 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
       .maybeSingle();
     if (!emp) return [];
     query = query.eq("employee_id", emp.id);
-  } else if (
-    user.role === "department_head" ||
-    user.role === "department_admin"
-  ) {
+  } else if (isDeptScoped(user.role)) {
     if (!user.departmentId) return [];
     const { data: deptEmps } = await supabase
       .schema("hris")
@@ -422,10 +414,7 @@ export async function getLeaveApplicationById(id: string) {
     .single();
   if (error) throw error;
 
-  if (
-    (user.role === "department_head" || user.role === "department_admin") &&
-    user.departmentId
-  ) {
+  if (isDeptScoped(user.role) && user.departmentId) {
     const empDeptId =
       (data?.employees as { department_id?: string | null } | null)?.department_id ?? null;
     if (empDeptId !== user.departmentId) throw new Error("Not found");
@@ -456,7 +445,7 @@ export async function createLeaveApplication(input: {
   const supabase = createAdminClient();
   const year = new Date(input.start_date).getFullYear();
 
-  if (user.role === "department_head" && user.departmentId) {
+  if (isDeptHead(user.role) && user.departmentId) {
     const { data: emp } = await supabase
       .schema("hris")
       .from("employees")
@@ -469,6 +458,7 @@ export async function createLeaveApplication(input: {
   }
 
   // Department Admins can only file leave for plantilla employees in their own department.
+  // (The composite dept_admin+head role takes the dept_head path above, which is broader.)
   if (user.role === "department_admin") {
     if (!user.departmentId) {
       return { error: "Department Admin must be assigned to a department" };
@@ -625,8 +615,9 @@ export async function cancelLeaveApplication(id: string) {
 
     const inSameDept =
       !!appEmp && !!user.departmentId && appEmp.department_id === user.departmentId;
+    // Composite dept_admin+head role takes the dept_head path (broader).
     const canByDeptRole =
-      (user.role === "department_head" && inSameDept) ||
+      (isDeptHead(user.role) && inSameDept) ||
       (user.role === "department_admin" &&
         inSameDept &&
         appEmp?.employment_type === "plantilla");
@@ -884,7 +875,7 @@ export async function approveLeave(id: string) {
     : leaveTypeRel?.code ?? null;
 
   // Department Head approval step (Department Admin is view-only)
-  if (user.role === "department_head") {
+  if (isDeptHead(user.role)) {
     if (!user.departmentId) return { error: "User has no department assigned" };
     const empDeptId =
       (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
@@ -1019,7 +1010,10 @@ export async function approveLeave(id: string) {
 export async function rejectLeave(id: string, reason: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["department_head", "hr_admin", "super_admin"].includes(user.role))
+  if (
+    !["hr_admin", "super_admin"].includes(user.role) &&
+    !isDeptHead(user.role)
+  )
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();
@@ -1033,7 +1027,7 @@ export async function rejectLeave(id: string, reason: string) {
   if (!app) return { error: "Application not found" };
 
   // Department head can only reject leaves for their own department
-  if (user.role === "department_head") {
+  if (isDeptHead(user.role)) {
     if (!user.departmentId) return { error: "User has no department assigned" };
     const empDeptId =
       (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
@@ -1046,7 +1040,7 @@ export async function rejectLeave(id: string, reason: string) {
     return { error: "Department head must approve this leave first" };
   }
 
-  const isDeptScoped = user.role === "department_head";
+  const isRejectingAsDeptHead = isDeptHead(user.role);
 
   const { error } = await supabase
     .schema("hris")
@@ -1055,7 +1049,7 @@ export async function rejectLeave(id: string, reason: string) {
       status: "rejected",
       rejection_reason: reason,
       updated_at: new Date().toISOString(),
-      ...(isDeptScoped
+      ...(isRejectingAsDeptHead
         ? { department_head_id: user.id }
         : { hr_reviewer_id: user.id }),
     })
@@ -1072,7 +1066,7 @@ export async function rejectLeave(id: string, reason: string) {
   await logAudit({
     userId: user.id,
     userEmail: user.email,
-    action: isDeptScoped ? "reject_leave_dept" : "reject_leave",
+    action: isRejectingAsDeptHead ? "reject_leave_dept" : "reject_leave",
     tableName: "leave_applications",
     recordId: id,
     oldValues: { status: "pending" },
@@ -1116,10 +1110,7 @@ export async function getLeaveLedger(employeeId: string, year: number) {
   const supabase = createAdminClient();
 
   // Department-scoped users can only read ledger for employees in their own department.
-  if (
-    user &&
-    (user.role === "department_head" || user.role === "department_admin")
-  ) {
+  if (user && isDeptScoped(user.role)) {
     if (!user.departmentId) return [];
     const { data: emp } = await supabase
       .schema("hris")
@@ -1168,10 +1159,7 @@ export async function getLeaveCreditAdjustments(
   const user = await getCurrentUser();
   const supabase = createAdminClient();
 
-  if (
-    user &&
-    (user.role === "department_head" || user.role === "department_admin")
-  ) {
+  if (user && isDeptScoped(user.role)) {
     if (!user.departmentId) return [];
     const { data: emp } = await supabase
       .schema("hris")

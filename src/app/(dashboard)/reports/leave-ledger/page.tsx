@@ -14,6 +14,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptScoped } from "@/lib/auth-helpers";
 import {
   getLeaveLedger,
   getEmployeeLeaveCredits,
@@ -30,9 +31,8 @@ export default async function LeaveLedgerPage({
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (
-    !["super_admin", "hr_admin", "department_head", "department_admin"].includes(
-      user.role
-    )
+    !["super_admin", "hr_admin"].includes(user.role) &&
+    !isDeptScoped(user.role)
   ) {
     redirect("/dashboard");
   }
