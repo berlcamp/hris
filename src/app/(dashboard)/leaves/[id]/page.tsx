@@ -141,7 +141,7 @@ export default async function LeaveDetailPage({
           </p>
         </div>
         <div className="flex gap-2">
-          {(leave.status === "approved" || isCmoDept) && (
+          {(leave.status === "approved" || leave.status === "rejected" || isCmoDept) && (
             <LeavePdfButton
               leave={leave}
               credits={allCredits}
