@@ -153,6 +153,10 @@ export default async function LeaveDetailPage({
             deptApprovedAt={leave.dept_approved_at}
             canCancel={canCancel}
             user={user}
+            daysApplied={Number(leave.days_applied)}
+            daysWithPay={Number(leave.days_with_pay ?? 0)}
+            creditBalance={credit ? Number(credit.balance) : 0}
+            leaveTypeCode={leave.leave_types?.code ?? null}
           />
         </div>
       </div>

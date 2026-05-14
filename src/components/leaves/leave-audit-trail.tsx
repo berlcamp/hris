@@ -72,6 +72,8 @@ function eventStyle(action: string): EventStyle {
       return { icon: Ban, label: "Cancelled", tone: "warning" };
     case "cancel_approved_leave":
       return { icon: Ban, label: "Approved Leave Cancelled", tone: "danger" };
+    case "override_leave_days_with_pay":
+      return { icon: Activity, label: "Paid Days Adjusted", tone: "info" };
     default:
       return { icon: Activity, label: action.replace(/_/g, " "), tone: "neutral" };
   }
@@ -148,6 +150,21 @@ function describe(log: AuditLogRow): string {
       return cancellationReason
         ? `${actor}${roleSuffix} cancelled this approved leave: "${cancellationReason}".`
         : `${actor}${roleSuffix} cancelled this approved leave.`;
+    }
+    case "override_leave_days_with_pay": {
+      const newPaid = v.days_with_pay as number | undefined;
+      const applied = v.days_applied as number | undefined;
+      const code = v.leave_type_code as string | undefined;
+      const split =
+        typeof newPaid === "number" && typeof applied === "number"
+          ? ` (${newPaid} paid${code ? ` ${code}` : ""} / ${Math.max(
+              0,
+              applied - newPaid,
+            )} LWOP)`
+          : "";
+      return adjustedReason
+        ? `${actor} adjusted paid days${split}: "${adjustedReason}".`
+        : `${actor} adjusted paid days${split}.`;
     }
     default:
       return adjustedReason

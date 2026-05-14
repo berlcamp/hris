@@ -17,11 +17,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   approveLeave,
   rejectLeave,
   cancelLeaveApplication,
   cancelApprovedLeaveApplication,
+  overrideApprovedLeaveDaysWithPay,
 } from "@/lib/actions/leave-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
 
@@ -31,6 +33,13 @@ interface LeaveApprovalActionsProps {
   deptApprovedAt: string | null;
   canCancel: boolean;
   user: AuthUserData;
+  /** Required for the super-admin "Adjust Paid Days" dialog on approved leaves. */
+  daysApplied?: number;
+  daysWithPay?: number;
+  /** Current credit balance for this leave's type (the view value, which
+   *  already excludes this leave's `days_with_pay`). */
+  creditBalance?: number;
+  leaveTypeCode?: string | null;
 }
 
 export function LeaveApprovalActions({
@@ -39,6 +48,10 @@ export function LeaveApprovalActions({
   deptApprovedAt,
   canCancel,
   user,
+  daysApplied,
+  daysWithPay,
+  creditBalance,
+  leaveTypeCode,
 }: LeaveApprovalActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -46,6 +59,9 @@ export function LeaveApprovalActions({
   const [rejectReason, setRejectReason] = useState("");
   const [cancelApprovedOpen, setCancelApprovedOpen] = useState(false);
   const [cancelApprovedReason, setCancelApprovedReason] = useState("");
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideValue, setOverrideValue] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
 
   const handle = async (action: () => Promise<{ success?: boolean; error?: string; message?: string }>) => {
     setLoading(true);
@@ -66,10 +82,145 @@ export function LeaveApprovalActions({
     status === "approved" &&
     (user.role === "super_admin" || user.role === "hr_admin");
 
+  // Super-admin-only: change the paid/LWOP split on an approved leave (e.g.
+  // a leave originally recorded as LWOP because credits were unreconciled).
+  const canOverridePaid =
+    status === "approved" &&
+    user.role === "super_admin" &&
+    typeof daysApplied === "number" &&
+    typeof daysWithPay === "number";
+
+  const currentDaysApplied = Number(daysApplied ?? 0);
+  const currentDaysWithPay = Number(daysWithPay ?? 0);
+  const currentBalance = Number(creditBalance ?? 0);
+  // The view already excludes this leave's contribution, so the maximum we can
+  // re-allocate is the visible balance plus what's currently allocated.
+  const maxPayable = Math.min(
+    currentDaysApplied,
+    currentBalance + currentDaysWithPay
+  );
+
+  const openOverride = () => {
+    setOverrideValue(String(maxPayable));
+    setOverrideReason("");
+    setOverrideOpen(true);
+  };
+
   if (status === "approved") {
-    if (!canCancelApproved) return null;
+    if (!canCancelApproved && !canOverridePaid) return null;
     return (
       <div className="flex gap-2 flex-wrap">
+        {canOverridePaid && (
+          <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>
+            <Button
+              variant="outline"
+              disabled={loading}
+              onClick={openOverride}
+            >
+              Adjust Paid Days
+            </Button>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Adjust Paid Days</DialogTitle>
+                <DialogDescription>
+                  Re-split this approved leave between paid days (charged to{" "}
+                  {leaveTypeCode ?? "credits"}) and leave without pay. Use this
+                  when credits were reconciled after the leave was approved.
+                  The ledger and CSC Form 6 update automatically.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-md border p-2">
+                    <div className="text-muted-foreground text-xs">
+                      Days applied
+                    </div>
+                    <div className="font-medium">{currentDaysApplied}</div>
+                  </div>
+                  <div className="rounded-md border p-2">
+                    <div className="text-muted-foreground text-xs">
+                      Currently paid / LWOP
+                    </div>
+                    <div className="font-medium">
+                      {currentDaysWithPay} / {Math.max(0, currentDaysApplied - currentDaysWithPay)}
+                    </div>
+                  </div>
+                  <div className="rounded-md border p-2">
+                    <div className="text-muted-foreground text-xs">
+                      Available {leaveTypeCode ?? ""} balance
+                    </div>
+                    <div className="font-medium">{currentBalance}</div>
+                  </div>
+                  <div className="rounded-md border p-2">
+                    <div className="text-muted-foreground text-xs">
+                      Max payable
+                    </div>
+                    <div className="font-medium">{maxPayable}</div>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="override-days">New paid days</Label>
+                  <Input
+                    id="override-days"
+                    type="number"
+                    min={0}
+                    max={maxPayable}
+                    step="0.001"
+                    value={overrideValue}
+                    onChange={(e) => setOverrideValue(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Must be between 0 and {maxPayable}. The remainder becomes
+                    leave without pay.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="override-reason">Reason</Label>
+                  <Textarea
+                    id="override-reason"
+                    rows={3}
+                    placeholder="e.g. VL credits reconciled today; charge the 1-day LWOP back to VL"
+                    value={overrideReason}
+                    onChange={(e) => setOverrideReason(e.target.value)}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setOverrideOpen(false)}
+                  disabled={loading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  disabled={
+                    loading ||
+                    !overrideReason.trim() ||
+                    overrideValue === "" ||
+                    Number(overrideValue) === currentDaysWithPay ||
+                    Number(overrideValue) < 0 ||
+                    Number(overrideValue) > maxPayable
+                  }
+                  onClick={() =>
+                    handle(async () => {
+                      const r = await overrideApprovedLeaveDaysWithPay(
+                        leaveId,
+                        Number(overrideValue),
+                        overrideReason,
+                      );
+                      if (!("error" in r) || !r.error) setOverrideOpen(false);
+                      return r;
+                    })
+                  }
+                >
+                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Save
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
         <Dialog open={cancelApprovedOpen} onOpenChange={setCancelApprovedOpen}>
           <DialogTrigger
             render={<Button variant="destructive" disabled={loading} />}

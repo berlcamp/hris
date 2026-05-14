@@ -752,6 +752,111 @@ export async function cancelApprovedLeaveApplication(id: string, reason: string)
   return { success: true, message: "Approved leave cancelled and credits refunded" };
 }
 
+// Super-admin-only override for an approved leave's paid-day split. Use case:
+// a leave was approved at a time when the employee had insufficient (or zero)
+// credits, so it was recorded as LWOP; credits were reconciled afterwards and
+// HR now wants to charge the day(s) against those credits.
+//
+// Updating `days_with_pay` is sufficient — `leave_credit_balances` derives
+// used_credits from SUM(approved.days_with_pay), so the ledger view and CSC
+// Form 6 PDF (which reads `leave.days_with_pay`) both reflect the new split
+// automatically.
+export async function overrideApprovedLeaveDaysWithPay(
+  id: string,
+  newDaysWithPay: number,
+  reason: string,
+) {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Unauthorized" };
+  if (user.role !== "super_admin")
+    return { error: "Only Super Admin can override paid days on an approved leave" };
+
+  const trimmed = (reason ?? "").trim();
+  if (!trimmed) return { error: "Reason is required" };
+  if (!Number.isFinite(newDaysWithPay) || newDaysWithPay < 0)
+    return { error: "Paid days must be a non-negative number" };
+
+  const supabase = createAdminClient();
+
+  const { data: app } = await supabase
+    .schema("hris")
+    .from("leave_applications")
+    .select(
+      "employee_id, leave_type_id, status, start_date, end_date, days_applied, days_with_pay, leave_types(code)"
+    )
+    .eq("id", id)
+    .single();
+
+  if (!app) return { error: "Application not found" };
+  if (app.status !== "approved")
+    return { error: "Only approved leaves can be overridden" };
+
+  const daysApplied = Number(app.days_applied);
+  if (newDaysWithPay > daysApplied)
+    return { error: `Paid days cannot exceed days applied (${daysApplied})` };
+
+  const oldDaysWithPay = Number(app.days_with_pay);
+  if (newDaysWithPay === oldDaysWithPay)
+    return { error: "Paid days are unchanged" };
+
+  // Capacity check — the view subtracts this leave's current contribution from
+  // balance, so we must add it back before deciding whether the new value
+  // fits.
+  const year = new Date(app.start_date).getFullYear();
+  const { data: currentCredit } = await supabase
+    .schema("hris")
+    .from("leave_credit_balances")
+    .select("balance")
+    .eq("employee_id", app.employee_id)
+    .eq("leave_type_id", app.leave_type_id)
+    .eq("year", year)
+    .maybeSingle();
+  const currentBalance = currentCredit ? Number(currentCredit.balance) : 0;
+  const availableCapacity = currentBalance + oldDaysWithPay;
+  if (newDaysWithPay > availableCapacity)
+    return {
+      error: `Insufficient credits — only ${availableCapacity} day(s) available for this leave type.`,
+    };
+
+  const updatedAt = new Date().toISOString();
+  const { error } = await supabase
+    .schema("hris")
+    .from("leave_applications")
+    .update({ days_with_pay: newDaysWithPay, updated_at: updatedAt })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  const leaveTypeRel = app.leave_types as { code: string } | { code: string }[] | null;
+  const leaveTypeCode = Array.isArray(leaveTypeRel)
+    ? leaveTypeRel[0]?.code ?? null
+    : leaveTypeRel?.code ?? null;
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "override_leave_days_with_pay",
+    tableName: "leave_applications",
+    recordId: id,
+    oldValues: { days_with_pay: oldDaysWithPay },
+    newValues: {
+      days_with_pay: newDaysWithPay,
+      days_applied: daysApplied,
+      reason: trimmed,
+      overridden_by: user.email,
+      employee_id: app.employee_id,
+      leave_type_id: app.leave_type_id,
+      leave_type_code: leaveTypeCode,
+      start_date: app.start_date,
+      end_date: app.end_date,
+    },
+  });
+
+  revalidatePath("/leaves");
+  revalidatePath(`/leaves/${id}`);
+  revalidatePath("/leaves/credits");
+  return { success: true, message: "Paid days updated" };
+}
+
 // ── Leave Approval Workflow (3-step) ───────────────────────────────
 // 1. Employee submits → pending
 // 2. Department Head approves → dept_approved_at set
