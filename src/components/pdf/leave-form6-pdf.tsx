@@ -347,7 +347,7 @@ export function LeaveForm6Pdf({
 
   return (
     <Document>
-      <Page size="A4" style={s.page}>
+      <Page size={[612, 936]} style={s.page}>
         {/* Top strip: form no (left), agency block (center), ANNEX + receipt (right) */}
         <View style={s.topStrip}>
           <View style={s.topLeft}>
@@ -738,7 +738,7 @@ export function LeaveForm6Pdf({
           </View>
 
           {/* Final centered "Authorized Official" */}
-          <View style={s.rowOpen}>
+          <View style={s.rowOpen} wrap={false}>
             <View style={{ width: "100%", padding: 6, paddingTop: 30, paddingBottom: 8 }}>
               <View style={s.sigCenterLine}>
                 <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center", marginTop: 8 }}>
