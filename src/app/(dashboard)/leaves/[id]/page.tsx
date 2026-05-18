@@ -114,11 +114,6 @@ export default async function LeaveDetailPage({
     leave.status === "pending" &&
     (isPrivileged || userIsApplicant || canCancelByDeptRole);
 
-  const dept = leave.employees?.departments;
-  const isCmoDept =
-    dept?.name?.toUpperCase() === "CMO" ||
-    dept?.code?.toUpperCase() === "CMO";
-
   const timeline = [
     { label: "Submitted", done: true, date: leave.created_at },
     { label: "Dept Approved", done: !!leave.dept_approved_at, date: leave.dept_approved_at },
@@ -145,12 +140,10 @@ export default async function LeaveDetailPage({
           </p>
         </div>
         <div className="flex gap-2">
-          {(leave.status === "approved" || leave.status === "rejected" || isCmoDept) && (
-            <LeavePdfButton
-              leave={leave}
-              credits={allCredits}
-            />
-          )}
+          <LeavePdfButton
+            leave={leave}
+            credits={allCredits}
+          />
           <LeaveApprovalActions
             leaveId={leave.id}
             status={leave.status}
