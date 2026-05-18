@@ -801,6 +801,255 @@ export async function getDtrData(
   };
 }
 
+// --- Bulk DTR (department + date range) ---
+
+export interface BulkDtrEmployee {
+  id: string;
+  first_name: string;
+  last_name: string;
+  middle_name: string | null;
+  departments: { name: string } | null;
+  positions: { title: string } | null;
+  plantilla: { position_title: string | null }[] | null;
+}
+
+export interface BulkDtrResult {
+  employee: BulkDtrEmployee;
+  entries: DtrEntry[];
+  summary: DtrSummary;
+}
+
+export async function getDepartmentDtrBulk(
+  departmentId: string,
+  startDate: string,
+  endDate: string,
+): Promise<{ department: { id: string; name: string } | null; results: BulkDtrResult[] }> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Unauthorized");
+
+  // Dept-scoped users (non-composite) may only export their own department
+  if (
+    isDeptScoped(user.role) &&
+    user.role !== "department_admin_and_department_head" &&
+    user.departmentId &&
+    departmentId !== user.departmentId
+  ) {
+    throw new Error("Unauthorized");
+  }
+
+  if (!startDate || !endDate) {
+    throw new Error("Date range required");
+  }
+  if (startDate > endDate) {
+    throw new Error("Start date must be on or before end date");
+  }
+
+  const supabase = createAdminClient();
+
+  const { data: department } = await supabase
+    .schema("hris")
+    .from("departments")
+    .select("id, name")
+    .eq("id", departmentId)
+    .maybeSingle();
+
+  const { data: employees } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select(
+      "id, first_name, last_name, middle_name, departments!employees_department_id_fkey(name), positions(title), plantilla(position_title)",
+    )
+    .eq("department_id", departmentId)
+    .eq("status", "active")
+    .order("last_name", { ascending: true })
+    .order("first_name", { ascending: true });
+
+  const employeeRows = (employees ?? []) as unknown as BulkDtrEmployee[];
+  if (employeeRows.length === 0) {
+    return { department: department ?? null, results: [] };
+  }
+
+  const empIds = employeeRows.map((e) => e.id);
+
+  const [{ data: logs }, { data: leaves }] = await Promise.all([
+    supabase
+      .schema("hris")
+      .from("attendance_logs")
+      .select(
+        "employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks",
+      )
+      .in("employee_id", empIds)
+      .gte("date", startDate)
+      .lte("date", endDate),
+    supabase
+      .schema("hris")
+      .from("leave_applications")
+      .select("employee_id, start_date, end_date, leave_dates, leave_types(code)")
+      .in("employee_id", empIds)
+      .eq("status", "approved")
+      .lte("start_date", endDate)
+      .gte("end_date", startDate),
+  ]);
+
+  // Index logs and leaves per employee
+  const logsByEmp = new Map<string, Map<string, Record<string, unknown>>>();
+  for (const log of (logs ?? []) as Record<string, unknown>[]) {
+    const empId = log.employee_id as string;
+    if (!logsByEmp.has(empId)) logsByEmp.set(empId, new Map());
+    logsByEmp.get(empId)!.set(log.date as string, log);
+  }
+
+  const leavesByEmp = new Map<string, Map<string, string>>();
+  for (const leave of (leaves ?? []) as unknown as {
+    employee_id: string;
+    start_date: string;
+    end_date: string;
+    leave_dates: string[] | null;
+    leave_types: { code: string } | null;
+  }[]) {
+    if (!leavesByEmp.has(leave.employee_id)) leavesByEmp.set(leave.employee_id, new Map());
+    const map = leavesByEmp.get(leave.employee_id)!;
+    const code = leave.leave_types?.code ?? "Leave";
+    const dates = leave.leave_dates;
+    if (dates && dates.length > 0) {
+      for (const d of dates) map.set(d, code);
+    } else {
+      const d = new Date(leave.start_date + "T00:00:00");
+      const end = new Date(leave.end_date + "T00:00:00");
+      while (d <= end) {
+        const dow = d.getDay();
+        if (dow !== 0 && dow !== 6) {
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          map.set(key, code);
+        }
+        d.setDate(d.getDate() + 1);
+      }
+    }
+  }
+
+  // Build the calendar between startDate and endDate inclusive
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const calendar: { date: string; dayOfWeek: string; isWeekend: boolean }[] = [];
+  {
+    const d = new Date(startDate + "T00:00:00");
+    const end = new Date(endDate + "T00:00:00");
+    while (d <= end) {
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const dow = d.getDay();
+      calendar.push({
+        date: dateStr,
+        dayOfWeek: dayNames[dow],
+        isWeekend: dow === 0 || dow === 6,
+      });
+      d.setDate(d.getDate() + 1);
+    }
+  }
+
+  const results: BulkDtrResult[] = employeeRows.map((emp) => {
+    const logMap = logsByEmp.get(emp.id) ?? new Map<string, Record<string, unknown>>();
+    const leaveMap = leavesByEmp.get(emp.id) ?? new Map<string, string>();
+
+    const entries: DtrEntry[] = [];
+    let totalPresent = 0;
+    let totalAbsent = 0;
+    let totalOnLeave = 0;
+    let totalLateCount = 0;
+    let totalLateMinutes = 0;
+    let totalUndertimeCount = 0;
+    let totalUndertimeMinutes = 0;
+
+    for (const day of calendar) {
+      const log = logMap.get(day.date);
+      const leaveCode = leaveMap.get(day.date) ?? null;
+
+      if (log) {
+        const isLate = (log.is_late as boolean) ?? false;
+        const lateMins = (log.late_minutes as number) ?? 0;
+        const isUndertime = (log.is_undertime as boolean) ?? false;
+        const undertimeMins = (log.undertime_minutes as number) ?? 0;
+        const isAbsent = (log.is_absent as boolean) ?? false;
+
+        entries.push({
+          date: day.date,
+          day_of_week: day.dayOfWeek,
+          time_in_am: extractTime(log.time_in_am as string | null),
+          time_out_am: extractTime(log.time_out_am as string | null),
+          time_in_pm: extractTime(log.time_in_pm as string | null),
+          time_out_pm: extractTime(log.time_out_pm as string | null),
+          is_late: isLate,
+          late_minutes: lateMins,
+          is_undertime: isUndertime,
+          undertime_minutes: undertimeMins,
+          is_absent: isAbsent,
+          remarks: (log.remarks as string | null) ?? null,
+          leave_type: leaveCode,
+        });
+
+        if (!isAbsent) totalPresent++;
+        else totalAbsent++;
+        if (isLate) {
+          totalLateCount++;
+          totalLateMinutes += lateMins;
+        }
+        if (isUndertime) {
+          totalUndertimeCount++;
+          totalUndertimeMinutes += undertimeMins;
+        }
+      } else if (!day.isWeekend && leaveCode) {
+        entries.push({
+          date: day.date,
+          day_of_week: day.dayOfWeek,
+          time_in_am: null,
+          time_out_am: null,
+          time_in_pm: null,
+          time_out_pm: null,
+          is_late: false,
+          late_minutes: 0,
+          is_undertime: false,
+          undertime_minutes: 0,
+          is_absent: false,
+          remarks: leaveCode,
+          leave_type: leaveCode,
+        });
+        totalOnLeave++;
+      } else {
+        entries.push({
+          date: day.date,
+          day_of_week: day.dayOfWeek,
+          time_in_am: null,
+          time_out_am: null,
+          time_in_pm: null,
+          time_out_pm: null,
+          is_late: false,
+          late_minutes: 0,
+          is_undertime: false,
+          undertime_minutes: 0,
+          is_absent: !day.isWeekend,
+          remarks: day.isWeekend ? "Weekend" : null,
+          leave_type: null,
+        });
+        if (!day.isWeekend) totalAbsent++;
+      }
+    }
+
+    return {
+      employee: emp,
+      entries,
+      summary: {
+        total_days_present: totalPresent,
+        total_days_absent: totalAbsent,
+        total_days_on_leave: totalOnLeave,
+        total_late_count: totalLateCount,
+        total_late_minutes: totalLateMinutes,
+        total_undertime_count: totalUndertimeCount,
+        total_undertime_minutes: totalUndertimeMinutes,
+      },
+    };
+  });
+
+  return { department: department ?? null, results };
+}
+
 // --- DTR Summary Export (CSV) ---
 
 export async function getDtrSummaryExport(

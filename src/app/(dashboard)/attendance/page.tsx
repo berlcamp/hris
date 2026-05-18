@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { Plus, Clock, FileSpreadsheet } from "lucide-react";
+import { Plus, Clock, FileSpreadsheet, Printer } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { getAttendanceLogs } from "@/lib/actions/attendance-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { isDeptScoped } from "@/lib/auth-helpers";
 import { AttendanceTableClient } from "@/components/attendance/attendance-table-client";
 import { DahuaImportDialog } from "@/components/attendance/dahua-import-dialog";
 
@@ -14,6 +15,7 @@ export default async function AttendancePage() {
 
   const logs = await getAttendanceLogs();
   const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
+  const canBulkDtr = isAdmin || isDeptScoped(user.role);
 
   return (
     <div className="space-y-6">
@@ -34,6 +36,14 @@ export default async function AttendancePage() {
               Monthly DTR
             </Button>
           </Link>
+          {canBulkDtr && (
+            <Link href="/attendance/dtr/bulk">
+              <Button variant="outline" size="sm">
+                <Printer className="h-4 w-4" />
+                Bulk DTR
+              </Button>
+            </Link>
+          )}
           {isAdmin && (
             <>
               <DahuaImportDialog />

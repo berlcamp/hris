@@ -1,6 +1,10 @@
+import Link from "next/link";
+import { Printer } from "lucide-react";
 import { redirect } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
+import { isDeptScoped } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { DtrViewClient } from "@/components/attendance/dtr-view-client";
 
@@ -10,6 +14,7 @@ export default async function DtrPage() {
 
   const employees = await getEmployees();
   const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
+  const canBulkDtr = isAdmin || isDeptScoped(user.role);
 
   // If user is an employee, find their employee record
   let currentEmployeeId: string | null = null;
@@ -26,13 +31,23 @@ export default async function DtrPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          Daily Time Record (DTR)
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          View monthly DTR, generate CSC-format PDF, and export summary reports.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Daily Time Record (DTR)
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            View monthly DTR, generate CSC-format PDF, and export summary reports.
+          </p>
+        </div>
+        {canBulkDtr && (
+          <Link href="/attendance/dtr/bulk">
+            <Button variant="outline" size="sm">
+              <Printer className="h-4 w-4" />
+              Bulk DTR by Department
+            </Button>
+          </Link>
+        )}
       </div>
       <DtrViewClient
         employees={(employees ?? []).filter((e) => e.status === "active")}

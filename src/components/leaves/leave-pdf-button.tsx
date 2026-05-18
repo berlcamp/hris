@@ -18,7 +18,7 @@ import { pdf } from "@react-pdf/renderer";
 import { LeaveForm6Pdf } from "@/components/pdf/leave-form6-pdf";
 import type { LeaveApplicationWithRelations, LeaveCreditRow } from "@/lib/actions/leave-actions";
 import { getEffectivePosition } from "@/lib/employee-position";
-import { format } from "date-fns";
+import { formatManilaLongDate } from "@/lib/format-date";
 
 interface LeavePdfButtonProps {
   leave: LeaveApplicationWithRelations;
@@ -104,7 +104,7 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
           position={emp ? getEffectivePosition(emp) ?? "" : ""}
           department={emp?.departments?.name ?? ""}
           salaryGrade={emp?.salary_grade ?? 0}
-          dateOfFiling={format(new Date(leave.created_at), "MMMM d, yyyy")}
+          dateOfFiling={formatManilaLongDate(leave.created_at)}
           leaveType={leave.leave_types?.name ?? ""}
           leaveTypeCode={leave.leave_types?.code ?? ""}
           startDate={leave.start_date}
