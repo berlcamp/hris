@@ -23,3 +23,13 @@ export function isDeptAdmin(role: UserRole | null | undefined): boolean {
 export function isDeptScoped(role: UserRole | null | undefined): boolean {
   return isDeptHead(role) || isDeptAdmin(role);
 }
+
+// The composite "Dept Admin + Head" role. Acts as a dept-head approver but
+// is granted cross-department reach within the Leave module specifically —
+// e.g. they can file leave for any employee and approve at the dept-head
+// step regardless of which department the employee belongs to.
+export function isCompositeDeptAdminHead(
+  role: UserRole | null | undefined,
+): boolean {
+  return role === "department_admin_and_department_head";
+}

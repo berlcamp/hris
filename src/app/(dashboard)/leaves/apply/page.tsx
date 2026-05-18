@@ -1,17 +1,34 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { getEmployees } from "@/lib/actions/employee-actions";
+import { getEmployees, type EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import { getLeaveTypes } from "@/lib/actions/leave-actions";
 import { LeaveApplicationForm } from "@/components/leaves/leave-application-form";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { isCompositeDeptAdminHead, isDeptHead } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function LeaveApplyPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
+  // The composite Dept Admin + Head role can file leave for any employee
+  // in any department, so it bypasses getEmployees()'s dept scoping.
+  const employeesPromise: Promise<EmployeeWithRelations[]> =
+    isCompositeDeptAdminHead(user.role)
+      ? (async () => {
+          const supabase = createAdminClient();
+          const { data } = await supabase
+            .schema("hris")
+            .from("employees")
+            .select(
+              "*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number)",
+            )
+            .order("last_name");
+          return (data ?? []) as EmployeeWithRelations[];
+        })()
+      : getEmployees();
+
   const [employees, leaveTypes] = await Promise.all([
-    getEmployees(),
+    employeesPromise,
     getLeaveTypes(),
   ]);
 

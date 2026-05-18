@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 
 import { getLeaveApplicationById, getEmployeeLeaveCredits } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { isCompositeDeptAdminHead, isDeptHead } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
@@ -102,8 +102,10 @@ export default async function LeaveDetailPage({
   const inSameDept =
     !!user.departmentId &&
     leave.employees?.department_id === user.departmentId;
-  // Composite dept_admin+head role takes the dept_head path (broader).
+  // Composite Dept Admin + Head can cancel any pending leave across all
+  // departments; other dept-scoped roles are restricted to their own dept.
   const canCancelByDeptRole =
+    isCompositeDeptAdminHead(user.role) ||
     (isDeptHead(user.role) && inSameDept) ||
     (user.role === "department_admin" &&
       inSameDept &&

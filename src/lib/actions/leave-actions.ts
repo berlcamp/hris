@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
+import {
+  isCompositeDeptAdminHead,
+  isDeptHead,
+  isDeptScoped,
+} from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   addLedgerEntry,
@@ -121,7 +125,11 @@ export async function getLeaveCreditsForYear(year: number): Promise<LeaveCreditR
       .maybeSingle();
     if (!emp) return [];
     query = query.eq("employee_id", emp.id);
-  } else if (isDeptScoped(user.role) && user.departmentId) {
+  } else if (
+    isDeptScoped(user.role) &&
+    !isCompositeDeptAdminHead(user.role) &&
+    user.departmentId
+  ) {
     const { data: deptEmps } = await supabase
       .schema("hris")
       .from("employees")
@@ -141,8 +149,14 @@ export async function getEmployeeLeaveCredits(employeeId: string, year: number) 
   const user = await getCurrentUser();
   const supabase = createAdminClient();
 
-  // Department-scoped users can only read credits for employees in their own department.
-  if (user && isDeptScoped(user.role)) {
+  // Department-scoped users can only read credits for employees in their own
+  // department. The composite Dept Admin + Head role is exempt — it reads
+  // across all departments within the Leave module.
+  if (
+    user &&
+    isDeptScoped(user.role) &&
+    !isCompositeDeptAdminHead(user.role)
+  ) {
     if (!user.departmentId) return [];
     const { data: emp } = await supabase
       .schema("hris")
@@ -372,6 +386,9 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
       .maybeSingle();
     if (!emp) return [];
     query = query.eq("employee_id", emp.id);
+  } else if (isCompositeDeptAdminHead(user.role)) {
+    // Composite Dept Admin + Head sees every leave application across all
+    // departments — they act as a dept-head approver for the org.
   } else if (isDeptScoped(user.role)) {
     if (!user.departmentId) return [];
     const { data: deptEmps } = await supabase
@@ -414,7 +431,11 @@ export async function getLeaveApplicationById(id: string) {
     .single();
   if (error) throw error;
 
-  if (isDeptScoped(user.role) && user.departmentId) {
+  if (
+    isDeptScoped(user.role) &&
+    !isCompositeDeptAdminHead(user.role) &&
+    user.departmentId
+  ) {
     const empDeptId =
       (data?.employees as { department_id?: string | null } | null)?.department_id ?? null;
     if (empDeptId !== user.departmentId) throw new Error("Not found");
@@ -445,7 +466,13 @@ export async function createLeaveApplication(input: {
   const supabase = createAdminClient();
   const year = new Date(input.start_date).getFullYear();
 
-  if (isDeptHead(user.role) && user.departmentId) {
+  // Composite Dept Admin + Head can file leave for any employee in any
+  // department, so no dept-scoped restriction is applied below.
+  if (
+    isDeptHead(user.role) &&
+    !isCompositeDeptAdminHead(user.role) &&
+    user.departmentId
+  ) {
     const { data: emp } = await supabase
       .schema("hris")
       .from("employees")
@@ -615,8 +642,10 @@ export async function cancelLeaveApplication(id: string) {
 
     const inSameDept =
       !!appEmp && !!user.departmentId && appEmp.department_id === user.departmentId;
-    // Composite dept_admin+head role takes the dept_head path (broader).
+    // Composite Dept Admin + Head can cancel any pending leave across all
+    // departments; other dept-scoped roles are restricted to their own dept.
     const canByDeptRole =
+      isCompositeDeptAdminHead(user.role) ||
       (isDeptHead(user.role) && inSameDept) ||
       (user.role === "department_admin" &&
         inSameDept &&
@@ -874,13 +903,17 @@ export async function approveLeave(id: string) {
     ? leaveTypeRel[0]?.code ?? null
     : leaveTypeRel?.code ?? null;
 
-  // Department Head approval step (Department Admin is view-only)
+  // Department Head approval step (Department Admin is view-only).
+  // The composite Dept Admin + Head role can approve at this step for any
+  // department; a plain Dept Head is restricted to their own.
   if (isDeptHead(user.role)) {
-    if (!user.departmentId) return { error: "User has no department assigned" };
-    const empDeptId =
-      (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
-    if (empDeptId !== user.departmentId)
-      return { error: "Cannot approve leave outside your department" };
+    if (!isCompositeDeptAdminHead(user.role)) {
+      if (!user.departmentId) return { error: "User has no department assigned" };
+      const empDeptId =
+        (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
+      if (empDeptId !== user.departmentId)
+        return { error: "Cannot approve leave outside your department" };
+    }
     if (app.dept_approved_at) return { error: "Department-level approval already recorded" };
 
     const approvedAt = new Date().toISOString();
@@ -1026,8 +1059,10 @@ export async function rejectLeave(id: string, reason: string) {
     .maybeSingle();
   if (!app) return { error: "Application not found" };
 
-  // Department head can only reject leaves for their own department
-  if (isDeptHead(user.role)) {
+  // Department head can only reject leaves for their own department.
+  // The composite Dept Admin + Head role is exempt and can reject across all
+  // departments at the dept-head step.
+  if (isDeptHead(user.role) && !isCompositeDeptAdminHead(user.role)) {
     if (!user.departmentId) return { error: "User has no department assigned" };
     const empDeptId =
       (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
@@ -1109,8 +1144,13 @@ export async function getLeaveLedger(employeeId: string, year: number) {
   const user = await getCurrentUser();
   const supabase = createAdminClient();
 
-  // Department-scoped users can only read ledger for employees in their own department.
-  if (user && isDeptScoped(user.role)) {
+  // Department-scoped users can only read ledger for employees in their own
+  // department; the composite Dept Admin + Head is exempt.
+  if (
+    user &&
+    isDeptScoped(user.role) &&
+    !isCompositeDeptAdminHead(user.role)
+  ) {
     if (!user.departmentId) return [];
     const { data: emp } = await supabase
       .schema("hris")
@@ -1159,7 +1199,11 @@ export async function getLeaveCreditAdjustments(
   const user = await getCurrentUser();
   const supabase = createAdminClient();
 
-  if (user && isDeptScoped(user.role)) {
+  if (
+    user &&
+    isDeptScoped(user.role) &&
+    !isCompositeDeptAdminHead(user.role)
+  ) {
     if (!user.departmentId) return [];
     const { data: emp } = await supabase
       .schema("hris")

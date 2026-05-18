@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
 import {
+  isCompositeDeptAdminHead as roleIsCompositeDeptAdminHead,
   isDeptHead as roleIsDeptHead,
   isDeptScoped as roleIsDeptScoped,
 } from "@/lib/auth-helpers";
@@ -79,7 +80,12 @@ export interface EmployeeDashboardData {
 export async function getDashboardStats(user: AuthUserData): Promise<DashboardStats> {
   const supabase = createAdminClient();
 
+  const isComposite = roleIsCompositeDeptAdminHead(user.role);
   const isDeptScopedView = roleIsDeptScoped(user.role) && !!user.departmentId;
+  // The composite role is dept-scoped for employees but cross-department for
+  // leave approvals — keep employee counts in their primary department while
+  // letting leave counts span all departments.
+  const isLeaveDeptScopedView = isDeptScopedView && !isComposite;
   const deptId = user.departmentId ?? null;
 
   // For department-scoped roles: pre-compute employee IDs in their dept so we
@@ -94,6 +100,9 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
     deptEmployeeIds = (deptEmps ?? []).map((e) => e.id);
   }
   const noDeptEmployees = isDeptScopedView && deptEmployeeIds.length === 0;
+  // Leaves use the wider scope for the composite role — only skip the count
+  // when a non-composite dept role legitimately has no employees.
+  const noLeaveScopeEmployees = isLeaveDeptScopedView && deptEmployeeIds.length === 0;
 
   // Employee counts (filterable directly by department_id)
   let totalQuery = supabase
@@ -145,13 +154,13 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
   let pendingNosa = 0;
   let pendingIpcr = 0;
 
-  if (!noDeptEmployees) {
+  if (!noLeaveScopeEmployees) {
     let leavesQuery = supabase
       .schema("hris")
       .from("leave_applications")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending");
-    if (isDeptScopedView) leavesQuery = leavesQuery.in("employee_id", deptEmployeeIds);
+    if (isLeaveDeptScopedView) leavesQuery = leavesQuery.in("employee_id", deptEmployeeIds);
     const { count } = await leavesQuery;
     pendingLeaves = count ?? 0;
 
@@ -165,10 +174,12 @@ export async function getDashboardStats(user: AuthUserData): Promise<DashboardSt
       .eq("status", "approved")
       .gte("start_date", yearStart)
       .lte("start_date", yearEnd);
-    if (isDeptScopedView) approvedQuery = approvedQuery.in("employee_id", deptEmployeeIds);
+    if (isLeaveDeptScopedView) approvedQuery = approvedQuery.in("employee_id", deptEmployeeIds);
     const { count: approvedCount } = await approvedQuery;
     approvedLeaves = approvedCount ?? 0;
+  }
 
+  if (!noDeptEmployees) {
     let nosiQuery = supabase
       .schema("hris")
       .from("nosi_records")
@@ -301,18 +312,21 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
   const items: PendingApprovalItem[] = [];
 
   const isHrPath = ["super_admin", "hr_admin"].includes(user.role);
+  const isComposite = roleIsCompositeDeptAdminHead(user.role);
 
-  // Pending leaves — HR/super admin get a wider window so leaves "Awaiting HR"
-  // aren't crowded out of the list by newer "Awaiting Dept Head" items.
+  // Pending leaves — HR/super admin and the composite Dept Admin + Head get a
+  // wider window since they see leaves across all departments.
   let leaveQuery = supabase
     .schema("hris")
     .from("leave_applications")
     .select("id, created_at, days_applied, dept_approved_at, employees!inner(first_name, last_name, department_id, employment_type, vl_sl_needs_manual_entry, departments!employees_department_id_fkey(name, code)), leave_types!inner(name)")
     .eq("status", "pending")
     .order("created_at", { ascending: false })
-    .limit(isHrPath ? 20 : 10);
+    .limit(isHrPath || isComposite ? 20 : 10);
 
-  if (roleIsDeptScoped(user.role) && user.departmentId) {
+  // Composite Dept Admin + Head is intentionally NOT scoped to a single
+  // department here — they approve leaves org-wide at the dept-head step.
+  if (roleIsDeptScoped(user.role) && !isComposite && user.departmentId) {
     leaveQuery = leaveQuery.eq("employees.department_id", user.departmentId);
   }
 

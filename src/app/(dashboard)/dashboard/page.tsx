@@ -22,7 +22,10 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptScoped as roleIsDeptScoped } from "@/lib/auth-helpers";
+import {
+  isCompositeDeptAdminHead as roleIsCompositeDeptAdminHead,
+  isDeptScoped as roleIsDeptScoped,
+} from "@/lib/auth-helpers";
 import {
   getDashboardStats,
   getEmployeesByDepartment,
@@ -53,6 +56,7 @@ export default async function DashboardPage() {
 
   const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
   const isDeptScoped = roleIsDeptScoped(user.role);
+  const isComposite = roleIsCompositeDeptAdminHead(user.role);
   const isEmployee = user.role === "employee";
 
   const stats = await getDashboardStats(user);
@@ -129,7 +133,9 @@ export default async function DashboardPage() {
             <CardContent>
               <div className="text-3xl font-bold">{stats.pendingLeaves}</div>
               <p className="mt-1 text-xs text-muted-foreground">
-                {isDeptScoped ? "In your department" : "Awaiting approval"}
+                {isDeptScoped && !isComposite
+                  ? "In your department"
+                  : "Awaiting approval"}
               </p>
             </CardContent>
           </Card>
