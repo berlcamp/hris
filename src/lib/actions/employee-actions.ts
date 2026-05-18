@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
+import {
+  isCompositeDeptAdminHead,
+  isDeptHead,
+  isDeptScoped,
+} from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import type { EmployeeFormValues } from "@/lib/validations/employee-schema";
 import {
@@ -56,8 +60,9 @@ export async function getEmployees() {
     .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number)")
     .order("created_at", { ascending: false });
 
-  // Role-based filtering
-  if (isDeptScoped(user.role)) {
+  // Role-based filtering. The composite Dept Admin + Head reads employees
+  // across all departments (same exemption pattern as the Leave module).
+  if (isDeptScoped(user.role) && !isCompositeDeptAdminHead(user.role)) {
     if (!user.departmentId) return [];
     query = query.eq("department_id", user.departmentId);
   }
@@ -84,6 +89,7 @@ export async function getEmployeeById(id: string) {
 
   if (
     isDeptHead(user.role) &&
+    !isCompositeDeptAdminHead(user.role) &&
     user.departmentId &&
     (data as EmployeeWithRelations).department_id !== user.departmentId
   ) {
