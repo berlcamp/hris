@@ -1,6 +1,5 @@
 import { Document, Page, StyleSheet, View } from "@react-pdf/renderer";
 import type { BulkDtrResult } from "@/lib/actions/attendance-actions";
-import { getEffectivePosition } from "@/lib/employee-position";
 import { DtrFormColumn } from "@/components/pdf/dtr-form-column";
 
 const styles = StyleSheet.create({
@@ -24,20 +23,16 @@ const styles = StyleSheet.create({
 
 interface BulkDtrPdfProps {
   results: BulkDtrResult[];
-  departmentName: string;
   periodLabel: string;
 }
 
-export function BulkDtrPdf({ results, departmentName, periodLabel }: BulkDtrPdfProps) {
+export function BulkDtrPdf({ results, periodLabel }: BulkDtrPdfProps) {
   return (
     <Document>
-      {results.map(({ employee, entries, summary }) => {
+      {results.map(({ employee, entries, summary, schedule }) => {
         const fullName = [employee.first_name, employee.middle_name, employee.last_name]
           .filter(Boolean)
           .join(" ");
-        const position = getEffectivePosition(employee) ?? "";
-        const office = employee.departments?.name ?? departmentName;
-        const verifyTitle = position || office || "In Charge";
 
         return (
           <Page
@@ -53,7 +48,7 @@ export function BulkDtrPdf({ results, departmentName, periodLabel }: BulkDtrPdfP
                   summary={summary}
                   employeeName={fullName}
                   periodLabel={periodLabel}
-                  verifiedByTitle={verifyTitle}
+                  schedule={schedule}
                 />
               </View>
               <View style={styles.half}>
@@ -62,7 +57,7 @@ export function BulkDtrPdf({ results, departmentName, periodLabel }: BulkDtrPdfP
                   summary={summary}
                   employeeName={fullName}
                   periodLabel={periodLabel}
-                  verifiedByTitle={verifyTitle}
+                  schedule={schedule}
                 />
               </View>
             </View>

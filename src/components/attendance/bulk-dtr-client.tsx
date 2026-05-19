@@ -67,11 +67,7 @@ export function BulkDtrClient({
       const deptName = department?.name ?? "";
 
       const blob = await pdf(
-        <BulkDtrPdf
-          results={results}
-          departmentName={deptName}
-          periodLabel={periodLabel}
-        />,
+        <BulkDtrPdf results={results} periodLabel={periodLabel} />,
       ).toBlob();
 
       const url = URL.createObjectURL(blob);

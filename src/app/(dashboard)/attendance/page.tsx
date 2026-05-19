@@ -33,7 +33,7 @@ export default async function AttendancePage() {
           <Link href="/attendance/dtr">
             <Button variant="outline" size="sm">
               <FileSpreadsheet className="h-4 w-4" />
-              Monthly DTR
+              Individual DTR
             </Button>
           </Link>
           {canBulkDtr && (

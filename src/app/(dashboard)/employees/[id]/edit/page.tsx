@@ -5,6 +5,7 @@ import {
   getEmployeeById,
   getPositions,
 } from "@/lib/actions/employee-actions";
+import { getSchedules } from "@/lib/actions/schedule-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 
 export default async function EditEmployeePage({
@@ -20,10 +21,11 @@ export default async function EditEmployeePage({
     redirect(`/employees/${id}`);
   }
 
-  const [employee, departments, positions] = await Promise.all([
+  const [employee, departments, positions, schedules] = await Promise.all([
     getEmployeeById(id).catch(() => null),
     getDepartments(),
     getPositions(),
+    getSchedules(),
   ]);
 
   if (!employee) notFound();
@@ -42,6 +44,7 @@ export default async function EditEmployeePage({
       <EmployeeForm
         departments={departments ?? []}
         positions={positions ?? []}
+        schedules={schedules ?? []}
         mode="edit"
         defaultValues={{
           id: employee.id,
@@ -61,6 +64,7 @@ export default async function EditEmployeePage({
           step_increment: employee.step_increment,
           hire_date: employee.hire_date,
           end_of_contract: employee.end_of_contract,
+          schedule_id: employee.schedule_id,
         }}
       />
     </div>

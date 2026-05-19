@@ -1,7 +1,11 @@
 import { StyleSheet, Text, View } from "@react-pdf/renderer";
-import type { DtrEntry, DtrSummary } from "@/lib/actions/attendance-actions";
+import type {
+  DtrEntry,
+  DtrScheduleInfo,
+  DtrSummary,
+} from "@/lib/actions/attendance-actions";
 
-// --- Column widths (must sum to 100) ---
+// --- Column widths (with-break layout, must sum to 100) ---
 const W_DAY = 10;
 const W_AM_ARR = 16;
 const W_AM_DEP = 16;
@@ -12,6 +16,11 @@ const W_UT_MIN = 13;
 const W_AM_GROUP = W_AM_ARR + W_AM_DEP; // 32
 const W_PM_GROUP = W_PM_ARR + W_PM_DEP; // 32
 const W_UT_GROUP = W_UT_HR + W_UT_MIN; // 26
+
+// --- Column widths (no-break layout — 2 time columns instead of 4) ---
+const NB_IN = 32;
+const NB_OUT = 32;
+const NB_TIME_GROUP = NB_IN + NB_OUT; // 64
 
 const w = (n: number) => `${n}%` as const;
 
@@ -206,13 +215,8 @@ const styles = StyleSheet.create({
     textAlign: "justify",
   },
   sigBlock: {
-    marginTop: 16,
+    marginTop: 22,
     alignItems: "center",
-  },
-  sigName: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 8,
-    textAlign: "center",
   },
   sigLine: {
     width: "70%",
@@ -220,36 +224,39 @@ const styles = StyleSheet.create({
     marginTop: 1,
     paddingTop: 1,
   },
-  verifyLabel: {
+  sigCaption: {
     fontSize: 7,
     fontStyle: "italic",
-    marginTop: 10,
+    textAlign: "center",
+    marginTop: 2,
   },
-  verifyBlock: {
-    marginTop: 16,
+  mayorBlock: {
+    marginTop: 22,
     alignItems: "center",
   },
-  verifyName: {
+  mayorName: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 8,
+    fontSize: 9,
     textAlign: "center",
   },
-  verifyTitle: {
-    fontSize: 7,
-    fontStyle: "italic",
-    textAlign: "center",
-  },
-  verifyLine: {
+  mayorLine: {
     width: "70%",
     borderTop: "0.5pt solid #000",
     marginTop: 1,
     paddingTop: 1,
   },
-  backNote: {
+  mayorTitle: {
     fontSize: 7,
     fontStyle: "italic",
     textAlign: "center",
-    marginTop: 8,
+    marginTop: 2,
+  },
+  systemNote: {
+    fontSize: 6.5,
+    fontStyle: "italic",
+    textAlign: "center",
+    marginTop: 14,
+    color: "#666",
   },
 });
 
@@ -258,8 +265,7 @@ interface DtrFormColumnProps {
   summary: DtrSummary;
   employeeName: string;
   periodLabel: string;
-  verifiedByName?: string;
-  verifiedByTitle?: string;
+  schedule: DtrScheduleInfo;
 }
 
 function dayLabelFor(entry: DtrEntry): string {
@@ -276,12 +282,11 @@ function formatTime(t: string | null): string {
   return t; // already HH:MM
 }
 
-function convertMinsToLeaveCredits(totalMins: number) {
-  const days = Math.floor(totalMins / 480);
-  const rem = totalMins % 480;
-  const hours = Math.floor(rem / 60);
-  const minutes = rem % 60;
-  return { days, hours, minutes };
+// 0.125 leave-credit days per hour (8 hours = 1.0 day). Minute granularity is
+// prorated linearly: 1 min = 0.125 / 60 days.
+function convertMinsToLeaveCredits(totalMins: number): string {
+  const days = totalMins / 480;
+  return days.toFixed(3);
 }
 
 export function DtrFormColumn({
@@ -289,9 +294,9 @@ export function DtrFormColumn({
   summary,
   employeeName,
   periodLabel,
-  verifiedByName,
-  verifiedByTitle,
+  schedule,
 }: DtrFormColumnProps) {
+  const hasBreak = schedule.has_break;
   const totalUtMins =
     summary.total_late_minutes + summary.total_undertime_minutes;
   const totalUtHours = Math.floor(totalUtMins / 60);
@@ -332,7 +337,7 @@ export function DtrFormColumn({
         <Text style={styles.dayCell}>{dayLabel}</Text>
         {spanLabel ? (
           <Text style={styles.spanCell}>{spanLabel}</Text>
-        ) : (
+        ) : hasBreak ? (
           <>
             <Text style={[styles.timeCell, { width: w(W_AM_ARR) }]}>
               {formatTime(entry.time_in_am)}
@@ -344,6 +349,21 @@ export function DtrFormColumn({
               {formatTime(entry.time_in_pm)}
             </Text>
             <Text style={[styles.timeCell, { width: w(W_PM_DEP) }]}>
+              {formatTime(entry.time_out_pm)}
+            </Text>
+            <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
+              {totalUtForDay > 0 ? String(utH) : ""}
+            </Text>
+            <Text style={[styles.utCellLast, { width: w(W_UT_MIN) }]}>
+              {totalUtForDay > 0 ? pad2(utM) : ""}
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={[styles.timeCell, { width: w(NB_IN) }]}>
+              {formatTime(entry.time_in_am)}
+            </Text>
+            <Text style={[styles.timeCell, { width: w(NB_OUT) }]}>
               {formatTime(entry.time_out_pm)}
             </Text>
             <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
@@ -380,7 +400,11 @@ export function DtrFormColumn({
           <Text style={styles.metaItalic}>and departure</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.metaItalic}>Regular days: 8:00-12:00 / 1:00-5:00</Text>
+          <Text style={styles.metaItalic}>
+            {hasBreak
+              ? `Regular days: ${schedule.time_in}–${schedule.break_start} / ${schedule.break_end}–${schedule.time_out}`
+              : `Shift: ${schedule.time_in}–${schedule.time_out} (no break)`}
+          </Text>
           <Text style={styles.metaItalic}>Saturdays: —</Text>
         </View>
       </View>
@@ -393,37 +417,66 @@ export function DtrFormColumn({
             <Text style={styles.headerDayText}>Day</Text>
           </View>
           <View style={styles.headerGroupCol}>
-            <View style={styles.headerGroupTop}>
-              <Text style={[styles.headerGroupCell, { width: w((W_AM_GROUP * 100) / (100 - W_DAY)) }]}>
-                A.M.
-              </Text>
-              <Text style={[styles.headerGroupCell, { width: w((W_PM_GROUP * 100) / (100 - W_DAY)) }]}>
-                P.M.
-              </Text>
-              <Text style={[styles.headerGroupCellLast, { width: w((W_UT_GROUP * 100) / (100 - W_DAY)) }]}>
-                Undertime
-              </Text>
-            </View>
-            <View style={styles.headerSubRow}>
-              <Text style={[styles.headerSubCell, { width: w((W_AM_ARR * 100) / (100 - W_DAY)) }]}>
-                Arrival
-              </Text>
-              <Text style={[styles.headerSubCell, { width: w((W_AM_DEP * 100) / (100 - W_DAY)) }]}>
-                Departure
-              </Text>
-              <Text style={[styles.headerSubCell, { width: w((W_PM_ARR * 100) / (100 - W_DAY)) }]}>
-                Arrival
-              </Text>
-              <Text style={[styles.headerSubCell, { width: w((W_PM_DEP * 100) / (100 - W_DAY)) }]}>
-                Departure
-              </Text>
-              <Text style={[styles.headerSubCell, { width: w((W_UT_HR * 100) / (100 - W_DAY)) }]}>
-                Hours
-              </Text>
-              <Text style={[styles.headerSubCellLast, { width: w((W_UT_MIN * 100) / (100 - W_DAY)) }]}>
-                Minutes
-              </Text>
-            </View>
+            {hasBreak ? (
+              <>
+                <View style={styles.headerGroupTop}>
+                  <Text style={[styles.headerGroupCell, { width: w((W_AM_GROUP * 100) / (100 - W_DAY)) }]}>
+                    A.M.
+                  </Text>
+                  <Text style={[styles.headerGroupCell, { width: w((W_PM_GROUP * 100) / (100 - W_DAY)) }]}>
+                    P.M.
+                  </Text>
+                  <Text style={[styles.headerGroupCellLast, { width: w((W_UT_GROUP * 100) / (100 - W_DAY)) }]}>
+                    Undertime
+                  </Text>
+                </View>
+                <View style={styles.headerSubRow}>
+                  <Text style={[styles.headerSubCell, { width: w((W_AM_ARR * 100) / (100 - W_DAY)) }]}>
+                    Arrival
+                  </Text>
+                  <Text style={[styles.headerSubCell, { width: w((W_AM_DEP * 100) / (100 - W_DAY)) }]}>
+                    Departure
+                  </Text>
+                  <Text style={[styles.headerSubCell, { width: w((W_PM_ARR * 100) / (100 - W_DAY)) }]}>
+                    Arrival
+                  </Text>
+                  <Text style={[styles.headerSubCell, { width: w((W_PM_DEP * 100) / (100 - W_DAY)) }]}>
+                    Departure
+                  </Text>
+                  <Text style={[styles.headerSubCell, { width: w((W_UT_HR * 100) / (100 - W_DAY)) }]}>
+                    Hours
+                  </Text>
+                  <Text style={[styles.headerSubCellLast, { width: w((W_UT_MIN * 100) / (100 - W_DAY)) }]}>
+                    Minutes
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.headerGroupTop}>
+                  <Text style={[styles.headerGroupCell, { width: w((NB_TIME_GROUP * 100) / (100 - W_DAY)) }]}>
+                    Shift
+                  </Text>
+                  <Text style={[styles.headerGroupCellLast, { width: w((W_UT_GROUP * 100) / (100 - W_DAY)) }]}>
+                    Undertime
+                  </Text>
+                </View>
+                <View style={styles.headerSubRow}>
+                  <Text style={[styles.headerSubCell, { width: w((NB_IN * 100) / (100 - W_DAY)) }]}>
+                    Arrival
+                  </Text>
+                  <Text style={[styles.headerSubCell, { width: w((NB_OUT * 100) / (100 - W_DAY)) }]}>
+                    Departure
+                  </Text>
+                  <Text style={[styles.headerSubCell, { width: w((W_UT_HR * 100) / (100 - W_DAY)) }]}>
+                    Hours
+                  </Text>
+                  <Text style={[styles.headerSubCellLast, { width: w((W_UT_MIN * 100) / (100 - W_DAY)) }]}>
+                    Minutes
+                  </Text>
+                </View>
+              </>
+            )}
           </View>
         </View>
 
@@ -475,9 +528,7 @@ export function DtrFormColumn({
         </View>
         <View style={styles.summaryLine}>
           <Text style={styles.summaryLabel}>Conversion to Leave Credits: </Text>
-          <Text style={styles.summaryLabelBold}>
-            {credits.days} day(s), {credits.hours} hour(s), {credits.minutes} minute(s)
-          </Text>
+          <Text style={styles.summaryLabelBold}>{credits} day(s)</Text>
         </View>
       </View>
 
@@ -488,23 +539,22 @@ export function DtrFormColumn({
         arrival at and departure from office.
       </Text>
 
-      {/* Employee signature */}
+      {/* Employee signature: line first, caption below */}
       <View style={styles.sigBlock} wrap={false}>
-        <Text style={styles.sigName}>{employeeName.toUpperCase()}</Text>
         <View style={styles.sigLine} />
+        <Text style={styles.sigCaption}>
+          VERIFIED as to the prescribed office hours.
+        </Text>
       </View>
 
-      {/* Verified by */}
-      <Text style={styles.verifyLabel}>
-        VERIFIED as to the prescribed office hours.
-      </Text>
-      <View style={styles.verifyBlock} wrap={false}>
-        <Text style={styles.verifyName}>{verifiedByName ?? " "}</Text>
-        <View style={styles.verifyLine} />
-        <Text style={styles.verifyTitle}>{verifiedByTitle ?? "In Charge"}</Text>
+      {/* City Mayor — printed name above the line, title below */}
+      <View style={styles.mayorBlock} wrap={false}>
+        <Text style={styles.mayorName}>SAM NORMAN G. FUENTES</Text>
+        <View style={styles.mayorLine} />
+        <Text style={styles.mayorTitle}>City Mayor</Text>
       </View>
 
-      <Text style={styles.backNote}>(SEE INSTRUCTION ON BACK)</Text>
+      <Text style={styles.systemNote}>This DTR is system generated.</Text>
     </View>
   );
 }

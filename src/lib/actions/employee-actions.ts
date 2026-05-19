@@ -43,9 +43,18 @@ export interface EmployeeWithRelations {
   vl_sl_needs_manual_entry: boolean;
   created_at: string;
   updated_at: string;
+  schedule_id: string | null;
   departments: { name: string; code: string } | null;
   positions: { title: string; item_number: string | null } | null;
   plantilla: { position_title: string | null; item_number: string | null }[] | null;
+  schedules: {
+    id: string;
+    name: string;
+    time_in: string;
+    time_out: string;
+    break_start: string | null;
+    break_end: string | null;
+  } | null;
 }
 
 export async function getEmployees() {
@@ -57,7 +66,7 @@ export async function getEmployees() {
   let query = supabase
     .schema("hris")
     .from("employees")
-    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number)")
+    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number), schedules(id, name, time_in, time_out, break_start, break_end)")
     .order("created_at", { ascending: false });
 
   // Role-based filtering. The composite Dept Admin + Head reads employees
@@ -81,7 +90,7 @@ export async function getEmployeeById(id: string) {
   const { data, error } = await supabase
     .schema("hris")
     .from("employees")
-    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number)")
+    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number), schedules(id, name, time_in, time_out, break_start, break_end)")
     .eq("id", id)
     .single();
 
@@ -165,6 +174,7 @@ export async function createEmployee(input: EmployeeFormValues) {
       step_increment: input.step_increment,
       hire_date: input.hire_date,
       end_of_contract: input.end_of_contract,
+      schedule_id: input.schedule_id,
     })
     .select()
     .single();
@@ -230,6 +240,7 @@ export async function updateEmployee(
       step_increment: input.step_increment,
       hire_date: input.hire_date,
       end_of_contract: input.end_of_contract,
+      schedule_id: input.schedule_id,
     })
     .eq("id", id)
     .select()

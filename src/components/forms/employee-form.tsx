@@ -54,9 +54,19 @@ interface Position {
   department_id: string | null;
 }
 
+interface Schedule {
+  id: string;
+  name: string;
+  time_in: string;
+  time_out: string;
+  break_start: string | null;
+  break_end: string | null;
+}
+
 interface EmployeeFormProps {
   departments: Department[];
   positions: Position[];
+  schedules: Schedule[];
   defaultValues?: EmployeeFormValues & { id?: string };
   mode: "create" | "edit";
   employeeNo?: string;
@@ -78,6 +88,7 @@ const civilStatusOptions = [
 export function EmployeeForm({
   departments,
   positions,
+  schedules,
   defaultValues,
   mode,
   employeeNo,
@@ -111,6 +122,7 @@ export function EmployeeForm({
       step_increment: 1,
       hire_date: "",
       end_of_contract: null,
+      schedule_id: null,
     },
   });
 
@@ -122,6 +134,7 @@ export function EmployeeForm({
   const watchEndOfContract = watch("end_of_contract");
   const watchGender = watch("gender");
   const watchCivilStatus = watch("civil_status");
+  const watchScheduleId = watch("schedule_id");
 
   // Filter positions by selected department
   const filteredPositions = watchDepartment
@@ -554,6 +567,41 @@ export function EmployeeForm({
                   {errors.hire_date.message}
                 </p>
               )}
+            </div>
+
+            <div className="space-y-2">
+              <Label>Work Schedule</Label>
+              <Select
+                value={watchScheduleId ?? "none"}
+                items={[
+                  { value: "none", label: "Unassigned" },
+                  ...schedules.map((s) => ({
+                    value: s.id,
+                    label: `${s.name} (${s.time_in.slice(0, 5)}–${s.time_out.slice(0, 5)})`,
+                  })),
+                ]}
+                onValueChange={(val) =>
+                  setValue("schedule_id", val === "none" ? null : val, {
+                    shouldValidate: true,
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select schedule" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {schedules.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name} ({s.time_in.slice(0, 5)}–{s.time_out.slice(0, 5)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Used by attendance import and DTR to compute tardiness and bucket
+                punches.
+              </p>
             </div>
 
             {(watchEmploymentType === "jo" ||

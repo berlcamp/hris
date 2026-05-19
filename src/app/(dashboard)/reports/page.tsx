@@ -39,9 +39,15 @@ const reports = [
     icon: FileText,
   },
   {
-    title: "DTR Summary",
-    description: "Monthly attendance summary with late/undertime aggregation",
-    href: "/reports/dtr-summary",
+    title: "Attendance Report",
+    description: "Per-employee tardiness, undertime, and leave-credit conversion for a department and date range",
+    href: "/reports/attendance",
+    icon: Clock,
+  },
+  {
+    title: "Attendance VL Deductions",
+    description: "Post the month's tardy/undertime to each employee's VL ledger (idempotent, picks up corrections)",
+    href: "/reports/attendance-deductions",
     icon: Clock,
   },
   {

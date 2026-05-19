@@ -22,10 +22,12 @@ export type EmployeeRow = {
   employment_type: string;
   status: string;
   department_id: string | null;
+  schedule_id: string | null;
   vl_sl_needs_manual_entry: boolean;
   departments: { name: string; code: string } | null;
   positions: { title: string; item_number: string | null } | null;
   plantilla: { position_title: string | null; item_number: string | null }[] | null;
+  schedules: { id: string; name: string } | null;
 };
 
 const employmentTypeLabels: Record<string, string> = {

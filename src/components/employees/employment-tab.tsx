@@ -135,6 +135,18 @@ export function EmploymentTab({
             label="Step Increment"
             value={String(employee.step_increment)}
           />
+          <InfoRow
+            label="Work Schedule"
+            value={
+              employee.schedules
+                ? `${employee.schedules.name} · ${employee.schedules.time_in.slice(0, 5)}–${employee.schedules.time_out.slice(0, 5)}${
+                    employee.schedules.break_start && employee.schedules.break_end
+                      ? ` (break ${employee.schedules.break_start.slice(0, 5)}–${employee.schedules.break_end.slice(0, 5)})`
+                      : " (no break)"
+                  }`
+                : null
+            }
+          />
         </CardContent>
       </Card>
     </div>

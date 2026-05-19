@@ -33,6 +33,7 @@ export const employeeFormSchema = z.object({
     .max(8, "Step must be at most 8"),
   hire_date: z.string().min(1, "Hire date is required"),
   end_of_contract: z.string().nullable(),
+  schedule_id: z.string().nullable(),
 });
 
 export type EmployeeFormValues = z.infer<typeof employeeFormSchema>;

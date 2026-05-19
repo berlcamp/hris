@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { isDeptScoped } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { DtrViewClient } from "@/components/attendance/dtr-view-client";
+import { IndividualDtrClient } from "@/components/attendance/individual-dtr-client";
 
 export default async function DtrPage() {
   const user = await getCurrentUser();
@@ -33,11 +33,10 @@ export default async function DtrPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Daily Time Record (DTR)
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight">Individual DTR</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            View monthly DTR, generate CSC-format PDF, and export summary reports.
+            Generate a printable CSC Form 48 DTR for a single employee within a
+            date range.
           </p>
         </div>
         {canBulkDtr && (
@@ -49,8 +48,10 @@ export default async function DtrPage() {
           </Link>
         )}
       </div>
-      <DtrViewClient
-        employees={(employees ?? []).filter((e) => e.status === "active")}
+      <IndividualDtrClient
+        employees={(employees ?? []).filter(
+          (e) => e.status === "active" && e.employment_type === "plantilla",
+        )}
         isAdmin={isAdmin}
         currentEmployeeId={currentEmployeeId}
       />

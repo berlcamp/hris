@@ -5,6 +5,7 @@ import {
   getPositions,
   generateEmployeeNo,
 } from "@/lib/actions/employee-actions";
+import { getSchedules } from "@/lib/actions/schedule-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 
 export default async function NewEmployeePage() {
@@ -12,9 +13,10 @@ export default async function NewEmployeePage() {
   if (!user) redirect("/login");
   if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/employees");
 
-  const [departments, positions, employeeNo] = await Promise.all([
+  const [departments, positions, schedules, employeeNo] = await Promise.all([
     getDepartments(),
     getPositions(),
+    getSchedules(),
     generateEmployeeNo(),
   ]);
 
@@ -30,6 +32,7 @@ export default async function NewEmployeePage() {
       <EmployeeForm
         departments={departments ?? []}
         positions={positions ?? []}
+        schedules={schedules ?? []}
         mode="create"
         employeeNo={employeeNo}
       />
