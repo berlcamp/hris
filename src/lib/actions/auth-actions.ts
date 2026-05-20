@@ -40,7 +40,13 @@ export async function getCurrentUser(): Promise<AuthUserData | null> {
     .eq("email", authUser.email)
     .maybeSingle();
 
-  if (!profile || !profile.is_active) return null;
+  if (!profile || !profile.is_active) {
+    // Auth session exists but the user is not on the allowlist (or was
+    // deactivated). Clear the session so the proxy doesn't bounce them
+    // from /login back to /dashboard in a loop.
+    await supabase.auth.signOut();
+    return null;
+  }
 
   return {
     id: profile.id,
