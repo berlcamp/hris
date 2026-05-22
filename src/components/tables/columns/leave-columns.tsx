@@ -70,10 +70,16 @@ export const leaveColumns: ColumnDef<LeaveApplicationWithRelations>[] = [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Leave Type" />,
     cell: ({ row }) => {
       const lt = row.original.leave_types;
+      const appliedAt = row.original.created_at;
       return lt ? (
         <div>
           <p className="font-medium">{lt.name}</p>
           <p className="text-xs text-muted-foreground">{lt.code}</p>
+          {appliedAt && (
+            <p className="text-xs text-muted-foreground">
+              Applied: {format(new Date(appliedAt), "MMM d, yyyy")}
+            </p>
+          )}
         </div>
       ) : <span className="text-muted-foreground">—</span>;
     },
