@@ -688,6 +688,7 @@ export async function cancelLeaveApplication(id: string) {
 
   revalidatePath("/leaves");
   revalidatePath(`/leaves/${id}`);
+  revalidatePath(`/employees/${app.employee_id}`);
   return { success: true };
 }
 
@@ -769,6 +770,7 @@ export async function cancelApprovedLeaveApplication(id: string, reason: string)
   revalidatePath("/leaves");
   revalidatePath(`/leaves/${id}`);
   revalidatePath("/leaves/credits");
+  revalidatePath(`/employees/${app.employee_id}`);
   return { success: true, message: "Approved leave cancelled and credits refunded" };
 }
 
@@ -874,6 +876,7 @@ export async function overrideApprovedLeaveDaysWithPay(
   revalidatePath("/leaves");
   revalidatePath(`/leaves/${id}`);
   revalidatePath("/leaves/credits");
+  revalidatePath(`/employees/${app.employee_id}`);
   return { success: true, message: "Paid days updated" };
 }
 
@@ -953,6 +956,7 @@ export async function approveLeave(id: string) {
 
     revalidatePath(`/leaves/${id}`);
     revalidatePath("/leaves");
+    revalidatePath(`/employees/${app.employee_id}`);
     return {
       success: true,
       message: "Department Head approval recorded",
@@ -1034,6 +1038,7 @@ export async function approveLeave(id: string) {
     revalidatePath(`/leaves/${id}`);
     revalidatePath("/leaves");
     revalidatePath("/leaves/credits");
+    revalidatePath(`/employees/${app.employee_id}`);
     return { success: true, message: "Leave application approved and credits deducted" };
   }
 
@@ -1122,6 +1127,7 @@ export async function rejectLeave(id: string, reason: string) {
 
   revalidatePath(`/leaves/${id}`);
   revalidatePath("/leaves");
+  revalidatePath(`/employees/${app.employee_id}`);
   return { success: true };
 }
 
