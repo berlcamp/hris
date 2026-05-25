@@ -17,6 +17,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 22,
     fontSize: 9,
     fontFamily: "Helvetica",
+    flexDirection: "column",
   },
 
   // Top metadata strip (above the form box)
@@ -57,7 +58,7 @@ const s = StyleSheet.create({
   },
 
   // Outer form box
-  formBox: { border: BORDER },
+  formBox: { border: BORDER, flexGrow: 1 },
 
   // Generic row helpers
   rowBordered: { flexDirection: "row", borderBottom: HAIR },
@@ -446,7 +447,7 @@ export function LeaveForm6Pdf({
           <Text style={s.sectionBanner}>6. DETAILS OF APPLICATION</Text>
 
           {/* 6.A | 6.B */}
-          <View style={s.rowBordered}>
+          <View style={[s.rowBordered, { flexGrow: 2 }]}>
             {/* 6.A */}
             <View style={[{ width: "55%", padding: 4 }, s.cellRightBorder]}>
               <Text style={s.cellLabelBold}>6.A TYPE OF LEAVE TO BE AVAILED OF</Text>
@@ -589,7 +590,7 @@ export function LeaveForm6Pdf({
           </View>
 
           {/* 6.C | 6.D */}
-          <View style={s.rowBordered}>
+          <View style={[s.rowBordered, { flexGrow: 1 }]}>
             <View style={[{ width: "55%", padding: 4 }, s.cellRightBorder]}>
               <Text style={s.cellLabelBold}>6.C NUMBER OF WORKING DAYS APPLIED FOR</Text>
               <ValueLine>{daysApplied ? `${daysApplied} day(s)` : ""}</ValueLine>
@@ -617,7 +618,7 @@ export function LeaveForm6Pdf({
           <Text style={s.sectionBanner}>7. DETAILS OF ACTION ON APPLICATION</Text>
 
           {/* 7.A | 7.B */}
-          <View style={s.rowBordered}>
+          <View style={[s.rowBordered, { flexGrow: 2 }]}>
             {/* 7.A */}
             <View style={[{ width: "55%", padding: 4 }, s.cellRightBorder]}>
               <Text style={s.cellLabelBold}>7.A CERTIFICATION OF LEAVE CREDITS</Text>
@@ -709,7 +710,7 @@ export function LeaveForm6Pdf({
           </View>
 
           {/* 7.C | 7.D */}
-          <View style={s.rowBordered}>
+          <View style={[s.rowBordered, { flexGrow: 1 }]}>
             <View style={[{ width: "55%", padding: 4 }, s.cellRightBorder]}>
               <Text style={s.cellLabelBold}>7.C APPROVED FOR:</Text>
               <View style={{ flexDirection: "row", alignItems: "flex-end", marginTop: 4 }}>
@@ -738,8 +739,8 @@ export function LeaveForm6Pdf({
           </View>
 
           {/* Final centered "Authorized Official" */}
-          <View style={s.rowOpen} wrap={false}>
-            <View style={{ width: "100%", padding: 6, paddingTop: 30, paddingBottom: 8 }}>
+          <View style={[s.rowOpen, { flexGrow: 2 }]} wrap={false}>
+            <View style={{ width: "100%", padding: 6, paddingTop: 12, paddingBottom: 8, flexGrow: 1, justifyContent: "center" }}>
               <View style={s.sigCenterLine}>
                 <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center", marginTop: 8 }}>
                   {signatoryFinal || " "}
