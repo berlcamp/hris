@@ -11,6 +11,7 @@ export const userFormSchema = z.object({
     .min(1, "Email is required"),
   role: z.enum(
     [
+      "ocm_admin",
       "hr_admin",
       "department_head",
       "department_admin",

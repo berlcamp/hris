@@ -1147,6 +1147,7 @@ export type Database = {
         | "demotion"
       user_role:
         | "super_admin"
+        | "ocm_admin"
         | "hr_admin"
         | "department_head"
         | "department_admin"
@@ -1330,6 +1331,7 @@ export const Constants = {
       ],
       user_role: [
         "super_admin",
+        "ocm_admin",
         "hr_admin",
         "department_head",
         "department_admin",

@@ -69,6 +69,7 @@ interface NavGroup {
 
 const allRoles: UserRole[] = [
   "super_admin",
+  "ocm_admin",
   "hr_admin",
   "department_head",
   "department_admin",
@@ -85,6 +86,7 @@ const deptManagerRoles: UserRole[] = [
 ];
 const leaveAttendanceRoles: UserRole[] = [
   "super_admin",
+  "ocm_admin",
   "hr_admin",
   "department_head",
   "department_admin",
@@ -200,6 +202,7 @@ const navGroups: NavGroup[] = [
 
 const roleLabels: Record<UserRole, string> = {
   super_admin: "Super Admin",
+  ocm_admin: "OCM Admin",
   hr_admin: "HR Admin",
   department_head: "Dept Head",
   department_admin: "Dept Admin",

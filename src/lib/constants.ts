@@ -4,6 +4,7 @@ export const APP_DESCRIPTION =
 
 export const USER_ROLES = {
   SUPER_ADMIN: "super_admin",
+  OCM_ADMIN: "ocm_admin",
   HR_ADMIN: "hr_admin",
   DEPARTMENT_HEAD: "department_head",
   EMPLOYEE: "employee",

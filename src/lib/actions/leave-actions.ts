@@ -400,10 +400,10 @@ export async function getLeaveApplications(): Promise<LeaveApplicationWithRelati
     const ids = (deptEmps ?? []).map((e) => e.id);
     if (ids.length === 0) return [];
     query = query.in("employee_id", ids);
-  } else if (user.role === "hr_admin") {
-    // HR only sees leaves once the department head has approved.
-    query = query.not("dept_approved_at", "is", null);
   }
+  // super_admin, ocm_admin, and hr_admin fall through with no filter — they
+  // see every leave application across all departments and at every approval
+  // stage (including those still pending the department head's decision).
 
   const { data, error } = await query;
   if (error) throw error;
@@ -440,11 +440,6 @@ export async function getLeaveApplicationById(id: string) {
     const empDeptId =
       (data?.employees as { department_id?: string | null } | null)?.department_id ?? null;
     if (empDeptId !== user.departmentId) throw new Error("Not found");
-  }
-
-  // HR only sees leaves once the department head has approved.
-  if (user.role === "hr_admin" && !data?.dept_approved_at) {
-    throw new Error("Not found");
   }
 
   return data as LeaveApplicationWithRelations;

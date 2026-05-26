@@ -3,6 +3,7 @@
 
 export type UserRole =
   | "super_admin"
+  | "ocm_admin"
   | "hr_admin"
   | "department_head"
   | "department_admin"

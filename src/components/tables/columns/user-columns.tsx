@@ -19,6 +19,7 @@ export type UserRow = {
 
 const roleLabels: Record<string, string> = {
   super_admin: "Super Admin",
+  ocm_admin: "OCM Admin",
   hr_admin: "HR Admin",
   department_head: "Dept Head",
   department_admin: "Dept Admin",
@@ -28,6 +29,7 @@ const roleLabels: Record<string, string> = {
 
 const roleBadgeVariant: Record<string, "default" | "secondary" | "outline"> = {
   super_admin: "default",
+  ocm_admin: "secondary",
   hr_admin: "secondary",
   department_head: "outline",
   department_admin: "outline",
