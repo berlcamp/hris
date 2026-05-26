@@ -101,6 +101,7 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
           employeeName={employeeName}
           employeeNo={emp != null ? String(emp.biometric_no) : ""}
           middleName={emp?.middle_name ?? ""}
+          suffix={emp?.suffix ?? ""}
           position={emp ? getEffectivePosition(emp) ?? "" : ""}
           department={emp?.departments?.name ?? ""}
           salaryGrade={emp?.salary_grade ?? 0}

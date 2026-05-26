@@ -68,6 +68,7 @@ export interface LeaveApplicationWithRelations {
     first_name: string;
     last_name: string;
     middle_name: string | null;
+    suffix: string | null;
     salary_grade: number;
     biometric_no: number;
     department_id: string | null;
@@ -420,7 +421,7 @@ export async function getLeaveApplicationById(id: string) {
     .select(`
       *,
       employees(
-        first_name, last_name, middle_name, salary_grade, biometric_no, department_id, employment_type, vl_sl_needs_manual_entry,
+        first_name, last_name, middle_name, suffix, salary_grade, biometric_no, department_id, employment_type, vl_sl_needs_manual_entry,
         departments!employees_department_id_fkey(name, code),
         positions(title),
         plantilla(position_title)

@@ -142,6 +142,8 @@ interface LeaveForm6PdfProps {
   employeeName: string;
   employeeNo: string;
   middleName: string;
+  /** Name extension / suffix (e.g. "Jr.", "Sr.", "III"). Appended to the surname. */
+  suffix?: string;
   position: string;
   department: string;
   salaryGrade: number;
@@ -272,6 +274,7 @@ export function LeaveForm6Pdf({
   employeeName,
   employeeNo: _employeeNo,
   middleName,
+  suffix,
   position,
   department,
   salaryGrade,
@@ -307,6 +310,14 @@ export function LeaveForm6Pdf({
 }: LeaveForm6PdfProps) {
   const isCode = (code: string) => leaveTypeCode === code;
   const { last, first, middle } = splitName(employeeName, middleName);
+  // Name extension (Jr., Sr., III) prints after the middle name.
+  const middleWithSuffix = suffix?.trim() ? `${middle} ${suffix.trim()}`.trim() : middle;
+  // 6.D applicant-signature name: rebuild "Last, First[ Middle][ Suffix]" so the
+  // suffix shows here too, consistent with field 2.
+  const applicantName =
+    [last, [first, middleWithSuffix].filter(Boolean).join(" ")]
+      .filter(Boolean)
+      .join(", ") || employeeName;
 
   const isWithinPH = detailsOfLeave === "Within the Philippines";
   const isAbroad = detailsOfLeave?.startsWith("Abroad") ?? false;
@@ -416,7 +427,7 @@ export function LeaveForm6Pdf({
               <View style={{ flexDirection: "row", marginTop: 8 }}>
                 <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR, marginRight: 4 }]}>{last}</Text>
                 <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR, marginRight: 4 }]}>{first}</Text>
-                <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR }]}>{middle}</Text>
+                <Text style={[s.cellValue, { flex: 1, borderBottom: HAIR }]}>{middleWithSuffix}</Text>
               </View>
             </View>
           </View>
@@ -605,7 +616,7 @@ export function LeaveForm6Pdf({
               </View>
               <View style={{ marginTop: 22 }}>
                 <Text style={{ borderBottom: HAIR, fontSize: 9, fontFamily: "Helvetica-Bold", textAlign: "center", minHeight: 11 }}>
-                  {employeeName || " "}
+                  {applicantName || " "}
                 </Text>
                 <Text style={[s.italic, { fontSize: 8.5, textAlign: "center", marginTop: 1 }]}>
                   (Signature of Applicant)
