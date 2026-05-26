@@ -903,10 +903,17 @@ export async function approveLeave(id: string) {
     : leaveTypeRel?.code ?? null;
 
   // Department Head approval step (Department Admin is view-only).
-  // The composite Dept Admin + Head role can approve at this step for any
-  // department; a plain Dept Head is restricted to their own.
-  if (isDeptHead(user.role)) {
-    if (!isCompositeDeptAdminHead(user.role)) {
+  // The composite Dept Admin + Head role and OCM Admin can approve at this
+  // step for any department; a plain Dept Head is restricted to their own.
+  // OCM Admin only acts here while dept-head approval is still outstanding —
+  // once it's recorded, OCM Admin falls through to the HR step below.
+  const actsAsDeptHead =
+    isDeptHead(user.role) ||
+    (user.role === "ocm_admin" && !app.dept_approved_at);
+  if (actsAsDeptHead) {
+    const canApproveAnyDept =
+      isCompositeDeptAdminHead(user.role) || user.role === "ocm_admin";
+    if (!canApproveAnyDept) {
       if (!user.departmentId) return { error: "User has no department assigned" };
       const empDeptId =
         (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
@@ -959,9 +966,13 @@ export async function approveLeave(id: string) {
     };
   }
 
-  // HR / Super Admin final approval — requires dept head approval first
-  if (["hr_admin", "super_admin"].includes(user.role)) {
-    if (user.role === "hr_admin" && !app.dept_approved_at) {
+  // HR / Super Admin / OCM Admin final approval. hr_admin and ocm_admin
+  // require dept head approval first; super_admin can finalize directly.
+  if (["hr_admin", "super_admin", "ocm_admin"].includes(user.role)) {
+    if (
+      (user.role === "hr_admin" || user.role === "ocm_admin") &&
+      !app.dept_approved_at
+    ) {
       return { error: "Department head must approve this leave first" };
     }
 
@@ -1045,7 +1056,7 @@ export async function rejectLeave(id: string, reason: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
   if (
-    !["hr_admin", "super_admin"].includes(user.role) &&
+    !["hr_admin", "super_admin", "ocm_admin"].includes(user.role) &&
     !isDeptHead(user.role)
   )
     return { error: "Insufficient permissions" };
@@ -1061,8 +1072,9 @@ export async function rejectLeave(id: string, reason: string) {
   if (!app) return { error: "Application not found" };
 
   // Department head can only reject leaves for their own department.
-  // The composite Dept Admin + Head role is exempt and can reject across all
-  // departments at the dept-head step.
+  // The composite Dept Admin + Head role and OCM Admin are exempt and can
+  // reject across all departments (OCM Admin is not a Dept Head, so it skips
+  // this block entirely).
   if (isDeptHead(user.role) && !isCompositeDeptAdminHead(user.role)) {
     if (!user.departmentId) return { error: "User has no department assigned" };
     const empDeptId =
@@ -1076,7 +1088,11 @@ export async function rejectLeave(id: string, reason: string) {
     return { error: "Department head must approve this leave first" };
   }
 
-  const isRejectingAsDeptHead = isDeptHead(user.role);
+  // OCM Admin rejects as Dept Head while dept approval is outstanding, then as
+  // HR once it's recorded — mirroring its approval behaviour.
+  const isRejectingAsDeptHead =
+    isDeptHead(user.role) ||
+    (user.role === "ocm_admin" && !app.dept_approved_at);
 
   const { error } = await supabase
     .schema("hris")

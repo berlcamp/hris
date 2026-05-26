@@ -282,14 +282,23 @@ export function LeaveApprovalActions({
   // visible in the dept-approved-but-not-HR-approved in-between state.
   if (status !== "pending") return null;
 
-  // HR can only act once the department head has approved. super_admin can act anytime.
+  // OCM Admin approves at both stages sequentially: as Dept Head while the
+  // dept-head approval is outstanding, then as HR once it's recorded.
+  const isOcmAdmin = user.role === "ocm_admin";
+  // Dept-level approval: Dept Heads and OCM Admin, before dept approval exists.
+  const canApproveAsDeptHead =
+    (isDeptHead(user.role) || isOcmAdmin) && !deptApprovedAt;
+  // HR can only act once the department head has approved. super_admin can act
+  // anytime; OCM Admin acts as HR only after dept-head approval.
   const hrCanAct =
-    (user.role === "hr_admin" && !!deptApprovedAt) || user.role === "super_admin";
+    (user.role === "hr_admin" && !!deptApprovedAt) ||
+    (isOcmAdmin && !!deptApprovedAt) ||
+    user.role === "super_admin";
 
   return (
     <div className="flex gap-2 flex-wrap">
-      {/* Only Department Head can approve at dept level (Dept Admin is view-only) */}
-      {isDeptHead(user.role) && !deptApprovedAt && (
+      {/* Dept-level approval — Dept Head or OCM Admin (Dept Admin is view-only) */}
+      {canApproveAsDeptHead && (
         <Button onClick={() => handle(() => approveLeave(leaveId))} disabled={loading}>
           {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           Approve (Dept Head)
@@ -304,8 +313,9 @@ export function LeaveApprovalActions({
         </Button>
       )}
 
-      {/* Reject — dept head anytime; HR only after dept approval; super_admin anytime */}
-      {(isDeptHead(user.role) || hrCanAct) && (
+      {/* Reject — dept head anytime; HR only after dept approval; super_admin
+          anytime; OCM Admin at whichever stage it can approve. */}
+      {(isDeptHead(user.role) || hrCanAct || canApproveAsDeptHead) && (
         <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
           <DialogTrigger
             render={<Button variant="destructive" disabled={loading} />}
