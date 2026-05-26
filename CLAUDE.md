@@ -26,7 +26,7 @@ npm run lint     # eslint (flat config, eslint-config-next core-web-vitals + typ
 
 There is no test runner configured; do not invent one.
 
-Database migrations are SQL files under `supabase/migrations/` numbered `NNN_*.sql`. Apply them via the Supabase project (CLI or dashboard); they are not auto-run by the app. New migrations must keep the numeric prefix sequence and start with `SET search_path TO hris, public, auth, extensions;` when they touch the `hris` schema.
+Database migrations are SQL files under `supabase/migrations/` numbered `NNN_*.sql`. They are not auto-run by the app. **The developer applies migrations to production directly and immediately — your job is done once the migration file is written. Do NOT suggest `supabase db push`, the Supabase CLI/dashboard, or any other "apply this migration" step; do not add reminders to run it.** New migrations must keep the numeric prefix sequence and start with `SET search_path TO hris, public, auth, extensions;` when they touch the `hris` schema.
 
 To regenerate DB types: `supabase gen types typescript --schema hris > src/lib/database.types.ts` (the in-repo `src/lib/types.ts` is a hand-maintained mirror used by app code).
 
