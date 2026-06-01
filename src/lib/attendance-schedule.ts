@@ -116,6 +116,64 @@ interface Punch {
   onNextDay: boolean;
   // Absolute ms timestamp — used for sorting and bucket assignment.
   ms: number;
+  // Normalized Dahua attendance status: "checkin" | "breakout" | "breakin" |
+  // "checkout" | "" (when the source had no usable label, e.g. CSV imports).
+  status: string;
+}
+
+// Maps a normalized Dahua attendance status to the AM/PM slot it represents.
+const STATUS_SLOT: Record<
+  string,
+  "in_am" | "out_am" | "in_pm" | "out_pm" | undefined
+> = {
+  checkin: "in_am",
+  breakout: "out_am",
+  breakin: "in_pm",
+  checkout: "out_pm",
+};
+
+function normPunchStatus(s: string | null | undefined): string {
+  return (s ?? "").replace(/[\s_-]+/g, "").toLowerCase();
+}
+
+// When every punch carries a recognized Dahua label, assign slots by the
+// device's own intent rather than by time window. This is immune to re-scans
+// landing a minute on the wrong side of the break boundary.
+//   time_in_am  = earliest Check In       time_out_pm = latest Check Out
+// The two midday break punches are treated as ONE ordered group, NOT split by
+// their Break Out / Break In label — the device frequently tags the return from
+// lunch as "Break Out" too (it doesn't reliably distinguish leaving from
+// returning). So the earliest break punch is the AM departure (left for lunch)
+// and the latest is the PM arrival (came back):
+//   time_out_am = earliest break punch    time_in_pm  = latest break punch
+// `punches` must be pre-sorted ascending by ms.
+function bucketByStatus(punches: Punch[]): BucketResult {
+  const inSlot = (slot: string) =>
+    punches.filter((p) => STATUS_SLOT[p.status] === slot);
+  const first = (arr: Punch[]) => arr[0] ?? null;
+  const last = (arr: Punch[]) => arr[arr.length - 1] ?? null;
+
+  const inAm = first(inSlot("in_am"));
+  const outPm = last(inSlot("out_pm"));
+
+  // Break Out + Break In merged and ordered; earliest = out, latest = in.
+  const breaks = punches.filter((p) => {
+    const slot = STATUS_SLOT[p.status];
+    return slot === "out_am" || slot === "in_pm";
+  });
+  const outAm = breaks.length > 0 ? breaks[0] : null;
+  const inPm = breaks.length > 1 ? breaks[breaks.length - 1] : null;
+
+  return {
+    time_in_am: inAm?.time ?? null,
+    time_in_am_next_day: inAm?.onNextDay ?? false,
+    time_out_am: outAm?.time ?? null,
+    time_out_am_next_day: outAm?.onNextDay ?? false,
+    time_in_pm: inPm?.time ?? null,
+    time_in_pm_next_day: inPm?.onNextDay ?? false,
+    time_out_pm: outPm?.time ?? null,
+    time_out_pm_next_day: outPm?.onNextDay ?? false,
+  };
 }
 
 // Buckets a set of raw punches for one duty date into AM/PM slots given the
@@ -123,7 +181,7 @@ interface Punch {
 // `time_in_am` and the out-punch to `time_out_pm` (the other two stay null);
 // downstream DTR code looks at the schedule to decide column layout.
 export function bucketPunchesForDuty(
-  punchesByActualDate: { date: string; time: string }[],
+  punchesByActualDate: { date: string; time: string; status?: string | null }[],
   dutyDate: string,
   sched: ScheduleLike,
 ): BucketResult {
@@ -135,9 +193,18 @@ export function bucketPunchesForDuty(
       time: p.time,
       onNextDay,
       ms: new Date(`${p.date}T${p.time}:00`).getTime(),
+      status: normPunchStatus(p.status),
     };
   });
   punches.sort((a, b) => a.ms - b.ms);
+
+  // --- Status-first path (break schedules) ---
+  // Only when every punch is a recognized Check In/Break Out/Break In/Check Out
+  // label; otherwise fall through to time-window bucketing. No-break shifts use
+  // the window path, where earliest-in / latest-out already pick the endpoints.
+  if (hasBreak(sched) && punches.every((p) => STATUS_SLOT[p.status])) {
+    return bucketByStatus(punches);
+  }
 
   // --- No-break path: single in/out ---
   if (!hasBreak(sched)) {

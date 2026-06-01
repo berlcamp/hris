@@ -20,11 +20,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  parseDahuaFile,
   matchAndPreviewImport,
   importDahuaAttendance,
 } from "@/lib/actions/attendance-actions";
 import type { ImportPreviewRow } from "@/lib/actions/attendance-actions";
+import { parseDahuaFile } from "@/lib/dahua-parse";
 
 type Step = "upload" | "preview" | "importing" | "done";
 

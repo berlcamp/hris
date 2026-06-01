@@ -20,6 +20,7 @@ import {
   recomputeAttendanceDeductionFor,
   recomputeAttendanceDeductionsBatch,
 } from "@/lib/actions/attendance-deduction-actions";
+import type { DahuaParsedRow } from "@/lib/dahua-parse";
 
 // --- Types ---
 
@@ -72,16 +73,6 @@ export interface DtrSummary {
   total_undertime_minutes: number;
 }
 
-export interface DahuaParsedRow {
-  employeeNo: string;
-  employeeName: string;
-  date: string;
-  time: string;
-  status: string;
-  matched: boolean;
-  employeeId: string | null;
-}
-
 export interface ImportPreviewRow extends DahuaParsedRow {
   hasConflict: boolean;
   conflictDetails: string | null;
@@ -115,6 +106,61 @@ function timestampOnNextDay(
 ): boolean {
   if (!timestamp) return false;
   return timestamp.slice(0, 10) > dutyDate;
+}
+
+/**
+ * Dahua face devices fire the same event 2–3 times within seconds (e.g. one
+ * "Check In" recorded at 07:54:34/37/40). After parse truncates each to HH:MM
+ * these become identical punches that overflow the AM/PM slots in
+ * bucketPunchesForDuty, pushing the real Break-Out / Check-Out into the wrong
+ * column. Collapse a run of punches that share the same minute, or share the
+ * same device status and land within 2 minutes of each other (the burst),
+ * keeping the earliest — so each real event survives exactly once. Punches far
+ * apart in time are never merged, even with the same status.
+ */
+function dedupePunches(
+  punches: { date: string; time: string; status: string }[],
+): { date: string; time: string; status: string }[] {
+  const normStatus = (s: string) => s.replace(/[\s_-]+/g, "").toLowerCase();
+  const toMin = (t: string) => {
+    const [h, m] = t.slice(0, 5).split(":").map(Number);
+    return h * 60 + m;
+  };
+  const sorted = [...punches].sort((a, b) =>
+    `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`),
+  );
+  const out: { date: string; time: string; status: string }[] = [];
+  for (const p of sorted) {
+    const prev = out[out.length - 1];
+    if (prev && prev.date === p.date) {
+      const sameMinute = p.time === prev.time;
+      const sameStatusBurst =
+        !!p.status &&
+        normStatus(p.status) === normStatus(prev.status) &&
+        Math.abs(toMin(p.time) - toMin(prev.time)) <= 2;
+      if (sameMinute || sameStatusBurst) continue;
+    }
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * The org-wide default work schedule — the schedules row flagged is_default
+ * (migration 036) — applied to employees with no schedule assigned. Falls back
+ * to the hardcoded 8:00–17:00 / 12:00–13:00 constant only if no default row
+ * exists at all.
+ */
+async function resolveDefaultSchedule(
+  supabase: ReturnType<typeof createAdminClient>,
+): Promise<ScheduleLike> {
+  const { data } = await supabase
+    .schema("hris")
+    .from("schedules")
+    .select("id, time_in, time_out, break_start, break_end")
+    .eq("is_default", true)
+    .maybeSingle();
+  return (data as unknown as ScheduleLike | null) ?? DEFAULT_SCHEDULE;
 }
 
 function computeAttendanceFlags(
@@ -255,7 +301,8 @@ export async function createAttendanceEntry(input: {
     .eq("id", input.employee_id)
     .maybeSingle();
   const sched: ScheduleLike =
-    (emp?.schedules as unknown as ScheduleLike | null) ?? DEFAULT_SCHEDULE;
+    (emp?.schedules as unknown as ScheduleLike | null) ??
+    (await resolveDefaultSchedule(supabase));
 
   // Check for existing entry on this date for this employee
   const { data: existing } = await supabase
@@ -325,150 +372,10 @@ export async function createAttendanceEntry(input: {
   return { success: true };
 }
 
-// --- Dahua XML Parsing ---
-// Dahua face recognition devices export attendance via USB as SpreadsheetML XML.
-// Format: Row 1 = title, Row 2 = date range, Row 3 = headers, Row 4+ = data
-// Headers: No., No.(employee), Name, Recorded Time, Recognition Mode, Status, Attendance Status, Face Mask
-
-function extractCellValues(rowXml: string): string[] {
-  const values: string[] = [];
-  // Match each Cell, handling MergeAcross which means the cell spans multiple columns
-  const cellRegex = /<Cell[^>]*?(?:ss:MergeAcross="(\d+)")?[^>]*>\s*(?:<Data[^>]*>(.*?)<\/Data>)?/gs;
-  let match;
-  while ((match = cellRegex.exec(rowXml)) !== null) {
-    const mergeAcross = match[1] ? parseInt(match[1], 10) : 0;
-    const value = match[2] ?? "";
-    values.push(value);
-    // MergeAcross means this cell spans extra columns
-    for (let i = 0; i < mergeAcross; i++) {
-      values.push("");
-    }
-  }
-  return values;
-}
-
-export async function parseDahuaFile(content: string): Promise<DahuaParsedRow[]> {
-  // Detect format: XML (SpreadsheetML) or CSV
-  const trimmed = content.trim();
-  if (trimmed.startsWith("<?xml") || trimmed.startsWith("<Workbook")) {
-    return parseDahuaXml(trimmed);
-  }
-  return parseDahuaCsv(trimmed);
-}
-
-function parseDahuaXml(xmlContent: string): DahuaParsedRow[] {
-  const rows: DahuaParsedRow[] = [];
-
-  // Extract all <Row> elements
-  const rowRegex = /<Row[^>]*>([\s\S]*?)<\/Row>/g;
-  const allRows: string[] = [];
-  let match;
-  while ((match = rowRegex.exec(xmlContent)) !== null) {
-    allRows.push(match[1]);
-  }
-
-  // Find the header row index (contains "Recorded Time" or "Name")
-  let headerIndex = -1;
-  for (let i = 0; i < allRows.length; i++) {
-    const cells = extractCellValues(allRows[i]);
-    if (cells.some((c) => c === "Recorded Time" || c === "Name")) {
-      headerIndex = i;
-      break;
-    }
-  }
-  if (headerIndex === -1) return [];
-
-  // Data rows start after the header
-  for (let i = headerIndex + 1; i < allRows.length; i++) {
-    const cells = extractCellValues(allRows[i]);
-    // Need at least: No., EmployeeNo, Name, RecordedTime
-    if (cells.length < 4) continue;
-
-    const idNo = cells[1]?.trim();
-    const name = cells[2]?.trim();
-    const dateTime = cells[3]?.trim();
-
-    if (!idNo || !name || !dateTime) continue;
-
-    // Parse date and time from "2026-04-15 11:54:25"
-    const dtMatch = dateTime.match(/(\d{4}[-/]\d{2}[-/]\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)/);
-    if (!dtMatch) continue;
-
-    const date = dtMatch[1].replace(/\//g, "-");
-    const time = dtMatch[2].substring(0, 5); // HH:MM
-
-    // Attendance Status is column index 6 (e.g., "Break Out", "Check-In")
-    const status = cells[6]?.trim() || "";
-
-    rows.push({
-      employeeNo: idNo,
-      employeeName: name,
-      date,
-      time,
-      status: status.toLowerCase(),
-      matched: false,
-      employeeId: null,
-    });
-  }
-
-  return rows;
-}
-
-function parseDahuaCsv(csvContent: string): DahuaParsedRow[] {
-  const lines = csvContent.split("\n");
-  if (lines.length < 2) return [];
-
-  // Detect header line - skip it
-  const headerLine = lines[0].toLowerCase();
-  const startIndex = headerLine.includes("no") || headerLine.includes("id") ? 1 : 0;
-
-  const rows: DahuaParsedRow[] = [];
-
-  for (let i = startIndex; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-
-    const parts = line.split(",").map((p) => p.trim());
-    if (parts.length < 4) continue;
-
-    let idNo: string;
-    let name: string;
-    let dateTime: string;
-    let status: string;
-
-    if (parts.length >= 5) {
-      idNo = parts[1];
-      name = parts[2];
-      dateTime = parts[3];
-      status = parts[4] || "";
-    } else {
-      idNo = parts[0];
-      name = parts[1];
-      dateTime = parts[2];
-      status = parts[3] || "";
-    }
-
-    const dtMatch = dateTime.match(/(\d{4}[-/]\d{2}[-/]\d{2})\s+(\d{2}:\d{2}(?::\d{2})?)/);
-    if (!dtMatch) continue;
-
-    const date = dtMatch[1].replace(/\//g, "-");
-    const time = dtMatch[2].substring(0, 5);
-
-    rows.push({
-      employeeNo: idNo,
-      employeeName: name,
-      date,
-      time,
-      status: status.toLowerCase(),
-      matched: false,
-      employeeId: null,
-    });
-  }
-
-  return rows;
-}
-
 // --- Match parsed rows to employees and check conflicts ---
+// Dahua exports are parsed in the browser (see src/lib/dahua-parse.ts) so the
+// multi-MB raw file never crosses the Server Action 1MB body limit; only the
+// compact parsed rows reach the actions below.
 
 export async function matchAndPreviewImport(
   parsedRows: DahuaParsedRow[]
@@ -498,8 +405,9 @@ export async function matchAndPreviewImport(
   }[];
 
   const empMap = new Map(empRows.map((e) => [String(e.biometric_no), e.id]));
+  const defaultSched = await resolveDefaultSchedule(supabase);
   const schedByEmp = new Map<string, ScheduleLike>(
-    empRows.map((e) => [e.id, e.schedules ?? DEFAULT_SCHEDULE]),
+    empRows.map((e) => [e.id, e.schedules ?? defaultSched]),
   );
 
   // Compute duty dates per parsed row using each employee's schedule so the
@@ -508,8 +416,8 @@ export async function matchAndPreviewImport(
   const previewWithDuty = parsedRows.map((row) => {
     const employeeId = empMap.get(row.employeeNo) ?? null;
     const sched = employeeId
-      ? schedByEmp.get(employeeId) ?? DEFAULT_SCHEDULE
-      : DEFAULT_SCHEDULE;
+      ? schedByEmp.get(employeeId) ?? defaultSched
+      : defaultSched;
     const duty = employeeId ? dutyDateFor(row.date, row.time, sched) : row.date;
     return { row, employeeId, duty };
   });
@@ -576,6 +484,7 @@ export async function importDahuaAttendance(
     ),
   ];
 
+  const defaultSched = await resolveDefaultSchedule(supabase);
   const schedByEmp = new Map<string, ScheduleLike>();
   if (employeeIds.length > 0) {
     const { data: emps } = await supabase
@@ -587,7 +496,7 @@ export async function importDahuaAttendance(
       id: string;
       schedules: ScheduleLike | null;
     }[]) {
-      schedByEmp.set(e.id, e.schedules ?? DEFAULT_SCHEDULE);
+      schedByEmp.set(e.id, e.schedules ?? defaultSched);
     }
   }
 
@@ -596,14 +505,14 @@ export async function importDahuaAttendance(
     employeeId: string;
     dutyDate: string;
     sched: ScheduleLike;
-    punches: { date: string; time: string }[];
+    punches: { date: string; time: string; status: string }[];
   }
   const grouped = new Map<string, Group>();
   const skipKeys = new Set<string>();
 
   for (const row of previewRows) {
     if (!row.matched || !row.employeeId) continue;
-    const sched = schedByEmp.get(row.employeeId) ?? DEFAULT_SCHEDULE;
+    const sched = schedByEmp.get(row.employeeId) ?? defaultSched;
     const dutyDate = dutyDateFor(row.date, row.time, sched);
     const key = `${row.employeeId}_${dutyDate}`;
     if (row.hasConflict && !overwriteExisting) {
@@ -618,7 +527,11 @@ export async function importDahuaAttendance(
         punches: [],
       });
     }
-    grouped.get(key)!.punches.push({ date: row.date, time: row.time });
+    grouped.get(key)!.punches.push({
+      date: row.date,
+      time: row.time,
+      status: row.status,
+    });
   }
 
   let imported = 0;
@@ -629,7 +542,7 @@ export async function importDahuaAttendance(
   for (const [, group] of grouped) {
     try {
       const bucket = bucketPunchesForDuty(
-        group.punches,
+        dedupePunches(group.punches),
         group.dutyDate,
         group.sched,
       );
@@ -888,10 +801,11 @@ export async function getDepartmentDtrBulk(
     }
   }
 
+  const defaultSched = await resolveDefaultSchedule(supabase);
   const results: BulkDtrResult[] = employeeRows.map((emp) => {
     const logMap = logsByEmp.get(emp.id) ?? new Map<string, Record<string, unknown>>();
     const leaveMap = leavesByEmp.get(emp.id) ?? new Map<string, string>();
-    const sched = emp.schedules ?? DEFAULT_SCHEDULE;
+    const sched = emp.schedules ?? defaultSched;
 
     const entries: DtrEntry[] = [];
     let totalPresent = 0;
@@ -1136,7 +1050,7 @@ export async function getEmployeeDtrRange(
   // import time).
   const empSchedule =
     ((employee as unknown) as { schedules: ScheduleLike | null }).schedules ??
-    DEFAULT_SCHEDULE;
+    (await resolveDefaultSchedule(supabase));
 
   const cursor = new Date(startDate + "T00:00:00");
   const end = new Date(endDate + "T00:00:00");
@@ -1428,10 +1342,11 @@ export async function getAttendanceReport(
 
   // Inclusion is implicit: only employees with attendance logs in the range
   // appear in the report.
+  const defaultSched = await resolveDefaultSchedule(supabase);
   return empRows
     .filter((e) => (logsByEmp.get(e.id)?.size ?? 0) > 0)
     .map((emp) => {
-    const sched = emp.schedules ?? DEFAULT_SCHEDULE;
+    const sched = emp.schedules ?? defaultSched;
     const logMap = logsByEmp.get(emp.id) ?? new Map();
     const leaveSet = leavesByEmp.get(emp.id) ?? new Set<string>();
 

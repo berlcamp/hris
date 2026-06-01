@@ -46,6 +46,13 @@ export function BulkDtrClient({
   const [endDate, setEndDate] = useState<string>(todayIso(today));
   const [loading, setLoading] = useState(false);
 
+  // Map id -> name so the trigger shows the department name (not the raw UUID)
+  // even when a department is preselected before the dropdown is ever opened.
+  const departmentItems = useMemo(
+    () => Object.fromEntries(departments.map((d) => [d.id, d.name])),
+    [departments],
+  );
+
   const canGenerate = departmentId && startDate && endDate && startDate <= endDate;
 
   const handleGenerate = async () => {
@@ -97,6 +104,7 @@ export function BulkDtrClient({
               Department
             </label>
             <Select
+              items={departmentItems}
               value={departmentId}
               onValueChange={(v) => v && setDepartmentId(v)}
             >
