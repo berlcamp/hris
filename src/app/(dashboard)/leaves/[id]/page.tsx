@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 
 import { getLeaveApplicationById, getEmployeeLeaveCredits } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isCompositeDeptAdminHead, isDeptHead } from "@/lib/auth-helpers";
+import { isCompositeDeptAdminHead, isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
@@ -115,6 +115,11 @@ export default async function LeaveDetailPage({
     leave.status === "pending" &&
     (isPrivileged || userIsApplicant || canCancelByDeptRole);
 
+  // Department Admin and Department Head (and the composite role) may only
+  // print the CSC Form 6 once the leave has reached final approval. Other
+  // roles (HR/super admin) can print at any stage.
+  const canPrintForm6 = !isDeptScoped(user.role) || leave.status === "approved";
+
   const timeline = [
     { label: "Submitted", done: true, date: leave.created_at },
     { label: "Dept Approved", done: !!leave.dept_approved_at, date: leave.dept_approved_at },
@@ -141,10 +146,12 @@ export default async function LeaveDetailPage({
           </p>
         </div>
         <div className="flex gap-2">
-          <LeavePdfButton
-            leave={leave}
-            credits={allCredits}
-          />
+          {canPrintForm6 && (
+            <LeavePdfButton
+              leave={leave}
+              credits={allCredits}
+            />
+          )}
           <LeaveApprovalActions
             leaveId={leave.id}
             status={leave.status}
