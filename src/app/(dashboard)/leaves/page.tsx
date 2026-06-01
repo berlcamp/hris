@@ -50,8 +50,13 @@ export default async function LeavesPage() {
       <DataTable
         columns={leaveColumns}
         data={applications}
-        initialColumnVisibility={{ department: false }}
+        initialColumnVisibility={{ department: false, created_by: false }}
         filterableColumns={[
+          {
+            id: "created_by",
+            title: "Created By",
+            options: [{ label: "Me", value: user.id }],
+          },
           {
             id: "department",
             title: "Department",

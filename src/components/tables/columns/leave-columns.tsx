@@ -66,6 +66,14 @@ export const leaveColumns: ColumnDef<LeaveApplicationWithRelations>[] = [
       value.includes(row.original.employees?.departments?.code ?? ""),
   },
   {
+    id: "created_by",
+    accessorFn: (row) => row.created_by ?? "",
+    header: () => null,
+    cell: () => null,
+    filterFn: (row, _id, value: string[]) =>
+      value.includes(row.original.created_by ?? ""),
+  },
+  {
     id: "leave_type",
     accessorFn: (row) => row.leave_types?.name ?? "—",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Leave Type" />,

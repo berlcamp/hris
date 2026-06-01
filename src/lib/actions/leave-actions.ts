@@ -62,6 +62,7 @@ export interface LeaveApplicationWithRelations {
   dept_approved_at: string | null;
   hr_approved_at: string | null;
   rejection_reason: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
   employees: {
