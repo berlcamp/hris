@@ -20,8 +20,7 @@ import { cn } from "@/lib/utils";
 
 import { getLeaveApplicationById, getEmployeeLeaveCredits } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isCompositeDeptAdminHead, isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { isDeptScoped } from "@/lib/auth-helpers";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
 import { LeavePdfButton } from "@/components/leaves/leave-pdf-button";
@@ -85,35 +84,10 @@ export default async function LeaveDetailPage({
 
   // Cancellation is allowed while the application is still in flight — i.e.
   // status is "pending", which covers both pre- and post-dept-head approval.
-  // Permission mirrors the server-side rule in cancelLeaveApplication:
-  //   HR/super_admin: any leave; applicant: own leave;
-  //   department_head: any employee in their dept;
-  //   department_admin: plantilla employees in their dept.
-  const isPrivileged = ["hr_admin", "super_admin"].includes(user.role);
-  let userIsApplicant = false;
-  if (!isPrivileged) {
-    const { data: userEmp } = await createAdminClient()
-      .schema("hris")
-      .from("employees")
-      .select("id")
-      .eq("user_profile_id", user.id)
-      .maybeSingle();
-    userIsApplicant = !!userEmp && userEmp.id === leave.employee_id;
-  }
-  const inSameDept =
-    !!user.departmentId &&
-    leave.employees?.department_id === user.departmentId;
-  // Composite Dept Admin + Head can cancel any pending leave across all
-  // departments; other dept-scoped roles are restricted to their own dept.
-  const canCancelByDeptRole =
-    isCompositeDeptAdminHead(user.role) ||
-    (isDeptHead(user.role) && inSameDept) ||
-    (user.role === "department_admin" &&
-      inSameDept &&
-      leave.employees?.employment_type === "plantilla");
-  const canCancel =
-    leave.status === "pending" &&
-    (isPrivileged || userIsApplicant || canCancelByDeptRole);
+  // Permission mirrors the server-side rule in cancelLeaveApplication: a leave
+  // application can only be cancelled by the user who created/filed it.
+  // `created_by` stores the filer's user_profiles id, so it matches `user.id`.
+  const canCancel = leave.status === "pending" && leave.created_by === user.id;
 
   // Department Admin and Department Head (and the composite role) may only
   // print the CSC Form 6 once the leave has reached final approval. Other

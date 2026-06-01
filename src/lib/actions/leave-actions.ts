@@ -609,7 +609,7 @@ export async function cancelLeaveApplication(id: string) {
     .schema("hris")
     .from("leave_applications")
     .select(
-      "employee_id, status, leave_type_id, start_date, end_date, days_applied, employees(department_id, employment_type), leave_types(code)"
+      "employee_id, status, leave_type_id, start_date, end_date, days_applied, created_by, leave_types(code)"
     )
     .eq("id", id)
     .single();
@@ -617,38 +617,11 @@ export async function cancelLeaveApplication(id: string) {
   if (!app) return { error: "Application not found" };
   if (app.status !== "pending") return { error: "Only pending applications can be cancelled" };
 
-  // Authorization mirrors createLeaveApplication:
-  //   super_admin / hr_admin       — any leave
-  //   applicant                    — their own leave
-  //   department_head              — any employee in their department
-  //   department_admin             — plantilla employees in their department
-  if (!["super_admin", "hr_admin"].includes(user.role)) {
-    const empRel = app.employees as
-      | { department_id: string | null; employment_type: string }
-      | { department_id: string | null; employment_type: string }[]
-      | null;
-    const appEmp = Array.isArray(empRel) ? empRel[0] ?? null : empRel;
-
-    const { data: userEmp } = await supabase
-      .schema("hris")
-      .from("employees")
-      .select("id")
-      .eq("user_profile_id", user.id)
-      .maybeSingle();
-    const isApplicant = !!userEmp && userEmp.id === app.employee_id;
-
-    const inSameDept =
-      !!appEmp && !!user.departmentId && appEmp.department_id === user.departmentId;
-    // Composite Dept Admin + Head can cancel any pending leave across all
-    // departments; other dept-scoped roles are restricted to their own dept.
-    const canByDeptRole =
-      isCompositeDeptAdminHead(user.role) ||
-      (isDeptHead(user.role) && inSameDept) ||
-      (user.role === "department_admin" &&
-        inSameDept &&
-        appEmp?.employment_type === "plantilla");
-
-    if (!isApplicant && !canByDeptRole) return { error: "Unauthorized" };
+  // A leave application can only be cancelled by the user who created/filed it.
+  // `created_by` stores the filer's user_profiles id (set in
+  // createLeaveApplication), so it matches `user.id` for the creator.
+  if (app.created_by !== user.id) {
+    return { error: "Only the creator can cancel this leave application" };
   }
 
   const { error } = await supabase
