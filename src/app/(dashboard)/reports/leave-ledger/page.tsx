@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 
 import { cn } from "@/lib/utils";
+import { formatManilaLongDate } from "@/lib/format-date";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { isDeptScoped } from "@/lib/auth-helpers";
 import {
@@ -154,7 +155,7 @@ export default async function LeaveLedgerPage({
                       return (
                         <TableRow key={adj.id}>
                           <TableCell>
-                            {format(new Date(adj.created_at), "MMM d, yyyy")}
+                            {formatManilaLongDate(adj.created_at)}
                           </TableCell>
                           <TableCell>
                             <div>
@@ -261,7 +262,7 @@ export default async function LeaveLedgerPage({
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {format(new Date(entry.created_at), "MMM d, yyyy")}
+                            {formatManilaLongDate(entry.created_at)}
                           </TableCell>
                         </TableRow>
                       );

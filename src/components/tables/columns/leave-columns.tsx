@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
+import { formatManilaLongDate } from "@/lib/format-date";
 import { AlertTriangle, Eye } from "lucide-react";
 import type { LeaveApplicationWithRelations } from "@/lib/actions/leave-actions";
 
@@ -77,7 +78,7 @@ export const leaveColumns: ColumnDef<LeaveApplicationWithRelations>[] = [
           <p className="text-xs text-muted-foreground">{lt.code}</p>
           {appliedAt && (
             <p className="text-xs text-muted-foreground">
-              Applied: {format(new Date(appliedAt), "MMM d, yyyy")}
+              Applied: {formatManilaLongDate(appliedAt)}
             </p>
           )}
         </div>
