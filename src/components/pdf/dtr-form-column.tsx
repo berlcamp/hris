@@ -313,7 +313,7 @@ export function DtrFormColumn({
     if (isWeekend) {
       spanLabel = entry.day_of_week.toUpperCase();
     } else if (entry.leave_type && !entry.is_absent) {
-      spanLabel = entry.leave_type.toUpperCase();
+      spanLabel = "ON LEAVE";
     } else if (
       entry.is_absent &&
       !entry.time_in_am &&
