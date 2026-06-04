@@ -276,7 +276,9 @@ export function lateMinutesFor(
 // Undertime = minutes the actual clock-out was earlier than time_out. For
 // no-break shifts the out is stored in time_out_pm.
 // When clockOutTime is null but the employee was present (clockedIn = true),
-// the entire remaining shift is counted as undertime (they left with no record).
+// the missing PM session is counted as undertime:
+//   - Has-break schedule: break_end → time_out (e.g. 1 PM → 5 PM = 4 hrs)
+//   - No-break shift: time_in → time_out (full shift)
 export function undertimeMinutesFor(
   dutyDate: string,
   sched: ScheduleLike,
@@ -289,10 +291,12 @@ export function undertimeMinutesFor(
     : dutyDate;
   const scheduledMs = new Date(`${scheduledDate}T${hhmm(sched.time_out)}:00`).getTime();
   if (!clockOutTime) {
-    // No clock-out but employee was present → full shift remaining is undertime.
     if (!clockedIn) return 0;
-    const schedInMs = new Date(`${dutyDate}T${hhmm(sched.time_in)}:00`).getTime();
-    return Math.max(0, Math.round((scheduledMs - schedInMs) / 60000));
+    // For has-break schedules the uncovered window is break_end → time_out.
+    // For no-break shifts it's the whole shift: time_in → time_out.
+    const baselineTime = sched.break_end ? hhmm(sched.break_end) : hhmm(sched.time_in);
+    const baselineMs = new Date(`${dutyDate}T${baselineTime}:00`).getTime();
+    return Math.max(0, Math.round((scheduledMs - baselineMs) / 60000));
   }
   const actualDate = clockOutOnNextDay ? addDaysIso(dutyDate, 1) : dutyDate;
   const actualMs = new Date(`${actualDate}T${hhmm(clockOutTime)}:00`).getTime();
