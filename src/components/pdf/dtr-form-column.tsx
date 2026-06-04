@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "@react-pdf/renderer";
+import { Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type {
   DtrEntry,
   DtrScheduleInfo,
@@ -27,6 +27,16 @@ const w = (n: number) => `${n}%` as const;
 const styles = StyleSheet.create({
   column: {
     paddingHorizontal: 4,
+  },
+  logoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 3,
+  },
+  logo: {
+    width: 36,
+    height: 36,
   },
   formNo: {
     fontSize: 6.5,
@@ -380,6 +390,11 @@ export function DtrFormColumn({
 
   return (
     <View style={styles.column}>
+      {/* Logos */}
+      <View style={styles.logoRow}>
+        <Image style={styles.logo} src="/logo1.png" />
+        <Image style={styles.logo} src="/logo2.png" />
+      </View>
       {/* Header */}
       <Text style={styles.formNo}>Civil Service Form No. 48</Text>
       <Text style={styles.title}>DAILY TIME RECORD</Text>
