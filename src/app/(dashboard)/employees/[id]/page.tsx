@@ -37,6 +37,7 @@ import {
   getLeaveTypes,
   getLeaveLedger,
   getLeaveCreditAdjustments,
+  getLeaveAccrualHistory,
 } from "@/lib/actions/leave-actions";
 import { PersonalInfoTab } from "@/components/employees/personal-info-tab";
 import { EmploymentTab } from "@/components/employees/employment-tab";
@@ -63,6 +64,7 @@ export default async function EmployeeProfilePage({
     leaveTypes,
     leaveLedger,
     leaveAdjustments,
+    leaveAccrualHistory,
     serviceRecords,
     documents,
     currentUser,
@@ -73,6 +75,7 @@ export default async function EmployeeProfilePage({
     getLeaveTypes(),
     getLeaveLedger(id, currentYear),
     getLeaveCreditAdjustments(id, currentYear),
+    getLeaveAccrualHistory(id, currentYear),
     getServiceRecords(id),
     getDocuments(id),
     getCurrentUser(),
@@ -240,6 +243,7 @@ export default async function EmployeeProfilePage({
             leaveCredits={leaveCredits ?? []}
             ledger={leaveLedger ?? []}
             adjustments={leaveAdjustments ?? []}
+            accrualHistory={leaveAccrualHistory ?? []}
             ledgerYear={currentYear}
             employeeId={id}
             employeeName={fullName}

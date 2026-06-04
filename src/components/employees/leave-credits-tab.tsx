@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { LeaveCreditAdjustmentDialog } from "@/components/leaves/leave-credit-adjustment-dialog";
 import type {
   LeaveCreditAdjustmentEntry,
+  LeaveAccrualHistoryEntry,
   LeaveLedgerEntry,
   LeaveTypeRow,
 } from "@/lib/actions/leave-actions";
@@ -43,6 +44,7 @@ interface LeaveCreditsTabProps {
   leaveCredits: LeaveCreditWithType[];
   ledger: LeaveLedgerEntry[];
   adjustments: LeaveCreditAdjustmentEntry[];
+  accrualHistory: LeaveAccrualHistoryEntry[];
   ledgerYear: number;
   employeeId: string;
   employeeName: string;
@@ -63,10 +65,18 @@ const statusVariant: Record<
 
 const fmt3 = (n: number) => parseFloat(Number(n).toFixed(3)).toString();
 
+const sourceLabel: Record<string, string> = {
+  monthly_accrual: "Monthly Accrual",
+  carryover: "Carryover",
+  seed: "Annual Seed",
+  csv_import: "CSV Import",
+};
+
 export function LeaveCreditsTab({
   leaveCredits,
   ledger,
   adjustments,
+  accrualHistory,
   ledgerYear,
   employeeId,
   employeeName,
@@ -229,6 +239,56 @@ export function LeaveCreditsTab({
                       </TableCell>
                       <TableCell className="text-sm">
                         {adj.created_by_name ?? "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {accrualHistory.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Credit History ({ledgerYear})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Month</TableHead>
+                  <TableHead>Leave Type</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead className="text-center">Credits</TableHead>
+                  <TableHead>Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {accrualHistory.map((entry) => {
+                  const monthLabel = entry.month
+                    ? new Date(entry.year, entry.month - 1).toLocaleString("default", { month: "long" })
+                    : "—";
+                  return (
+                    <TableRow key={entry.id}>
+                      <TableCell className="text-sm">{monthLabel}</TableCell>
+                      <TableCell>
+                        <p className="font-medium">{entry.leave_types?.name ?? "—"}</p>
+                        <p className="text-xs text-muted-foreground">{entry.leave_types?.code ?? ""}</p>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {sourceLabel[entry.source] ?? entry.source}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-medium text-emerald-600 dark:text-emerald-500">
+                          +{fmt3(entry.amount)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {entry.notes ?? "—"}
                       </TableCell>
                     </TableRow>
                   );
