@@ -543,7 +543,7 @@ export function DtrFormColumn({
         </View>
         <View style={styles.summaryLine}>
           <Text style={styles.summaryLabel}>Conversion to Leave Credits: </Text>
-          <Text style={styles.summaryLabelBold}>{credits} day(s)</Text>
+          <Text style={styles.summaryLabelBold}>{credits}</Text>
         </View>
       </View>
 
