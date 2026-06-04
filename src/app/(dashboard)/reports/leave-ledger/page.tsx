@@ -20,6 +20,7 @@ import {
   getLeaveLedger,
   getEmployeeLeaveCredits,
   getLeaveCreditAdjustments,
+  getLeaveAccrualHistory,
 } from "@/lib/actions/leave-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { LeaveLedgerClient } from "@/components/leaves/leave-ledger-client";
@@ -46,12 +47,14 @@ export default async function LeaveLedgerPage({
   let ledger: Awaited<ReturnType<typeof getLeaveLedger>> = [];
   let credits: Awaited<ReturnType<typeof getEmployeeLeaveCredits>> = [];
   let adjustments: Awaited<ReturnType<typeof getLeaveCreditAdjustments>> = [];
+  let accrualHistory: Awaited<ReturnType<typeof getLeaveAccrualHistory>> = [];
 
   if (employee_id) {
-    [ledger, credits, adjustments] = await Promise.all([
+    [ledger, credits, adjustments, accrualHistory] = await Promise.all([
       getLeaveLedger(employee_id, year),
       getEmployeeLeaveCredits(employee_id, year),
       getLeaveCreditAdjustments(employee_id, year),
+      getLeaveAccrualHistory(employee_id, year),
     ]);
   }
 
@@ -181,6 +184,65 @@ export default async function LeaveLedgerPage({
                           </TableCell>
                           <TableCell className="text-sm">
                             {adj.created_by_name ?? "—"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Credit Accrual History */}
+          {accrualHistory.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  Credit History — {selectedEmployee ? `${selectedEmployee.last_name}, ${selectedEmployee.first_name}` : ""} ({year})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Month</TableHead>
+                      <TableHead>Leave Type</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead className="text-center">Credits</TableHead>
+                      <TableHead>Notes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {accrualHistory.map((entry) => {
+                      const monthLabel = entry.month
+                        ? new Date(entry.year, entry.month - 1).toLocaleString("default", { month: "long" })
+                        : "—";
+                      const sourceLabel: Record<string, string> = {
+                        monthly_accrual: "Monthly Accrual",
+                        carryover: "Carryover",
+                        seed: "Annual Seed",
+                        csv_import: "CSV Import",
+                      };
+                      return (
+                        <TableRow key={entry.id}>
+                          <TableCell className="text-sm">{monthLabel}</TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{entry.leave_types?.name ?? "—"}</p>
+                              <p className="text-xs text-muted-foreground">{entry.leave_types?.code ?? ""}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {sourceLabel[entry.source] ?? entry.source}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span className="font-medium text-emerald-600 dark:text-emerald-500">
+                              +{parseFloat(Number(entry.amount).toFixed(3))}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {entry.notes ?? "—"}
                           </TableCell>
                         </TableRow>
                       );

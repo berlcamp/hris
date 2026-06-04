@@ -1235,6 +1235,68 @@ export async function getLeaveCreditAdjustments(
   });
 }
 
+// ── Monthly Accrual History (ledger view) ─────────────────────────
+
+export interface LeaveAccrualHistoryEntry {
+  id: string;
+  year: number;
+  month: number | null;
+  amount: number;
+  source: string;
+  notes: string | null;
+  created_at: string;
+  leave_types: { code: string; name: string } | null;
+}
+
+export async function getLeaveAccrualHistory(
+  employeeId: string,
+  year: number,
+): Promise<LeaveAccrualHistoryEntry[]> {
+  const user = await getCurrentUser();
+  const supabase = createAdminClient();
+
+  if (
+    user &&
+    isDeptScoped(user.role) &&
+    !isCompositeDeptAdminHead(user.role)
+  ) {
+    if (!user.departmentId) return [];
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", employeeId)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) return [];
+  }
+
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("leave_credit_accruals")
+    .select("id, year, month, amount, source, notes, created_at, leave_types(code, name)")
+    .eq("employee_id", employeeId)
+    .eq("year", year)
+    .in("source", ["monthly_accrual", "carryover", "seed", "csv_import"])
+    .order("month", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+
+  return (data ?? []).map((d) => {
+    const lt = Array.isArray(d.leave_types) ? d.leave_types[0] ?? null : d.leave_types;
+    return {
+      id: d.id,
+      year: d.year,
+      month: d.month,
+      amount: Number(d.amount),
+      source: d.source,
+      notes: d.notes,
+      created_at: d.created_at,
+      leave_types: lt,
+    };
+  });
+}
+
 // ── Bulk Provisioning ──────────────────────────────────────────────
 
 export async function flagAllEmployeesNeedingVlSlEntry() {
