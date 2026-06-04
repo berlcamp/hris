@@ -567,7 +567,7 @@ export async function createLeaveApplication(input: {
   const { data, error } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .insert({ ...input, days_with_pay: daysWithPay, status: "pending" })
+    .insert({ ...input, days_with_pay: daysWithPay, status: "pending", created_by: user.id })
     .select()
     .single();
 

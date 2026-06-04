@@ -451,6 +451,7 @@ export type Database = {
       leave_applications: {
         Row: {
           created_at: string | null
+          created_by: string | null
           days_applied: number
           department_head_id: string | null
           dept_approved_at: string | null
@@ -468,6 +469,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          created_by?: string | null
           days_applied: number
           department_head_id?: string | null
           dept_approved_at?: string | null
@@ -485,6 +487,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          created_by?: string | null
           days_applied?: number
           department_head_id?: string | null
           dept_approved_at?: string | null
@@ -501,6 +504,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "leave_applications_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "leave_applications_department_head_id_fkey"
             columns: ["department_head_id"]
