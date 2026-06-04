@@ -275,17 +275,25 @@ export function lateMinutesFor(
 
 // Undertime = minutes the actual clock-out was earlier than time_out. For
 // no-break shifts the out is stored in time_out_pm.
+// When clockOutTime is null but the employee was present (clockedIn = true),
+// the entire remaining shift is counted as undertime (they left with no record).
 export function undertimeMinutesFor(
   dutyDate: string,
   sched: ScheduleLike,
   clockOutTime: string | null,
   clockOutOnNextDay: boolean,
+  clockedIn = false,
 ): number {
-  if (!clockOutTime) return 0;
   const scheduledDate = crossesMidnight(sched)
     ? addDaysIso(dutyDate, 1)
     : dutyDate;
   const scheduledMs = new Date(`${scheduledDate}T${hhmm(sched.time_out)}:00`).getTime();
+  if (!clockOutTime) {
+    // No clock-out but employee was present → full shift remaining is undertime.
+    if (!clockedIn) return 0;
+    const schedInMs = new Date(`${dutyDate}T${hhmm(sched.time_in)}:00`).getTime();
+    return Math.max(0, Math.round((scheduledMs - schedInMs) / 60000));
+  }
   const actualDate = clockOutOnNextDay ? addDaysIso(dutyDate, 1) : dutyDate;
   const actualMs = new Date(`${actualDate}T${hhmm(clockOutTime)}:00`).getTime();
   return Math.max(0, Math.round((scheduledMs - actualMs) / 60000));

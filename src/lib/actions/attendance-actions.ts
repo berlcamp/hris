@@ -191,6 +191,7 @@ function computeAttendanceFlags(
     sched,
     entry.time_out_pm,
     entry.time_out_pm_next_day ?? false,
+    !!entry.time_in_am,
   );
 
   return {
@@ -838,6 +839,7 @@ export async function getDepartmentDtrBulk(
           sched,
           extractTime(tOutPmRaw),
           timestampOnNextDay(tOutPmRaw, day.date),
+          !!tInAmRaw,
         );
         const isLate = lateMins > 0;
         const isUndertime = undertimeMins > 0;
@@ -1077,6 +1079,7 @@ export async function getEmployeeDtrRange(
         empSchedule,
         extractTime(tOutPmRaw),
         timestampOnNextDay(tOutPmRaw, dateStr),
+        !!tInAmRaw,
       );
       const isLate = lateMins > 0;
       const isUndertime = undertimeMins > 0;
@@ -1379,6 +1382,7 @@ export async function getAttendanceReport(
             sched,
             extractTime(tOut),
             timestampOnNextDay(tOut, day.date),
+            !!tIn,
           );
           if (lm > 0) {
             lateCount++;
