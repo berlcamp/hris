@@ -90,9 +90,15 @@ export default async function LeaveDetailPage({
   const canCancel = leave.status === "pending" && leave.created_by === user.id;
 
   // Department Admin and Department Head (and the composite role) may only
-  // print the CSC Form 6 once the leave has reached final approval. Other
-  // roles (HR/super admin) can print at any stage.
-  const canPrintForm6 = !isDeptScoped(user.role) || leave.status === "approved";
+  // print the CSC Form 6 once the leave has reached final approval. The
+  // leave's creator can additionally print it once a final decision has been
+  // made — i.e. the leave is approved or rejected — even if they are
+  // department-scoped. Other roles (HR/super admin) can print at any stage.
+  const isCreator = leave.created_by === user.id;
+  const canPrintForm6 =
+    !isDeptScoped(user.role) ||
+    leave.status === "approved" ||
+    (isCreator && leave.status === "rejected");
 
   const timeline = [
     { label: "Submitted", done: true, date: leave.created_at },
