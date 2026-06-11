@@ -1,4 +1,4 @@
--- Migration 039: Add "dtr_manager" role
+-- Migration 039: Add "dtr_manager" role.
 --
 -- DTR Manager is a dedicated attendance role: it can fully manage the
 -- Attendance & DTR module (read all attendance, manual entry, biometric
