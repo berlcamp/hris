@@ -12,6 +12,21 @@ const DEPT_ADMIN_ROLES: readonly UserRole[] = [
   "department_admin_and_department_head",
 ] as const;
 
+// Roles that can fully manage attendance/DTR (read all, manual entry, imports,
+// deletes). "dtr_manager" is a dedicated role with the same attendance reach as
+// super_admin / hr_admin but no other admin powers.
+const ATTENDANCE_MANAGER_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "dtr_manager",
+] as const;
+
+export function isAttendanceManager(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && ATTENDANCE_MANAGER_ROLES.includes(role);
+}
+
 export function isDeptHead(role: UserRole | null | undefined): boolean {
   return !!role && DEPT_HEAD_ROLES.includes(role);
 }

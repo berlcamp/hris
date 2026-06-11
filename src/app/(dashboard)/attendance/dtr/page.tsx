@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
-import { isDeptScoped } from "@/lib/auth-helpers";
+import { isDeptScoped, isAttendanceManager } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { IndividualDtrClient } from "@/components/attendance/individual-dtr-client";
 
@@ -13,7 +13,7 @@ export default async function DtrPage() {
   if (!user) redirect("/login");
 
   const employees = await getEmployees();
-  const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
+  const isAdmin = isAttendanceManager(user.role);
   const canBulkDtr = isAdmin || isDeptScoped(user.role);
 
   // If user is an employee, find their employee record

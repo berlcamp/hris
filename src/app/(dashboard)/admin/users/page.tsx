@@ -43,6 +43,7 @@ export default async function UsersPage() {
                 label: "Dept Admin + Head",
                 value: "department_admin_and_department_head",
               },
+              { label: "DTR Manager", value: "dtr_manager" },
               { label: "Employee", value: "employee" },
             ],
           },

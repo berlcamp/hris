@@ -74,6 +74,7 @@ const allRoles: UserRole[] = [
   "department_head",
   "department_admin",
   "department_admin_and_department_head",
+  "dtr_manager",
   "employee",
 ];
 const adminRoles: UserRole[] = ["super_admin", "hr_admin"];
@@ -93,6 +94,9 @@ const leaveAttendanceRoles: UserRole[] = [
   "department_admin_and_department_head",
   "employee",
 ];
+// Attendance & DTR is also visible to the dedicated DTR Manager role, which has
+// no access to the Leave items in this group.
+const attendanceRoles: UserRole[] = [...leaveAttendanceRoles, "dtr_manager"];
 
 const navGroups: NavGroup[] = [
   {
@@ -127,7 +131,7 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Leave & Attendance",
-    roles: leaveAttendanceRoles,
+    roles: attendanceRoles,
     items: [
       { title: "Leave Management", href: "/leaves", icon: CalendarDays, roles: leaveAttendanceRoles },
       {
@@ -136,7 +140,7 @@ const navGroups: NavGroup[] = [
         icon: CreditCard,
         roles: ["super_admin"],
       },
-      { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: leaveAttendanceRoles },
+      { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: attendanceRoles },
     ],
   },
   {
@@ -207,6 +211,7 @@ const roleLabels: Record<UserRole, string> = {
   department_head: "Dept Head",
   department_admin: "Dept Admin",
   department_admin_and_department_head: "Dept Admin + Head",
+  dtr_manager: "DTR Manager",
   employee: "Employee",
 };
 

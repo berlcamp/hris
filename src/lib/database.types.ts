@@ -1162,6 +1162,7 @@ export type Database = {
         | "department_head"
         | "department_admin"
         | "department_admin_and_department_head"
+        | "dtr_manager"
         | "employee"
     }
     CompositeTypes: {
@@ -1346,6 +1347,7 @@ export const Constants = {
         "department_head",
         "department_admin",
         "department_admin_and_department_head",
+        "dtr_manager",
         "employee",
       ],
     },

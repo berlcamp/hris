@@ -1,32 +1,16 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { DataTable } from "@/components/tables/data-table";
 import { createAttendanceColumns } from "@/components/tables/columns/attendance-columns";
-import { deleteAttendanceEntry } from "@/lib/actions/attendance-actions";
 import type { AttendanceLogRow } from "@/lib/actions/attendance-actions";
 
 interface AttendanceTableClientProps {
   data: AttendanceLogRow[];
-  isAdmin: boolean;
+  canManage?: boolean;
 }
 
-export function AttendanceTableClient({ data, isAdmin }: AttendanceTableClientProps) {
-  const router = useRouter();
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this attendance record?")) return;
-    try {
-      await deleteAttendanceEntry(id);
-      toast.success("Record deleted");
-      router.refresh();
-    } catch {
-      toast.error("Failed to delete record");
-    }
-  };
-
-  const columns = createAttendanceColumns(isAdmin ? handleDelete : undefined);
+export function AttendanceTableClient({ data, canManage = false }: AttendanceTableClientProps) {
+  const columns = createAttendanceColumns(canManage);
 
   return (
     <DataTable

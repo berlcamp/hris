@@ -1,14 +1,18 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
-import { isDeptScoped, isCompositeDeptAdminHead } from "@/lib/auth-helpers";
+import {
+  isDeptScoped,
+  isCompositeDeptAdminHead,
+  isAttendanceManager,
+} from "@/lib/auth-helpers";
 import { BulkDtrClient } from "@/components/attendance/bulk-dtr-client";
 
 export default async function BulkDtrPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
+  const isAdmin = isAttendanceManager(user.role);
   const isComposite = isCompositeDeptAdminHead(user.role);
 
   if (!isAdmin && !isDeptScoped(user.role)) {

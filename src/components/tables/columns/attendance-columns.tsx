@@ -1,11 +1,12 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
 import { format } from "date-fns";
+import { Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
-import { Trash2 } from "lucide-react";
 import type { AttendanceLogRow } from "@/lib/actions/attendance-actions";
 
 function TimeBadge({ time, type }: { time: string | null; type: "in" | "out" }) {
@@ -18,7 +19,7 @@ function TimeBadge({ time, type }: { time: string | null; type: "in" | "out" }) 
 }
 
 export function createAttendanceColumns(
-  onDelete?: (id: string) => void
+  canManage = false,
 ): ColumnDef<AttendanceLogRow>[] {
   return [
     {
@@ -145,19 +146,24 @@ export function createAttendanceColumns(
         </span>
       ),
     },
-    {
-      id: "actions",
-      cell: ({ row }) =>
-        onDelete ? (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onDelete(row.original.id)}
-            className="text-destructive hover:text-destructive"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        ) : null,
-    },
+    ...(canManage
+      ? [
+          {
+            id: "actions",
+            cell: ({ row }) => (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="Correct entry"
+                render={
+                  <Link href={`/attendance/entry?id=${row.original.id}`} />
+                }
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            ),
+          } satisfies ColumnDef<AttendanceLogRow>,
+        ]
+      : []),
   ];
 }

@@ -26,20 +26,34 @@ import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 
-interface ManualEntryFormProps {
-  employees: EmployeeWithRelations[];
+interface ManualEntryInitialValues {
+  employeeId: string;
+  date: string; // yyyy-MM-dd
+  timeInAm: string;
+  timeOutAm: string;
+  timeInPm: string;
+  timeOutPm: string;
+  remarks: string;
 }
 
-export function ManualEntryForm({ employees }: ManualEntryFormProps) {
+interface ManualEntryFormProps {
+  employees: EmployeeWithRelations[];
+  initialValues?: ManualEntryInitialValues;
+}
+
+export function ManualEntryForm({ employees, initialValues }: ManualEntryFormProps) {
   const router = useRouter();
+  const isEdit = !!initialValues;
   const [loading, setLoading] = useState(false);
-  const [employeeId, setEmployeeId] = useState<string>("");
-  const [date, setDate] = useState<Date | undefined>(new Date());
-  const [timeInAm, setTimeInAm] = useState("");
-  const [timeOutAm, setTimeOutAm] = useState("");
-  const [timeInPm, setTimeInPm] = useState("");
-  const [timeOutPm, setTimeOutPm] = useState("");
-  const [remarks, setRemarks] = useState("");
+  const [employeeId, setEmployeeId] = useState<string>(initialValues?.employeeId ?? "");
+  const [date, setDate] = useState<Date | undefined>(
+    initialValues?.date ? new Date(initialValues.date + "T00:00:00") : new Date(),
+  );
+  const [timeInAm, setTimeInAm] = useState(initialValues?.timeInAm ?? "");
+  const [timeOutAm, setTimeOutAm] = useState(initialValues?.timeOutAm ?? "");
+  const [timeInPm, setTimeInPm] = useState(initialValues?.timeInPm ?? "");
+  const [timeOutPm, setTimeOutPm] = useState(initialValues?.timeOutPm ?? "");
+  const [remarks, setRemarks] = useState(initialValues?.remarks ?? "");
   const [empOpen, setEmpOpen] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
 
@@ -64,7 +78,7 @@ export function ManualEntryForm({ employees }: ManualEntryFormProps) {
         remarks: remarks || undefined,
       });
 
-      toast.success("Attendance entry saved");
+      toast.success(isEdit ? "Attendance entry updated" : "Attendance entry saved");
       router.push("/attendance");
     } catch (err) {
       toast.error("Failed to save attendance entry");
@@ -85,7 +99,8 @@ export function ManualEntryForm({ employees }: ManualEntryFormProps) {
             <Label>Employee</Label>
             <Popover open={empOpen} onOpenChange={setEmpOpen}>
               <PopoverTrigger
-                render={<Button variant="outline" role="combobox" className="w-full justify-between font-normal" />}
+                disabled={isEdit}
+                render={<Button variant="outline" role="combobox" disabled={isEdit} className="w-full justify-between font-normal" />}
               >
                 {selectedEmployee
                   ? `${selectedEmployee.last_name}, ${selectedEmployee.first_name}`
@@ -137,9 +152,11 @@ export function ManualEntryForm({ employees }: ManualEntryFormProps) {
             <Label>Date</Label>
             <Popover open={dateOpen} onOpenChange={setDateOpen}>
               <PopoverTrigger
+                disabled={isEdit}
                 render={
                   <Button
                     variant="outline"
+                    disabled={isEdit}
                     className={cn(
                       "w-full justify-start text-left font-normal",
                       !date && "text-muted-foreground"
@@ -245,7 +262,7 @@ export function ManualEntryForm({ employees }: ManualEntryFormProps) {
             </Button>
             <Button type="submit" disabled={loading}>
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Save Entry
+              {isEdit ? "Update Entry" : "Save Entry"}
             </Button>
           </div>
         </CardContent>

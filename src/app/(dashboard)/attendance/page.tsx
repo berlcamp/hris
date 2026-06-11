@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getAttendanceLogs } from "@/lib/actions/attendance-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptScoped } from "@/lib/auth-helpers";
+import { isDeptScoped, isAttendanceManager } from "@/lib/auth-helpers";
 import { AttendanceTableClient } from "@/components/attendance/attendance-table-client";
 import { DahuaImportDialog } from "@/components/attendance/dahua-import-dialog";
 
@@ -14,7 +14,7 @@ export default async function AttendancePage() {
   if (!user) redirect("/login");
 
   const logs = await getAttendanceLogs();
-  const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
+  const isAdmin = isAttendanceManager(user.role);
   const canBulkDtr = isAdmin || isDeptScoped(user.role);
 
   return (
@@ -58,7 +58,7 @@ export default async function AttendancePage() {
         </div>
       </div>
 
-      <AttendanceTableClient data={logs} isAdmin={isAdmin} />
+      <AttendanceTableClient data={logs} canManage={isAdmin} />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptScoped } from "@/lib/auth-helpers";
+import { isDeptScoped, isAttendanceManager } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   DEFAULT_SCHEDULE,
@@ -285,7 +285,7 @@ export async function createAttendanceEntry(input: {
   remarks?: string;
 }) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !isAttendanceManager(user.role)) {
     throw new Error("Unauthorized");
   }
 
@@ -373,6 +373,39 @@ export async function createAttendanceEntry(input: {
   return { success: true };
 }
 
+// --- Fetch a single attendance entry for correction (pre-fills the form) ---
+
+export async function getAttendanceEntryForEdit(id: string) {
+  const user = await getCurrentUser();
+  if (!user || !isAttendanceManager(user.role)) {
+    throw new Error("Unauthorized");
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .select(
+      "id, employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, remarks",
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  return {
+    id: data.id as string,
+    employee_id: data.employee_id as string,
+    date: data.date as string,
+    time_in_am: extractTime(data.time_in_am as string | null) ?? "",
+    time_out_am: extractTime(data.time_out_am as string | null) ?? "",
+    time_in_pm: extractTime(data.time_in_pm as string | null) ?? "",
+    time_out_pm: extractTime(data.time_out_pm as string | null) ?? "",
+    remarks: (data.remarks as string | null) ?? "",
+  };
+}
+
 // --- Match parsed rows to employees and check conflicts ---
 // Dahua exports are parsed in the browser (see src/lib/dahua-parse.ts) so the
 // multi-MB raw file never crosses the Server Action 1MB body limit; only the
@@ -382,7 +415,7 @@ export async function matchAndPreviewImport(
   parsedRows: DahuaParsedRow[]
 ): Promise<ImportPreviewRow[]> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !isAttendanceManager(user.role)) {
     throw new Error("Unauthorized");
   }
 
@@ -469,7 +502,7 @@ export async function importDahuaAttendance(
   overwriteExisting: boolean
 ): Promise<{ imported: number; skipped: number; errors: number }> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !isAttendanceManager(user.role)) {
     throw new Error("Unauthorized");
   }
 
@@ -1183,40 +1216,6 @@ export async function getEmployeeDtrRange(
   };
 }
 
-// --- Delete attendance entry ---
-
-export async function deleteAttendanceEntry(id: string) {
-  const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
-    throw new Error("Unauthorized");
-  }
-
-  const supabase = createAdminClient();
-  // Capture employee + duty date before deletion so we can refresh the VL
-  // ledger for that month after the row is gone.
-  const { data: row } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("employee_id, date")
-    .eq("id", id)
-    .maybeSingle();
-
-  const { error } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .delete()
-    .eq("id", id);
-
-  if (error) throw error;
-
-  if (row?.employee_id && row?.date) {
-    const [yr, mo] = String(row.date).split("-").map(Number);
-    await recomputeAttendanceDeductionFor(row.employee_id as string, yr, mo);
-  }
-
-  revalidatePath("/attendance");
-  return { success: true };
-}
 
 // --- Attendance Report (per-employee totals, scoped by dept + date range) ---
 
@@ -1242,7 +1241,7 @@ export async function getAttendanceReport(
   endDate: string,
 ): Promise<AttendanceReportRow[]> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !isAttendanceManager(user.role)) {
     throw new Error("Unauthorized");
   }
   if (!startDate || !endDate) throw new Error("Date range required");
