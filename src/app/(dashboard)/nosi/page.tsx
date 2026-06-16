@@ -18,11 +18,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
-import { format } from "date-fns";
+import { differenceInCalendarDays, endOfYear, format, startOfDay } from "date-fns";
 
-// Load a full year of upcoming increments so the in-tab "due within" filter
-// (1/3/6 months or rest of current year) can narrow client-side without refetching.
-const UPCOMING_DAYS_AHEAD = 366;
+// Load upcoming increments through the end of next year so the in-tab "due
+// within" filter (1/3/6 months, rest of this year, or all of next year) can
+// narrow client-side without refetching.
+function daysThroughEndOfNextYear(): number {
+  const today = startOfDay(new Date());
+  const endNextYear = endOfYear(new Date(today.getFullYear() + 1, 0, 1));
+  return differenceInCalendarDays(endNextYear, today);
+}
 
 export default async function NosiPage() {
   const user = await getCurrentUser();
@@ -30,7 +35,7 @@ export default async function NosiPage() {
   if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
 
   const [{ eligible, upcoming, missingNosiBasis }, records] = await Promise.all([
-    getNosiEligibilityOverview(UPCOMING_DAYS_AHEAD),
+    getNosiEligibilityOverview(daysThroughEndOfNextYear()),
     getNosisRecords(),
   ]);
 

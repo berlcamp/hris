@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { addMonths, endOfYear, format, startOfDay } from "date-fns";
+import {
+  addMonths,
+  addYears,
+  endOfYear,
+  format,
+  startOfDay,
+  startOfYear,
+} from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,13 +31,14 @@ import {
 import { ExportCsvButton } from "@/components/tables/export-csv-button";
 import type { UpcomingEligibleEmployee } from "@/lib/actions/nosi-actions";
 
-type RangeValue = "1m" | "3m" | "6m" | "year";
+type RangeValue = "1m" | "3m" | "6m" | "year" | "next-year";
 
 const RANGE_OPTIONS: { value: RangeValue; label: string }[] = [
   { value: "1m", label: "Due within 1 month" },
   { value: "3m", label: "Due within 3 months" },
   { value: "6m", label: "Due within 6 months" },
   { value: "year", label: "Due this year" },
+  { value: "next-year", label: "Due next year" },
 ];
 
 const RANGE_LABEL: Record<RangeValue, string> = {
@@ -38,19 +46,32 @@ const RANGE_LABEL: Record<RangeValue, string> = {
   "3m": "3 months",
   "6m": "6 months",
   year: "the rest of this year",
+  "next-year": "next year",
 };
 
-/** Latest eligibility date (inclusive) for a given range, from today. */
-function cutoffFor(range: RangeValue, today: Date): Date {
+/**
+ * Inclusive eligibility-date window [start, end] (in ms) for a given range.
+ * All ranges except "next-year" start from today; "next-year" covers the
+ * whole following calendar year.
+ */
+function windowFor(range: RangeValue, today: Date): { start: number; end: number } {
+  const start = today.getTime();
   switch (range) {
     case "1m":
-      return addMonths(today, 1);
+      return { start, end: addMonths(today, 1).getTime() };
     case "3m":
-      return addMonths(today, 3);
+      return { start, end: addMonths(today, 3).getTime() };
     case "6m":
-      return addMonths(today, 6);
+      return { start, end: addMonths(today, 6).getTime() };
     case "year":
-      return endOfYear(today);
+      return { start, end: endOfYear(today).getTime() };
+    case "next-year": {
+      const nextYear = addYears(today, 1);
+      return {
+        start: startOfYear(nextYear).getTime(),
+        end: endOfYear(nextYear).getTime(),
+      };
+    }
   }
 }
 
@@ -63,10 +84,11 @@ export function NosiUpcomingTab({
 
   const filtered = useMemo(() => {
     const today = startOfDay(new Date());
-    const cutoffMs = cutoffFor(range, today).getTime();
-    return upcoming.filter(
-      (emp) => new Date(emp.eligibility_date).getTime() <= cutoffMs
-    );
+    const { start, end } = windowFor(range, today);
+    return upcoming.filter((emp) => {
+      const ms = new Date(emp.eligibility_date).getTime();
+      return ms >= start && ms <= end;
+    });
   }, [upcoming, range]);
 
   const exportRows = useMemo(
