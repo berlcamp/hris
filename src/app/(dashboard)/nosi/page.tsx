@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NosiRecordsDataTable } from "@/components/nosi/nosi-records-data-table";
+import { NosiUpcomingTab } from "@/components/nosi/nosi-upcoming-tab";
 import {
   getNosiEligibilityOverview,
   getNosisRecords,
@@ -20,7 +20,9 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { format } from "date-fns";
 
-const UPCOMING_DAYS_AHEAD = 30;
+// Load a full year of upcoming increments so the in-tab "due within" filter
+// (1/3/6 months or rest of current year) can narrow client-side without refetching.
+const UPCOMING_DAYS_AHEAD = 366;
 
 export default async function NosiPage() {
   const user = await getCurrentUser();
@@ -36,23 +38,12 @@ export default async function NosiPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">NOSI</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Notice of Step Increment — manage salary step increases for eligible employees.
-            Eligibility uses salary history only (a row with reason such as step_increment or initial).
-          </p>
-        </div>
-        {canCreate && (
-          <Link
-            href="/nosi/new"
-            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" />
-            Generate NOSI
-          </Link>
-        )}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">NOSI</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Notice of Step Increment — manage salary step increases for eligible employees.
+          Eligibility uses salary history only (a row with reason such as step_increment or initial).
+        </p>
       </div>
 
       <Tabs defaultValue="eligible">
@@ -154,71 +145,11 @@ export default async function NosiPage() {
           {upcoming.length === 0 ? (
             <Card>
               <CardContent className="py-10 text-center text-muted-foreground">
-                No employees are due for a step increment in the next {UPCOMING_DAYS_AHEAD} days.
+                No employees are due for a step increment within the current year.
               </CardContent>
             </Card>
           ) : (
-            <Card>
-              <CardContent className="pt-4">
-                <p className="mb-3 text-sm text-muted-foreground">
-                  Employees whose next step increment becomes due within{" "}
-                  {UPCOMING_DAYS_AHEAD} days.
-                </p>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Employee</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Position</TableHead>
-                      <TableHead>Current SG/Step</TableHead>
-                      <TableHead>Next Step</TableHead>
-                      <TableHead>Eligible On</TableHead>
-                      <TableHead>In</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {upcoming.map((emp) => (
-                      <TableRow key={emp.id}>
-                        <TableCell>
-                          <Link
-                            href={`/employees/${emp.id}`}
-                            className="font-medium text-primary hover:underline"
-                          >
-                            {emp.last_name}, {emp.first_name}
-                          </Link>
-                        </TableCell>
-                        <TableCell>
-                          {emp.departments ? (
-                            <span>
-                              <span className="font-mono text-xs text-muted-foreground mr-1">
-                                {emp.departments.code}
-                              </span>
-                              {emp.departments.name}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell>{emp.positions?.title ?? "—"}</TableCell>
-                        <TableCell>
-                          SG {emp.salary_grade} — Step {emp.step_increment}
-                        </TableCell>
-                        <TableCell>Step {emp.step_increment + 1}</TableCell>
-                        <TableCell>
-                          {format(new Date(emp.eligibility_date), "MMM d, yyyy")}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {emp.days_until_eligibility}{" "}
-                            {emp.days_until_eligibility === 1 ? "day" : "days"}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+            <NosiUpcomingTab upcoming={upcoming} />
           )}
         </TabsContent>
 

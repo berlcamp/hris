@@ -27,6 +27,12 @@ const reports = [
     icon: CalendarDays,
   },
   {
+    title: "Leave Balances",
+    description: "Current leave-credit balances (VL, SL, SPL, …) for all active plantilla employees — Excel download",
+    href: "/reports/leave-balances",
+    icon: CalendarDays,
+  },
+  {
     title: "NOSI Summary",
     description: "All Notice of Step Increment records by date range",
     href: "/reports/nosi-summary",

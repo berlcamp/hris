@@ -41,6 +41,8 @@ interface LeaveApprovalActionsProps {
    *  already excludes this leave's `days_with_pay`). */
   creditBalance?: number;
   leaveTypeCode?: string | null;
+  /** When non-null, approval/reject buttons are only shown to this specific user (e.g. OCM Admin-created leaves). */
+  restrictToUserId?: string | null;
 }
 
 export function LeaveApprovalActions({
@@ -53,6 +55,7 @@ export function LeaveApprovalActions({
   daysWithPay,
   creditBalance,
   leaveTypeCode,
+  restrictToUserId,
 }: LeaveApprovalActionsProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -75,6 +78,10 @@ export function LeaveApprovalActions({
     }
     setLoading(false);
   };
+
+  // If the leave was created by an OCM Admin, only that specific OCM Admin
+  // user may see and act on the approval buttons.
+  const isRestrictedApproval = !!restrictToUserId && user.id !== restrictToUserId;
 
   // HR Admin / Super Admin can cancel an already-approved leave, with a
   // mandatory written reason. Credits are refunded automatically because the
@@ -108,7 +115,7 @@ export function LeaveApprovalActions({
   };
 
   if (status === "approved") {
-    if (!canCancelApproved && !canOverridePaid) return null;
+    if (isRestrictedApproval || (!canCancelApproved && !canOverridePaid)) return null;
     return (
       <div className="flex gap-2 flex-wrap">
         {canOverridePaid && (
@@ -281,6 +288,21 @@ export function LeaveApprovalActions({
   // flips it to "approved". So gating on "pending" keeps Cancel/Approve/Reject
   // visible in the dept-approved-but-not-HR-approved in-between state.
   if (status !== "pending") return null;
+
+  if (isRestrictedApproval) {
+    // Leave was created by an OCM Admin — only that user may act on it.
+    // Still render Cancel for the actual applicant (handled below via canCancel).
+    return canCancel ? (
+      <Button
+        variant="outline"
+        onClick={() => handle(() => cancelLeaveApplication(leaveId))}
+        disabled={loading}
+      >
+        {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+        Cancel Application
+      </Button>
+    ) : null;
+  }
 
   // OCM Admin approves at both stages sequentially: as Dept Head while the
   // dept-head approval is outstanding, then as HR once it's recorded.

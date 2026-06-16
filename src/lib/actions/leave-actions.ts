@@ -13,6 +13,7 @@ import {
   addLedgerEntry,
   recomputeLeaveCreditTotal,
 } from "@/lib/leave-credits-helpers";
+import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
 
 export interface LeaveTypeRow {
   id: string;
@@ -80,6 +81,7 @@ export interface LeaveApplicationWithRelations {
     plantilla: { position_title: string | null }[] | null;
   } | null;
   leave_types: { code: string; name: string } | null;
+  created_by_profile: { role: string } | null;
 }
 
 // ── Leave Types ────────────────────────────────────────────────────
@@ -427,7 +429,8 @@ export async function getLeaveApplicationById(id: string) {
         positions(title),
         plantilla(position_title)
       ),
-      leave_types(code, name)
+      leave_types(code, name),
+      created_by_profile:user_profiles!leave_applications_created_by_fkey(role)
     `)
     .eq("id", id)
     .single();
@@ -1295,6 +1298,117 @@ export async function getLeaveAccrualHistory(
       leave_types: lt,
     };
   });
+}
+
+// ── Leave Balances Report (all active plantilla employees) ─────────
+
+export interface LeaveBalanceReportColumn {
+  code: string;
+  name: string;
+}
+
+export interface LeaveBalanceReportRow {
+  employee_id: string;
+  full_name: string;
+  department: string;
+  balances: Record<string, number>;
+}
+
+export interface LeaveBalanceReport {
+  year: number;
+  columns: LeaveBalanceReportColumn[];
+  rows: LeaveBalanceReportRow[];
+}
+
+/**
+ * Leave-credit balances for every active plantilla employee, pivoted so each
+ * leave type (VL, SL, SPL, …) is a column. Used by the Leave Balances report
+ * for an Excel/CSV download. Balances come from the `leave_credit_balances`
+ * view (balance = total_credits − used_credits). Restricted to HR/super admin.
+ */
+export async function getLeaveBalancesReport(
+  year: number,
+): Promise<LeaveBalanceReport> {
+  const user = await getCurrentUser();
+  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+    return { year, columns: [], rows: [] };
+  }
+
+  const supabase = createAdminClient();
+
+  // Leave types become the pivoted columns. VL and SL lead (the accruing
+  // cumulative types HR cares about most); the rest follow alphabetically.
+  const { data: leaveTypes, error: ltError } = await supabase
+    .schema("hris")
+    .from("leave_types")
+    .select("id, code, name");
+  if (ltError) throw ltError;
+
+  const rank = (code: string) =>
+    code === "VL" ? 0 : code === "SL" ? 1 : 2;
+  const sortedTypes = [...(leaveTypes ?? [])].sort(
+    (a, b) => rank(a.code) - rank(b.code) || a.code.localeCompare(b.code),
+  );
+  const codeById = new Map(sortedTypes.map((lt) => [lt.id, lt.code]));
+  const columns: LeaveBalanceReportColumn[] = sortedTypes.map((lt) => ({
+    code: lt.code,
+    name: lt.name,
+  }));
+
+  // Active plantilla employees only.
+  const { data: employees, error: empError } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select(
+      "id, first_name, middle_name, last_name, suffix, departments!employees_department_id_fkey(name)",
+    )
+    .eq("status", "active")
+    .eq("employment_type", "plantilla");
+  if (empError) throw empError;
+
+  const empList = employees ?? [];
+  const empIds = empList.map((e) => e.id);
+
+  // Balances for the year for just these employees.
+  const balanceByEmp = new Map<string, Record<string, number>>();
+  if (empIds.length > 0) {
+    const { data: balances, error: balError } = await supabase
+      .schema("hris")
+      .from("leave_credit_balances")
+      .select("employee_id, leave_type_id, balance")
+      .eq("year", year)
+      .in("employee_id", empIds);
+    if (balError) throw balError;
+
+    for (const b of balances ?? []) {
+      const code = codeById.get(b.leave_type_id);
+      if (!code) continue;
+      const rec = balanceByEmp.get(b.employee_id) ?? {};
+      rec[code] = Number(b.balance) || 0;
+      balanceByEmp.set(b.employee_id, rec);
+    }
+  }
+
+  const rows: LeaveBalanceReportRow[] = empList
+    .map((e) => {
+      const dept = Array.isArray(e.departments)
+        ? e.departments[0]
+        : e.departments;
+      const balances: Record<string, number> = {};
+      const empBalances = balanceByEmp.get(e.id) ?? {};
+      for (const col of columns) {
+        balances[col.code] = empBalances[col.code] ?? 0;
+      }
+      return {
+        employee_id: e.id,
+        full_name: formatEmployeeDisplayName(e),
+        department: (dept as { name?: string } | null)?.name ?? "—",
+        balances,
+      };
+    })
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+
+  return { year, columns, rows };
 }
 
 // ── Bulk Provisioning ──────────────────────────────────────────────

@@ -142,6 +142,11 @@ export default async function LeaveDetailPage({
             daysWithPay={Number(leave.days_with_pay ?? 0)}
             creditBalance={credit ? Number(credit.balance) : 0}
             leaveTypeCode={leave.leave_types?.code ?? null}
+            restrictToUserId={
+              leave.created_by_profile?.role === "ocm_admin"
+                ? (leave.created_by ?? null)
+                : null
+            }
           />
         </div>
       </div>
