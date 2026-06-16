@@ -1369,15 +1369,20 @@ export async function getLeaveBalancesReport(
   const empList = employees ?? [];
   const empIds = empList.map((e) => e.id);
 
-  // Balances for the year for just these employees.
+  // Balances for the year for just these employees. The `.in()` filter is
+  // chunked because passing every employee UUID at once builds a request URL
+  // long enough for PostgREST to reject ("Bad Request"); a year-only query
+  // isn't an option either since it hits the row cap.
   const balanceByEmp = new Map<string, Record<string, number>>();
-  if (empIds.length > 0) {
+  const CHUNK = 200;
+  for (let i = 0; i < empIds.length; i += CHUNK) {
+    const chunk = empIds.slice(i, i + CHUNK);
     const { data: balances, error: balError } = await supabase
       .schema("hris")
       .from("leave_credit_balances")
       .select("employee_id, leave_type_id, balance")
       .eq("year", year)
-      .in("employee_id", empIds);
+      .in("employee_id", chunk);
     if (balError) throw balError;
 
     for (const b of balances ?? []) {
