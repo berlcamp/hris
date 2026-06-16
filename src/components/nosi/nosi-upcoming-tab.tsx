@@ -186,7 +186,9 @@ export function NosiUpcomingTab({
                       "—"
                     )}
                   </TableCell>
-                  <TableCell>{emp.positions?.title ?? "—"}</TableCell>
+                  <TableCell className="max-w-[200px] truncate" title={emp.positions?.title ?? undefined}>
+                    {emp.positions?.title ?? "—"}
+                  </TableCell>
                   <TableCell>
                     SG {emp.salary_grade} — Step {emp.step_increment}
                   </TableCell>
