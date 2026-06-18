@@ -8,6 +8,8 @@ import {
   scheduleFormSchema,
   type ScheduleFormValues,
 } from "@/lib/validations/schedule-schema";
+import { canManageSchedules } from "@/lib/auth-helpers";
+import type { UserRole } from "@/lib/types";
 
 export interface ScheduleRow {
   id: string;
@@ -31,8 +33,8 @@ function trimTime(t: string | null): string | null {
 }
 
 function requireAdmin(role: string | undefined) {
-  if (role !== "super_admin") {
-    throw new Error("Only Super Admin can manage schedules.");
+  if (!canManageSchedules(role as UserRole | undefined)) {
+    throw new Error("You do not have permission to manage schedules.");
   }
 }
 

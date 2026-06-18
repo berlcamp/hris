@@ -27,6 +27,20 @@ export function isAttendanceManager(
   return !!role && ATTENDANCE_MANAGER_ROLES.includes(role);
 }
 
+// Roles that can manage work schedules. Schedules are an attendance concern, so
+// the dedicated DTR Manager role gets access alongside super_admin (other
+// Administration tools stay super_admin-only).
+const SCHEDULE_MANAGER_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "dtr_manager",
+] as const;
+
+export function canManageSchedules(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && SCHEDULE_MANAGER_ROLES.includes(role);
+}
+
 export function isDeptHead(role: UserRole | null | undefined): boolean {
   return !!role && DEPT_HEAD_ROLES.includes(role);
 }

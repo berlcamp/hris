@@ -28,25 +28,41 @@ export async function recomputeAttendanceDeductionFor(
   }
 }
 
-// Recomputes for a batch of distinct (employee_id, year, month) tuples.
-// Used by the Dahua importer after a batch write.
+// Recomputes for a batch of touched (employee_id, year, month) tuples after a
+// large import. Collapses to the distinct (year, month) pairs and fires the RPC
+// once per month with p_employee_id = NULL — a single set-based pass over every
+// employee with logs that month, done entirely inside Postgres.
+//
+// A big Dahua file spans many employees but only one or two months, so this
+// turns what used to be hundreds of per-employee RPC round-trips (which blew
+// past the serverless/gateway timeout → 504) into one call per month. The RPC
+// is idempotent: employees whose totals didn't change post a 0 delta and are
+// skipped, so recomputing the whole month is harmless.
 export async function recomputeAttendanceDeductionsBatch(
   tuples: { employeeId: string; year: number; month: number }[],
 ): Promise<void> {
-  // Deduplicate to avoid redundant RPC calls.
   const seen = new Set<string>();
-  const unique: { employeeId: string; year: number; month: number }[] = [];
+  const months: { year: number; month: number }[] = [];
   for (const t of tuples) {
-    const k = `${t.employeeId}|${t.year}|${t.month}`;
+    const k = `${t.year}|${t.month}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    unique.push(t);
+    months.push({ year: t.year, month: t.month });
   }
-  await Promise.all(
-    unique.map((t) =>
-      recomputeAttendanceDeductionFor(t.employeeId, t.year, t.month),
-    ),
-  );
+
+  const supabase = createAdminClient();
+  for (const { year, month } of months) {
+    try {
+      await supabase.schema("hris").rpc("apply_attendance_vl_deduction", {
+        p_year: year,
+        p_month: month,
+        p_employee_id: null,
+      });
+    } catch {
+      // Match recomputeAttendanceDeductionFor: a failed deduction never breaks
+      // the import that triggered it.
+    }
+  }
 }
 
 // Admin-triggered: post (or update via deltas) VL deductions for every

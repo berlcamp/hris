@@ -1,12 +1,10 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
-import Link from "next/link";
 import { format } from "date-fns";
-import { Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
+import { AttendanceActionsCell } from "@/components/tables/columns/attendance-actions-cell";
 import type { AttendanceLogRow } from "@/lib/actions/attendance-actions";
 
 function TimeBadge({ time, type }: { time: string | null; type: "in" | "out" }) {
@@ -150,18 +148,7 @@ export function createAttendanceColumns(
       ? [
           {
             id: "actions",
-            cell: ({ row }) => (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                title="Correct entry"
-                render={
-                  <Link href={`/attendance/entry?id=${row.original.id}`} />
-                }
-              >
-                <Pencil className="h-4 w-4" />
-              </Button>
-            ),
+            cell: ({ row }) => <AttendanceActionsCell row={row.original} />,
           } satisfies ColumnDef<AttendanceLogRow>,
         ]
       : []),

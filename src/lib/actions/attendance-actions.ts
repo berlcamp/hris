@@ -20,6 +20,13 @@ import {
   recomputeAttendanceDeductionFor,
   recomputeAttendanceDeductionsBatch,
 } from "@/lib/actions/attendance-deduction-actions";
+import { getHolidayMap } from "@/lib/holiday-helpers";
+import type { HolidayType } from "@/lib/validations/holiday-schema";
+import {
+  NO_TIME_REASON_LABELS,
+  NO_TIME_REASON_SHORT,
+  type NoTimeReason,
+} from "@/lib/constants";
 import type { DahuaParsedRow } from "@/lib/dahua-parse";
 
 // --- Types ---
@@ -61,6 +68,20 @@ export interface DtrEntry {
   is_absent: boolean;
   remarks: string | null;
   leave_type: string | null;
+  // Declared holiday overlay for this date, if any. "full" replaces the whole
+  // row with HOLIDAY; "half_am"/"half_pm" label only that half of the day.
+  holiday: "full" | "half_am" | "half_pm" | null;
+  holiday_name: string | null;
+  // Official-duty reason a manual entry has no punches (TRAVEL / FIELD WORK /
+  // OFFICIAL BUSINESS). Printed across the row like ON LEAVE when there are no
+  // time entries. Legacy day-level field (migration 041).
+  no_time_reason_label: string | null;
+  // Per-slot official-duty reasons (migration 042) as the DTR shortcut (FW/OB/
+  // TRAVEL). When set, the cell prints the shortcut instead of a time.
+  reason_in_am: string | null;
+  reason_out_am: string | null;
+  reason_in_pm: string | null;
+  reason_out_pm: string | null;
 }
 
 export interface DtrSummary {
@@ -203,6 +224,19 @@ function computeAttendanceFlags(
   };
 }
 
+// Spread into DtrEntry pushes for days with no per-slot official-duty reasons.
+const EMPTY_SLOT_REASONS = {
+  reason_in_am: null,
+  reason_out_am: null,
+  reason_in_pm: null,
+  reason_out_pm: null,
+} as const;
+
+/** Map a stored per-slot reason code to its DTR shortcut (FW / OB / TRAVEL). */
+function slotReasonShort(code: unknown): string | null {
+  return code ? NO_TIME_REASON_SHORT[code as NoTimeReason] ?? null : null;
+}
+
 // --- Data Fetching ---
 
 export async function getAttendanceLogs(filters?: {
@@ -283,6 +317,11 @@ export async function createAttendanceEntry(input: {
   time_in_pm: string | null;
   time_out_pm: string | null;
   remarks?: string;
+  no_time_reason?: NoTimeReason | null;
+  reason_in_am?: NoTimeReason | null;
+  reason_out_am?: NoTimeReason | null;
+  reason_in_pm?: NoTimeReason | null;
+  reason_out_pm?: NoTimeReason | null;
 }) {
   const user = await getCurrentUser();
   if (!user || !isAttendanceManager(user.role)) {
@@ -336,6 +375,20 @@ export async function createAttendanceEntry(input: {
     sched,
   );
 
+  const noTimeReason = input.no_time_reason ?? null;
+  // A reason is only meaningful for a slot that has no time. Drop any reason on
+  // a slot the user also typed a time into.
+  const reasonInAm = input.time_in_am ? null : input.reason_in_am ?? null;
+  const reasonOutAm = input.time_out_am ? null : input.reason_out_am ?? null;
+  const reasonInPm = input.time_in_pm ? null : input.reason_in_pm ?? null;
+  const reasonOutPm = input.time_out_pm ? null : input.reason_out_pm ?? null;
+  const hasAnyReason =
+    !!noTimeReason ||
+    !!reasonInAm ||
+    !!reasonOutAm ||
+    !!reasonInPm ||
+    !!reasonOutPm;
+
   const record = {
     employee_id: input.employee_id,
     date: input.date,
@@ -344,8 +397,18 @@ export async function createAttendanceEntry(input: {
     time_in_pm: toTimestamp(dateFor(input.time_in_pm), input.time_in_pm),
     time_out_pm: toTimestamp(dateFor(input.time_out_pm), input.time_out_pm),
     remarks: input.remarks || null,
+    no_time_reason: noTimeReason,
+    time_in_am_reason: reasonInAm,
+    time_out_am_reason: reasonOutAm,
+    time_in_pm_reason: reasonInPm,
+    time_out_pm_reason: reasonOutPm,
     source: "manual",
     ...flags,
+    // An official-duty reason excuses the missing punch: the day is on duty
+    // (not absent), and tardiness/undertime tied to the excused slot is dropped.
+    ...(reasonInAm ? { is_late: false, late_minutes: 0 } : {}),
+    ...(reasonOutPm ? { is_undertime: false, undertime_minutes: 0 } : {}),
+    ...(hasAnyReason ? { is_absent: false } : {}),
   };
 
   if (existing) {
@@ -373,6 +436,53 @@ export async function createAttendanceEntry(input: {
   return { success: true };
 }
 
+// --- Delete a single attendance entry ---
+
+export async function deleteAttendanceEntry(
+  id: string,
+): Promise<{ success?: true; error?: string }> {
+  const user = await getCurrentUser();
+  if (!user || !isAttendanceManager(user.role)) {
+    return { error: "Unauthorized" };
+  }
+
+  const supabase = createAdminClient();
+
+  // Read the row first so we can refresh the right employee/month afterwards.
+  const { data: existing } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .select("id, employee_id, date")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!existing) return { error: "Entry not found" };
+
+  const { error } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .delete()
+    .eq("id", id);
+
+  if (error) return { error: error.message };
+
+  // Keep the VL ledger in sync with the removed day.
+  const [y, m] = (existing.date as string).split("-").map(Number);
+  await recomputeAttendanceDeductionFor(existing.employee_id as string, y, m);
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "delete",
+    tableName: "attendance_logs",
+    recordId: id,
+    oldValues: { employee_id: existing.employee_id, date: existing.date },
+  });
+
+  revalidatePath("/attendance");
+  return { success: true };
+}
+
 // --- Fetch a single attendance entry for correction (pre-fills the form) ---
 
 export async function getAttendanceEntryForEdit(id: string) {
@@ -386,7 +496,7 @@ export async function getAttendanceEntryForEdit(id: string) {
     .schema("hris")
     .from("attendance_logs")
     .select(
-      "id, employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, remarks",
+      "id, employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
     )
     .eq("id", id)
     .maybeSingle();
@@ -403,6 +513,11 @@ export async function getAttendanceEntryForEdit(id: string) {
     time_in_pm: extractTime(data.time_in_pm as string | null) ?? "",
     time_out_pm: extractTime(data.time_out_pm as string | null) ?? "",
     remarks: (data.remarks as string | null) ?? "",
+    no_time_reason: (data.no_time_reason as NoTimeReason | null) ?? null,
+    reason_in_am: (data.time_in_am_reason as NoTimeReason | null) ?? null,
+    reason_out_am: (data.time_out_am_reason as NoTimeReason | null) ?? null,
+    reason_in_pm: (data.time_in_pm_reason as NoTimeReason | null) ?? null,
+    reason_out_pm: (data.time_out_pm_reason as NoTimeReason | null) ?? null,
   };
 }
 
@@ -500,7 +615,14 @@ export async function matchAndPreviewImport(
 export async function importDahuaAttendance(
   previewRows: ImportPreviewRow[],
   overwriteExisting: boolean
-): Promise<{ imported: number; skipped: number; errors: number }> {
+): Promise<{
+  imported: number;
+  skipped: number;
+  errors: number;
+  totalPunches: number;
+  unmatchedPunches: number;
+  dayRecords: number;
+}> {
   const user = await getCurrentUser();
   if (!user || !isAttendanceManager(user.role)) {
     throw new Error("Unauthorized");
@@ -573,6 +695,9 @@ export async function importDahuaAttendance(
   const skipped = skipKeys.size;
   const touched: { employeeId: string; year: number; month: number }[] = [];
 
+  // Build every record in memory first. Computing buckets/flags is pure CPU
+  // work, so no DB round-trips happen here.
+  const records: Record<string, unknown>[] = [];
   for (const [, group] of grouped) {
     try {
       const bucket = bucketPunchesForDuty(
@@ -597,7 +722,7 @@ export async function importDahuaAttendance(
       const nextDate = addDaysIso(group.dutyDate, 1);
       const dateOf = (onNext: boolean) => (onNext ? nextDate : group.dutyDate);
 
-      const record = {
+      records.push({
         employee_id: group.employeeId,
         date: group.dutyDate,
         time_in_am: toTimestamp(dateOf(bucket.time_in_am_next_day), bucket.time_in_am),
@@ -607,40 +732,38 @@ export async function importDahuaAttendance(
         ...flags,
         source: "biometric",
         remarks: null,
-      };
+      });
 
-      const { data: existing } = await supabase
-        .schema("hris")
-        .from("attendance_logs")
-        .select("id")
-        .eq("employee_id", group.employeeId)
-        .eq("date", group.dutyDate)
-        .maybeSingle();
-
-      if (existing) {
-        if (overwriteExisting) {
-          const { error } = await supabase
-            .schema("hris")
-            .from("attendance_logs")
-            .update(record)
-            .eq("id", existing.id);
-          if (error) throw error;
-          imported++;
-          const [yr, mo] = group.dutyDate.split("-").map(Number);
-          touched.push({ employeeId: group.employeeId, year: yr, month: mo });
-        }
-      } else {
-        const { error } = await supabase
-          .schema("hris")
-          .from("attendance_logs")
-          .insert(record);
-        if (error) throw error;
-        imported++;
-        const [yr, mo] = group.dutyDate.split("-").map(Number);
-        touched.push({ employeeId: group.employeeId, year: yr, month: mo });
-      }
+      const [yr, mo] = group.dutyDate.split("-").map(Number);
+      touched.push({ employeeId: group.employeeId, year: yr, month: mo });
     } catch {
       errors++;
+    }
+  }
+
+  // Batch-upsert against the UNIQUE(employee_id, date) constraint instead of a
+  // SELECT + INSERT/UPDATE per group. The old per-row loop did ~2 sequential DB
+  // round-trips per record, which blew past the serverless function timeout on
+  // large imports (3000+ punches). When overwrite is off, `ignoreDuplicates`
+  // makes existing rows a no-op (conflicts are already filtered into skipKeys);
+  // when on, it merges over the existing row. `.select("id")` returns only the
+  // rows actually written, giving an accurate `imported` count either way.
+  const CHUNK = 500;
+  for (let i = 0; i < records.length; i += CHUNK) {
+    const chunk = records.slice(i, i + CHUNK);
+    try {
+      const { data, error } = await supabase
+        .schema("hris")
+        .from("attendance_logs")
+        .upsert(chunk, {
+          onConflict: "employee_id,date",
+          ignoreDuplicates: !overwriteExisting,
+        })
+        .select("id");
+      if (error) throw error;
+      imported += data?.length ?? 0;
+    } catch {
+      errors += chunk.length;
     }
   }
 
@@ -658,7 +781,15 @@ export async function importDahuaAttendance(
   });
 
   revalidatePath("/attendance");
-  return { imported, skipped, errors };
+  const matchedPunches = previewRows.filter((r) => r.matched).length;
+  return {
+    imported,
+    skipped,
+    errors,
+    totalPunches: previewRows.length,
+    unmatchedPunches: previewRows.length - matchedPunches,
+    dayRecords: grouped.size,
+  };
 }
 
 // --- Bulk DTR (department + date range) ---
@@ -766,7 +897,7 @@ export async function getDepartmentDtrBulk(
       .schema("hris")
       .from("attendance_logs")
       .select(
-        "employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks",
+        "employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
       )
       .in("employee_id", empIds)
       .gte("date", startDate)
@@ -836,6 +967,7 @@ export async function getDepartmentDtrBulk(
   }
 
   const defaultSched = await resolveDefaultSchedule(supabase);
+  const holidayMap = await getHolidayMap(supabase, startDate, endDate);
   const results: BulkDtrResult[] = employeeRows.map((emp) => {
     const logMap = logsByEmp.get(emp.id) ?? new Map<string, Record<string, unknown>>();
     const leaveMap = leavesByEmp.get(emp.id) ?? new Map<string, string>();
@@ -853,9 +985,45 @@ export async function getDepartmentDtrBulk(
     for (const day of calendar) {
       const log = logMap.get(day.date);
       const leaveCode = leaveMap.get(day.date) ?? null;
+      const holiday = holidayMap.get(day.date) ?? null;
+      const holidayType: HolidayType | null = holiday?.type ?? null;
+      const holidayName = holiday?.name ?? null;
+      const isHalfHoliday =
+        holidayType === "half_am" || holidayType === "half_pm";
+      const hasPunch =
+        !!log &&
+        !!(log.time_in_am || log.time_out_am || log.time_in_pm || log.time_out_pm);
+
+      // Full-day holiday with no punches prints HOLIDAY across the row. If the
+      // employee actually worked the holiday, fall through so the times show.
+      if (holidayType === "full" && !hasPunch) {
+        entries.push({
+          date: day.date,
+          day_of_week: day.dayOfWeek,
+          time_in_am: null,
+          time_out_am: null,
+          time_in_pm: null,
+          time_out_pm: null,
+          is_late: false,
+          late_minutes: 0,
+          is_undertime: false,
+          undertime_minutes: 0,
+          is_absent: false,
+          remarks: holidayName,
+          leave_type: null,
+          holiday: "full",
+          holiday_name: holidayName,
+          no_time_reason_label: null,
+          ...EMPTY_SLOT_REASONS,
+        });
+        continue;
+      }
 
       if (log) {
         const isAbsent = (log.is_absent as boolean) ?? false;
+        const noTimeReasonLabel = log.no_time_reason
+          ? NO_TIME_REASON_LABELS[log.no_time_reason as NoTimeReason] ?? null
+          : null;
         const tInAmRaw = log.time_in_am as string | null;
         const tOutPmRaw = log.time_out_pm as string | null;
         // Recompute late/undertime against the *current* schedule so the
@@ -874,8 +1042,21 @@ export async function getDepartmentDtrBulk(
           timestampOnNextDay(tOutPmRaw, day.date),
           !!tInAmRaw,
         );
-        const isLate = lateMins > 0;
-        const isUndertime = undertimeMins > 0;
+        const reasonInAm = slotReasonShort(log.time_in_am_reason);
+        const reasonOutAm = slotReasonShort(log.time_out_am_reason);
+        const reasonInPm = slotReasonShort(log.time_in_pm_reason);
+        const reasonOutPm = slotReasonShort(log.time_out_pm_reason);
+        // An excused slot — or the holiday portion of a worked holiday — drops
+        // the tardiness/undertime tied to it.
+        const holidayExcusesLate =
+          holidayType === "full" || holidayType === "half_am";
+        const holidayExcusesUndertime =
+          holidayType === "full" || holidayType === "half_pm";
+        const effLateMins = reasonInAm || holidayExcusesLate ? 0 : lateMins;
+        const effUndertimeMins =
+          reasonOutPm || holidayExcusesUndertime ? 0 : undertimeMins;
+        const isLate = effLateMins > 0;
+        const isUndertime = effUndertimeMins > 0;
 
         entries.push({
           date: day.date,
@@ -885,23 +1066,30 @@ export async function getDepartmentDtrBulk(
           time_in_pm: extractTime(log.time_in_pm as string | null),
           time_out_pm: extractTime(tOutPmRaw),
           is_late: isLate,
-          late_minutes: lateMins,
+          late_minutes: effLateMins,
           is_undertime: isUndertime,
-          undertime_minutes: undertimeMins,
+          undertime_minutes: effUndertimeMins,
           is_absent: isAbsent,
           remarks: (log.remarks as string | null) ?? null,
           leave_type: leaveCode,
+          holiday: holidayType,
+          holiday_name: holidayName,
+          no_time_reason_label: noTimeReasonLabel,
+          reason_in_am: reasonInAm,
+          reason_out_am: reasonOutAm,
+          reason_in_pm: reasonInPm,
+          reason_out_pm: reasonOutPm,
         });
 
         if (!isAbsent) totalPresent++;
         else totalAbsent++;
         if (isLate) {
           totalLateCount++;
-          totalLateMinutes += lateMins;
+          totalLateMinutes += effLateMins;
         }
         if (isUndertime) {
           totalUndertimeCount++;
-          totalUndertimeMinutes += undertimeMins;
+          totalUndertimeMinutes += effUndertimeMins;
         }
       } else if (!day.isWeekend && leaveCode) {
         entries.push({
@@ -918,9 +1106,15 @@ export async function getDepartmentDtrBulk(
           is_absent: false,
           remarks: leaveCode,
           leave_type: leaveCode,
+          holiday: holidayType,
+          holiday_name: holidayName,
+          no_time_reason_label: null,
+          ...EMPTY_SLOT_REASONS,
         });
         totalOnLeave++;
       } else {
+        // A half-day holiday with no punches is not counted as an absence.
+        const absent = !day.isWeekend && !isHalfHoliday;
         entries.push({
           date: day.date,
           day_of_week: day.dayOfWeek,
@@ -932,11 +1126,15 @@ export async function getDepartmentDtrBulk(
           late_minutes: 0,
           is_undertime: false,
           undertime_minutes: 0,
-          is_absent: !day.isWeekend,
-          remarks: day.isWeekend ? "Weekend" : null,
+          is_absent: absent,
+          remarks: day.isWeekend ? "Weekend" : isHalfHoliday ? holidayName : null,
           leave_type: null,
+          holiday: holidayType,
+          holiday_name: holidayName,
+          no_time_reason_label: null,
+          ...EMPTY_SLOT_REASONS,
         });
-        if (!day.isWeekend) totalAbsent++;
+        if (absent) totalAbsent++;
       }
     }
 
@@ -1025,7 +1223,7 @@ export async function getEmployeeDtrRange(
       .schema("hris")
       .from("attendance_logs")
       .select(
-        "date, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks",
+        "date, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
       )
       .eq("employee_id", employeeId)
       .gte("date", startDate)
@@ -1087,6 +1285,8 @@ export async function getEmployeeDtrRange(
     ((employee as unknown) as { schedules: ScheduleLike | null }).schedules ??
     (await resolveDefaultSchedule(supabase));
 
+  const holidayMap = await getHolidayMap(supabase, startDate, endDate);
+
   const cursor = new Date(startDate + "T00:00:00");
   const end = new Date(endDate + "T00:00:00");
   while (cursor <= end) {
@@ -1096,9 +1296,46 @@ export async function getEmployeeDtrRange(
     const isWeekend = dow === 0 || dow === 6;
     const log = logMap.get(dateStr);
     const leaveCode = leaveMap.get(dateStr) ?? null;
+    const holiday = holidayMap.get(dateStr) ?? null;
+    const holidayType: HolidayType | null = holiday?.type ?? null;
+    const holidayName = holiday?.name ?? null;
+    const isHalfHoliday =
+      holidayType === "half_am" || holidayType === "half_pm";
+    const hasPunch =
+      !!log &&
+      !!(log.time_in_am || log.time_out_am || log.time_in_pm || log.time_out_pm);
+
+    // Full-day holiday with no punches prints HOLIDAY across the row. If the
+    // employee actually worked the holiday, fall through so the times show.
+    if (holidayType === "full" && !hasPunch) {
+      entries.push({
+        date: dateStr,
+        day_of_week: dayOfWeek,
+        time_in_am: null,
+        time_out_am: null,
+        time_in_pm: null,
+        time_out_pm: null,
+        is_late: false,
+        late_minutes: 0,
+        is_undertime: false,
+        undertime_minutes: 0,
+        is_absent: false,
+        remarks: holidayName,
+        leave_type: null,
+        holiday: "full",
+        holiday_name: holidayName,
+        no_time_reason_label: null,
+        ...EMPTY_SLOT_REASONS,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+      continue;
+    }
 
     if (log) {
       const isAbsent = (log.is_absent as boolean) ?? false;
+      const noTimeReasonLabel = log.no_time_reason
+        ? NO_TIME_REASON_LABELS[log.no_time_reason as NoTimeReason] ?? null
+        : null;
       const tInAmRaw = log.time_in_am as string | null;
       const tOutPmRaw = log.time_out_pm as string | null;
       const lateMins = lateMinutesFor(
@@ -1114,8 +1351,21 @@ export async function getEmployeeDtrRange(
         timestampOnNextDay(tOutPmRaw, dateStr),
         !!tInAmRaw,
       );
-      const isLate = lateMins > 0;
-      const isUndertime = undertimeMins > 0;
+      const reasonInAm = slotReasonShort(log.time_in_am_reason);
+      const reasonOutAm = slotReasonShort(log.time_out_am_reason);
+      const reasonInPm = slotReasonShort(log.time_in_pm_reason);
+      const reasonOutPm = slotReasonShort(log.time_out_pm_reason);
+      // An excused slot — or the holiday portion of a worked holiday — drops
+      // the tardiness/undertime tied to it.
+      const holidayExcusesLate =
+        holidayType === "full" || holidayType === "half_am";
+      const holidayExcusesUndertime =
+        holidayType === "full" || holidayType === "half_pm";
+      const effLateMins = reasonInAm || holidayExcusesLate ? 0 : lateMins;
+      const effUndertimeMins =
+        reasonOutPm || holidayExcusesUndertime ? 0 : undertimeMins;
+      const isLate = effLateMins > 0;
+      const isUndertime = effUndertimeMins > 0;
 
       entries.push({
         date: dateStr,
@@ -1125,23 +1375,30 @@ export async function getEmployeeDtrRange(
         time_in_pm: extractTime(log.time_in_pm as string | null),
         time_out_pm: extractTime(tOutPmRaw),
         is_late: isLate,
-        late_minutes: lateMins,
+        late_minutes: effLateMins,
         is_undertime: isUndertime,
-        undertime_minutes: undertimeMins,
+        undertime_minutes: effUndertimeMins,
         is_absent: isAbsent,
         remarks: (log.remarks as string | null) ?? null,
         leave_type: leaveCode,
+        holiday: holidayType,
+        holiday_name: holidayName,
+        no_time_reason_label: noTimeReasonLabel,
+        reason_in_am: reasonInAm,
+        reason_out_am: reasonOutAm,
+        reason_in_pm: reasonInPm,
+        reason_out_pm: reasonOutPm,
       });
 
       if (!isAbsent) totalPresent++;
       else totalAbsent++;
       if (isLate) {
         totalLateCount++;
-        totalLateMinutes += lateMins;
+        totalLateMinutes += effLateMins;
       }
       if (isUndertime) {
         totalUndertimeCount++;
-        totalUndertimeMinutes += undertimeMins;
+        totalUndertimeMinutes += effUndertimeMins;
       }
     } else if (!isWeekend && leaveCode) {
       entries.push({
@@ -1158,9 +1415,15 @@ export async function getEmployeeDtrRange(
         is_absent: false,
         remarks: leaveCode,
         leave_type: leaveCode,
+        holiday: holidayType,
+        holiday_name: holidayName,
+        no_time_reason_label: null,
+        ...EMPTY_SLOT_REASONS,
       });
       totalOnLeave++;
     } else {
+      // A half-day holiday with no punches is not counted as an absence.
+      const absent = !isWeekend && !isHalfHoliday;
       entries.push({
         date: dateStr,
         day_of_week: dayOfWeek,
@@ -1172,11 +1435,15 @@ export async function getEmployeeDtrRange(
         late_minutes: 0,
         is_undertime: false,
         undertime_minutes: 0,
-        is_absent: !isWeekend,
-        remarks: isWeekend ? "Weekend" : null,
+        is_absent: absent,
+        remarks: isWeekend ? "Weekend" : isHalfHoliday ? holidayName : null,
         leave_type: null,
+        holiday: holidayType,
+        holiday_name: holidayName,
+        no_time_reason_label: null,
+        ...EMPTY_SLOT_REASONS,
       });
-      if (!isWeekend) totalAbsent++;
+      if (absent) totalAbsent++;
     }
 
     cursor.setDate(cursor.getDate() + 1);

@@ -200,9 +200,25 @@ export function bucketPunchesForDuty(
 
   // --- Status-first path (break schedules) ---
   // Only when every punch is a recognized Check In/Break Out/Break In/Check Out
-  // label; otherwise fall through to time-window bucketing. No-break shifts use
-  // the window path, where earliest-in / latest-out already pick the endpoints.
-  if (hasBreak(sched) && punches.every((p) => STATUS_SLOT[p.status])) {
+  // label AND the day actually carries at least one break punch; otherwise fall
+  // through to time-window bucketing. No-break shifts use the window path, where
+  // earliest-in / latest-out already pick the endpoints.
+  //
+  // Some Dahua devices only ever emit "Check In"/"Check Out" — they never label
+  // the midday lunch scans as Break Out/Break In. For those, the labels are
+  // technically all "recognized" but carry no AM-out/PM-in information, so
+  // trusting them would collapse the lunch pair into the first-in / last-out and
+  // leave AM-out + PM-in blank. Requiring a real break punch routes those days
+  // to the time-window path, which splits the 12:08 lunch-out / 12:5x lunch-in
+  // correctly by the schedule's break window.
+  const hasBreakPunch = punches.some(
+    (p) => STATUS_SLOT[p.status] === "out_am" || STATUS_SLOT[p.status] === "in_pm",
+  );
+  if (
+    hasBreak(sched) &&
+    hasBreakPunch &&
+    punches.every((p) => STATUS_SLOT[p.status])
+  ) {
     return bucketByStatus(punches);
   }
 

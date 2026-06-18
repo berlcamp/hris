@@ -27,6 +27,7 @@ import {
   Briefcase,
   Hammer,
   CalendarClock,
+  CalendarOff,
 } from "lucide-react";
 
 import {
@@ -180,7 +181,9 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Administration",
-    roles: ["super_admin"],
+    // DTR Manager only sees Work Schedules within this group; every other item
+    // stays super_admin-only.
+    roles: ["super_admin", "dtr_manager"],
     items: [
       { title: "User Management", href: "/admin/users", icon: UserPlus, roles: ["super_admin"] },
       { title: "Salary Grades", href: "/admin/salary-grades", icon: Building2, roles: ["super_admin"] },
@@ -196,7 +199,8 @@ const navGroups: NavGroup[] = [
         icon: Upload,
         roles: ["super_admin"],
       },
-      { title: "Work Schedules", href: "/admin/schedules", icon: CalendarClock, roles: ["super_admin"] },
+      { title: "Work Schedules", href: "/admin/schedules", icon: CalendarClock, roles: ["super_admin", "dtr_manager"] },
+      { title: "Holidays", href: "/attendance/holidays", icon: CalendarOff, roles: ["super_admin", "dtr_manager"] },
       { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin"] },
       { title: "Audit Trail", href: "/admin/audit-log", icon: Shield, roles: ["super_admin"] },
       { title: "Settings", href: "/admin/settings", icon: Settings, roles: ["super_admin"] },

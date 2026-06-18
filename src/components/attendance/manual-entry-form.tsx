@@ -13,6 +13,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Command,
   CommandEmpty,
   CommandGroup,
@@ -22,6 +29,11 @@ import {
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { createAttendanceEntry } from "@/lib/actions/attendance-actions";
+import {
+  NO_TIME_REASONS,
+  NO_TIME_REASON_LABELS,
+  type NoTimeReason,
+} from "@/lib/constants";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
@@ -34,6 +46,71 @@ interface ManualEntryInitialValues {
   timeInPm: string;
   timeOutPm: string;
   remarks: string;
+  reasonInAm: NoTimeReason | null;
+  reasonOutAm: NoTimeReason | null;
+  reasonInPm: NoTimeReason | null;
+  reasonOutPm: NoTimeReason | null;
+}
+
+// Sentinel for the "no reason" option, since the Select can't hold an empty value.
+const NO_REASON = "none";
+
+const toReason = (v: string): NoTimeReason | null =>
+  v === NO_REASON ? null : (v as NoTimeReason);
+
+const REASON_ITEMS = { [NO_REASON]: "No reason", ...NO_TIME_REASON_LABELS };
+
+// A time field paired with an official-duty reason selector. Enter a time OR
+// pick a reason for the blank slot (the DTR prints the reason instead of a
+// time); the two are mutually exclusive.
+function TimeReasonField({
+  id,
+  label,
+  time,
+  onTime,
+  reason,
+  onReason,
+}: {
+  id: string;
+  label: string;
+  time: string;
+  onTime: (v: string) => void;
+  reason: string;
+  onReason: (v: string) => void;
+}) {
+  const hasReason = reason !== NO_REASON;
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      <Input
+        id={id}
+        type="time"
+        value={time}
+        onChange={(e) => onTime(e.target.value)}
+        disabled={hasReason}
+      />
+      <Select
+        items={REASON_ITEMS}
+        value={reason}
+        onValueChange={(v) => v && onReason(v)}
+        disabled={!!time}
+      >
+        <SelectTrigger className="w-full" size="sm">
+          <SelectValue placeholder="No reason" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_REASON}>No reason</SelectItem>
+          {NO_TIME_REASONS.map((r) => (
+            <SelectItem key={r} value={r}>
+              {NO_TIME_REASON_LABELS[r]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
 
 interface ManualEntryFormProps {
@@ -54,6 +131,18 @@ export function ManualEntryForm({ employees, initialValues }: ManualEntryFormPro
   const [timeInPm, setTimeInPm] = useState(initialValues?.timeInPm ?? "");
   const [timeOutPm, setTimeOutPm] = useState(initialValues?.timeOutPm ?? "");
   const [remarks, setRemarks] = useState(initialValues?.remarks ?? "");
+  const [reasonInAm, setReasonInAm] = useState<string>(
+    initialValues?.reasonInAm ?? NO_REASON,
+  );
+  const [reasonOutAm, setReasonOutAm] = useState<string>(
+    initialValues?.reasonOutAm ?? NO_REASON,
+  );
+  const [reasonInPm, setReasonInPm] = useState<string>(
+    initialValues?.reasonInPm ?? NO_REASON,
+  );
+  const [reasonOutPm, setReasonOutPm] = useState<string>(
+    initialValues?.reasonOutPm ?? NO_REASON,
+  );
   const [empOpen, setEmpOpen] = useState(false);
   const [dateOpen, setDateOpen] = useState(false);
 
@@ -76,6 +165,10 @@ export function ManualEntryForm({ employees, initialValues }: ManualEntryFormPro
         time_in_pm: timeInPm || null,
         time_out_pm: timeOutPm || null,
         remarks: remarks || undefined,
+        reason_in_am: toReason(reasonInAm),
+        reason_out_am: toReason(reasonOutAm),
+        reason_in_pm: toReason(reasonInPm),
+        reason_out_pm: toReason(reasonOutPm),
       });
 
       toast.success(isEdit ? "Attendance entry updated" : "Attendance entry saved");
@@ -181,62 +274,53 @@ export function ManualEntryForm({ employees, initialValues }: ManualEntryFormPro
             </Popover>
           </div>
 
-          {/* Time Inputs */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-4">
-              <h4 className="text-sm font-medium">Morning (AM)</h4>
-              <div className="space-y-2">
-                <Label htmlFor="time_in_am" className="text-xs">
-                  Time In
-                </Label>
-                <Input
+          {/* Time Inputs + per-slot reason */}
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium">Morning (AM)</h4>
+                <TimeReasonField
                   id="time_in_am"
-                  type="time"
-                  value={timeInAm}
-                  onChange={(e) => setTimeInAm(e.target.value)}
-                  placeholder="08:00"
+                  label="Time In"
+                  time={timeInAm}
+                  onTime={setTimeInAm}
+                  reason={reasonInAm}
+                  onReason={setReasonInAm}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="time_out_am" className="text-xs">
-                  Time Out
-                </Label>
-                <Input
+                <TimeReasonField
                   id="time_out_am"
-                  type="time"
-                  value={timeOutAm}
-                  onChange={(e) => setTimeOutAm(e.target.value)}
-                  placeholder="12:00"
+                  label="Time Out"
+                  time={timeOutAm}
+                  onTime={setTimeOutAm}
+                  reason={reasonOutAm}
+                  onReason={setReasonOutAm}
                 />
               </div>
-            </div>
-            <div className="space-y-4">
-              <h4 className="text-sm font-medium">Afternoon (PM)</h4>
-              <div className="space-y-2">
-                <Label htmlFor="time_in_pm" className="text-xs">
-                  Time In
-                </Label>
-                <Input
+              <div className="space-y-4">
+                <h4 className="text-sm font-medium">Afternoon (PM)</h4>
+                <TimeReasonField
                   id="time_in_pm"
-                  type="time"
-                  value={timeInPm}
-                  onChange={(e) => setTimeInPm(e.target.value)}
-                  placeholder="13:00"
+                  label="Time In"
+                  time={timeInPm}
+                  onTime={setTimeInPm}
+                  reason={reasonInPm}
+                  onReason={setReasonInPm}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="time_out_pm" className="text-xs">
-                  Time Out
-                </Label>
-                <Input
+                <TimeReasonField
                   id="time_out_pm"
-                  type="time"
-                  value={timeOutPm}
-                  onChange={(e) => setTimeOutPm(e.target.value)}
-                  placeholder="17:00"
+                  label="Time Out"
+                  time={timeOutPm}
+                  onTime={setTimeOutPm}
+                  reason={reasonOutPm}
+                  onReason={setReasonOutPm}
                 />
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              For a blank slot, pick a reason (TRAVEL, FIELD WORK, OFFICIAL
+              BUSINESS) instead of a time. The DTR prints the reason in that
+              cell and does not charge tardiness/undertime for it.
+            </p>
           </div>
 
           {/* Remarks */}

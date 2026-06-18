@@ -166,6 +166,15 @@ const styles = StyleSheet.create({
     borderRight: "0.5pt solid #999",
     paddingVertical: 1.5,
   },
+  // A single slot showing an official-duty shortcut (FW / OB / TRAVEL) in place
+  // of a time.
+  reasonCell: {
+    fontSize: 6.5,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "center",
+    borderRight: "0.5pt solid #999",
+    paddingVertical: 1.5,
+  },
   utCell: {
     fontSize: 7,
     textAlign: "center",
@@ -177,7 +186,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 1.5,
   },
-  // Spanning row (weekend/leave/absent)
+  // Spanning row (weekend/leave/absent/full holiday)
   spanCell: {
     width: w(100 - W_DAY),
     paddingVertical: 1.5,
@@ -185,6 +194,16 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica-Bold",
     fontSize: 7,
     letterSpacing: 1,
+  },
+  // Half-day holiday overlay covering only the AM or PM group of cells.
+  holidayHalf: {
+    paddingVertical: 1.5,
+    textAlign: "center",
+    fontFamily: "Helvetica-Bold",
+    fontSize: 6.5,
+    letterSpacing: 0.5,
+    borderRight: "0.5pt solid #999",
+    backgroundColor: "#f1f1f1",
   },
   // Total row
   totalRow: {
@@ -292,6 +311,25 @@ function formatTime(t: string | null): string {
   return t; // already HH:MM
 }
 
+// A single AM/PM time cell. Prints the official-duty shortcut (FW / OB /
+// TRAVEL) when the slot is excused, otherwise the punched time.
+function SlotCell({
+  time,
+  reason,
+  width,
+}: {
+  time: string | null;
+  reason: string | null;
+  width: number;
+}) {
+  if (reason) {
+    return <Text style={[styles.reasonCell, { width: w(width) }]}>{reason}</Text>;
+  }
+  return (
+    <Text style={[styles.timeCell, { width: w(width) }]}>{formatTime(time)}</Text>
+  );
+}
+
 // 0.125 leave-credit days per hour (8 hours = 1.0 day). Minute granularity is
 // prorated linearly: 1 min = 0.125 / 60 days.
 function convertMinsToLeaveCredits(totalMins: number): string {
@@ -318,19 +356,29 @@ export function DtrFormColumn({
       entry.day_of_week === "Saturday" || entry.day_of_week === "Sunday";
     const dayLabel = dayLabelFor(entry);
 
-    // Spanning row for weekend / approved leave / absent (no time entries)
+    const amBlank = !entry.time_in_am && !entry.time_out_am;
+    const pmBlank = !entry.time_in_pm && !entry.time_out_pm;
+    const hasNoPunch = amBlank && pmBlank;
+
+    // Half-day holiday overlays "HOLIDAY" on the AM or PM cells — but only when
+    // that half is blank. If the employee worked the holiday half, show times.
+    const showAmHoliday = entry.holiday === "half_am" && amBlank;
+    const showPmHoliday = entry.holiday === "half_pm" && pmBlank;
+
+    // Spanning row for full holiday / weekend / approved leave /
+    // official-duty reason (TRAVEL, FIELD WORK, OFFICIAL BUSINESS) / absent.
+    // A full holiday only spans the row when the employee did not work it;
+    // otherwise the times below are shown.
     let spanLabel: string | null = null;
-    if (isWeekend) {
+    if (entry.holiday === "full" && hasNoPunch) {
+      spanLabel = "HOLIDAY";
+    } else if (isWeekend) {
       spanLabel = entry.day_of_week.toUpperCase();
     } else if (entry.leave_type && !entry.is_absent) {
       spanLabel = "ON LEAVE";
-    } else if (
-      entry.is_absent &&
-      !entry.time_in_am &&
-      !entry.time_out_am &&
-      !entry.time_in_pm &&
-      !entry.time_out_pm
-    ) {
+    } else if (entry.no_time_reason_label && hasNoPunch) {
+      spanLabel = entry.no_time_reason_label;
+    } else if (entry.is_absent && hasNoPunch) {
       spanLabel = "ABSENT";
     }
 
@@ -349,18 +397,42 @@ export function DtrFormColumn({
           <Text style={styles.spanCell}>{spanLabel}</Text>
         ) : hasBreak ? (
           <>
-            <Text style={[styles.timeCell, { width: w(W_AM_ARR) }]}>
-              {formatTime(entry.time_in_am)}
-            </Text>
-            <Text style={[styles.timeCell, { width: w(W_AM_DEP) }]}>
-              {formatTime(entry.time_out_am)}
-            </Text>
-            <Text style={[styles.timeCell, { width: w(W_PM_ARR) }]}>
-              {formatTime(entry.time_in_pm)}
-            </Text>
-            <Text style={[styles.timeCell, { width: w(W_PM_DEP) }]}>
-              {formatTime(entry.time_out_pm)}
-            </Text>
+            {showAmHoliday ? (
+              <Text style={[styles.holidayHalf, { width: w(W_AM_GROUP) }]}>
+                HOLIDAY
+              </Text>
+            ) : (
+              <>
+                <SlotCell
+                  time={entry.time_in_am}
+                  reason={entry.reason_in_am}
+                  width={W_AM_ARR}
+                />
+                <SlotCell
+                  time={entry.time_out_am}
+                  reason={entry.reason_out_am}
+                  width={W_AM_DEP}
+                />
+              </>
+            )}
+            {showPmHoliday ? (
+              <Text style={[styles.holidayHalf, { width: w(W_PM_GROUP) }]}>
+                HOLIDAY
+              </Text>
+            ) : (
+              <>
+                <SlotCell
+                  time={entry.time_in_pm}
+                  reason={entry.reason_in_pm}
+                  width={W_PM_ARR}
+                />
+                <SlotCell
+                  time={entry.time_out_pm}
+                  reason={entry.reason_out_pm}
+                  width={W_PM_DEP}
+                />
+              </>
+            )}
             <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
               {totalUtForDay > 0 ? String(utH) : ""}
             </Text>
@@ -370,12 +442,28 @@ export function DtrFormColumn({
           </>
         ) : (
           <>
-            <Text style={[styles.timeCell, { width: w(NB_IN) }]}>
-              {formatTime(entry.time_in_am)}
-            </Text>
-            <Text style={[styles.timeCell, { width: w(NB_OUT) }]}>
-              {formatTime(entry.time_out_pm)}
-            </Text>
+            {showAmHoliday ? (
+              <Text style={[styles.holidayHalf, { width: w(NB_IN) }]}>
+                HOLIDAY
+              </Text>
+            ) : (
+              <SlotCell
+                time={entry.time_in_am}
+                reason={entry.reason_in_am}
+                width={NB_IN}
+              />
+            )}
+            {showPmHoliday ? (
+              <Text style={[styles.holidayHalf, { width: w(NB_OUT) }]}>
+                HOLIDAY
+              </Text>
+            ) : (
+              <SlotCell
+                time={entry.time_out_pm}
+                reason={entry.reason_out_pm}
+                width={NB_OUT}
+              />
+            )}
             <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
               {totalUtForDay > 0 ? String(utH) : ""}
             </Text>

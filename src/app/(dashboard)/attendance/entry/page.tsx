@@ -31,6 +31,10 @@ export default async function AttendanceEntryPage({
         timeInPm: entry.time_in_pm,
         timeOutPm: entry.time_out_pm,
         remarks: entry.remarks,
+        reasonInAm: entry.reason_in_am,
+        reasonOutAm: entry.reason_out_am,
+        reasonInPm: entry.reason_in_pm,
+        reasonOutPm: entry.reason_out_pm,
       }
     : undefined;
 

@@ -39,6 +39,9 @@ export function DahuaImportDialog() {
     imported: number;
     skipped: number;
     errors: number;
+    totalPunches: number;
+    unmatchedPunches: number;
+    dayRecords: number;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState<string>("");
@@ -254,6 +257,14 @@ export function DahuaImportDialog() {
                 </div>
               )}
             </div>
+            <p className="text-xs text-muted-foreground text-center max-w-sm">
+              {result.totalPunches} punches collapsed into {result.dayRecords} employee-day
+              record{result.dayRecords === 1 ? "" : "s"} (one row per employee per day).
+              {result.unmatchedPunches > 0 &&
+                ` ${result.unmatchedPunches} punch${
+                  result.unmatchedPunches === 1 ? "" : "es"
+                } belonged to employees not found in the system and were ignored.`}
+            </p>
           </div>
         )}
 

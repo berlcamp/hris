@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getSchedulesWithCounts } from "@/lib/actions/schedule-actions";
 import { ScheduleManager } from "@/components/admin/schedule-manager";
+import { canManageSchedules } from "@/lib/auth-helpers";
 
 export default async function SchedulesAdminPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "super_admin") redirect("/dashboard");
+  if (!canManageSchedules(user.role)) redirect("/dashboard");
 
   const schedules = await getSchedulesWithCounts();
 
