@@ -53,6 +53,22 @@ export function isDeptScoped(role: UserRole | null | undefined): boolean {
   return isDeptHead(role) || isDeptAdmin(role);
 }
 
+// Roles allowed to set an employee's "Detailed To" department through the quick
+// modal on the employees list. This is a narrow, single-field edit (it drives
+// the DTR signatory — see src/lib/dtr-signatory.ts) and is restricted to the
+// caller's own department. Full employee editing stays super_admin / hr_admin.
+const DETAILED_DEPT_EDITOR_ROLES: readonly UserRole[] = [
+  "department_admin",
+  "department_admin_and_department_head",
+  "ocm_admin",
+] as const;
+
+export function canEditDetailedDepartment(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && DETAILED_DEPT_EDITOR_ROLES.includes(role);
+}
+
 // The composite "Dept Admin + Head" role. Acts as a dept-head approver but
 // is granted cross-department reach within the Leave module specifically —
 // e.g. they can file leave for any employee and approve at the dept-head

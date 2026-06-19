@@ -21,6 +21,8 @@ export const employeeFormSchema = z.object({
   }),
   position_id: z.string().nullable(),
   department_id: z.string().nullable(),
+  detailed_department_id: z.string().nullable(),
+  is_department_head: z.boolean(),
   salary_grade: z.coerce
     .number()
     .int()

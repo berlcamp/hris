@@ -22,6 +22,7 @@ export type EmployeeRow = {
   employment_type: string;
   status: string;
   department_id: string | null;
+  detailed_department_id: string | null;
   schedule_id: string | null;
   vl_sl_needs_manual_entry: boolean;
   departments: { name: string; code: string } | null;
@@ -54,10 +55,18 @@ const statusBadgeVariant: Record<string, "default" | "secondary" | "destructive"
   deceased: "outline",
 };
 
+export type DetailedDeptOption = { id: string; code: string; name: string };
+
 export function getEmployeeColumns({
   canEdit,
+  canEditDetailedDept = false,
+  userDepartmentId = null,
+  departments = [],
 }: {
   canEdit: boolean;
+  canEditDetailedDept?: boolean;
+  userDepartmentId?: string | null;
+  departments?: DetailedDeptOption[];
 }): ColumnDef<EmployeeRow>[] {
   return [
   {
@@ -121,12 +130,25 @@ export function getEmployeeColumns({
         >
           <Copy className="h-3.5 w-3.5" />
         </Button>
-        <Link
-          href={`/employees/${row.original.id}`}
-          className="min-w-0 font-medium text-primary hover:underline"
-        >
-          {row.getValue("full_name")}
-        </Link>
+        <div className="min-w-0">
+          <Link
+            href={`/employees/${row.original.id}`}
+            className="block font-medium text-primary hover:underline"
+          >
+            {row.getValue("full_name")}
+          </Link>
+          {(() => {
+            const title = getEffectivePosition(row.original);
+            return title ? (
+              <span
+                className="block max-w-[16rem] truncate text-xs text-muted-foreground"
+                title={title}
+              >
+                {title}
+              </span>
+            ) : null;
+          })()}
+        </div>
       </div>
     ),
   },
@@ -151,26 +173,6 @@ export function getEmployeeColumns({
     },
     filterFn: (row, id, value) => {
       return value.includes(row.original.department_id);
-    },
-  },
-  {
-    id: "position",
-    accessorFn: (row) => getEffectivePosition(row) ?? "—",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Position" />
-    ),
-    cell: ({ row }) => {
-      const title = getEffectivePosition(row.original);
-      return title ? (
-        <span
-          className="block max-w-[14rem] truncate"
-          title={title}
-        >
-          {title}
-        </span>
-      ) : (
-        <span className="text-muted-foreground">—</span>
-      );
     },
   },
   {
@@ -233,7 +235,13 @@ export function getEmployeeColumns({
   {
     id: "actions",
     cell: ({ row }) => (
-      <EmployeeActionsCell employee={row.original} canEdit={canEdit} />
+      <EmployeeActionsCell
+        employee={row.original}
+        canEdit={canEdit}
+        canEditDetailedDept={canEditDetailedDept}
+        userDepartmentId={userDepartmentId}
+        departments={departments}
+      />
     ),
   },
   ];

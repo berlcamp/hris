@@ -78,6 +78,8 @@ export interface Employee {
   employment_type: EmploymentType;
   position_id: string | null;
   department_id: string | null;
+  detailed_department_id: string | null;
+  is_department_head: boolean;
   salary_grade: number;
   step_increment: number;
   hire_date: string;

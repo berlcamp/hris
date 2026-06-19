@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
+  canEditDetailedDepartment,
   isCompositeDeptAdminHead,
   isDeptHead,
   isDeptScoped,
@@ -32,6 +33,8 @@ export interface EmployeeWithRelations {
   employment_type: string;
   position_id: string | null;
   department_id: string | null;
+  detailed_department_id: string | null;
+  is_department_head: boolean;
   salary_grade: number;
   step_increment: number;
   hire_date: string;
@@ -170,6 +173,8 @@ export async function createEmployee(input: EmployeeFormValues) {
       employment_type: input.employment_type,
       position_id: input.position_id,
       department_id: input.department_id,
+      detailed_department_id: input.detailed_department_id,
+      is_department_head: input.is_department_head,
       salary_grade: input.salary_grade,
       step_increment: input.step_increment,
       hire_date: input.hire_date,
@@ -236,6 +241,8 @@ export async function updateEmployee(
       employment_type: input.employment_type,
       position_id: input.position_id,
       department_id: input.department_id,
+      detailed_department_id: input.detailed_department_id,
+      is_department_head: input.is_department_head,
       salary_grade: input.salary_grade,
       step_increment: input.step_increment,
       hire_date: input.hire_date,
@@ -265,6 +272,60 @@ export async function updateEmployee(
   revalidatePath("/employees");
   revalidatePath(`/employees/${id}`);
   return { data };
+}
+
+/**
+ * Quick, single-field edit of an employee's "Detailed To" department. Available
+ * to Department Admin, Department Admin + Head, and OCM Admin for employees in
+ * their OWN department only. Drives the printable DTR signatory block.
+ */
+export async function updateEmployeeDetailedDepartment(
+  employeeId: string,
+  detailedDepartmentId: string | null,
+): Promise<{ success: true } | { error: string }> {
+  const user = await getCurrentUser();
+  if (!user || !canEditDetailedDepartment(user.role)) {
+    return { error: "You are not allowed to edit the detailed department." };
+  }
+  if (!user.departmentId) {
+    return { error: "Your account is not assigned to a department." };
+  }
+
+  const supabase = createAdminClient();
+
+  // The employee must belong to the caller's own home department.
+  const { data: employee, error: fetchError } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select("id, department_id")
+    .eq("id", employeeId)
+    .single();
+
+  if (fetchError || !employee) return { error: "Employee not found." };
+  if (employee.department_id !== user.departmentId) {
+    return { error: "You can only edit employees in your own department." };
+  }
+
+  const { error } = await supabase
+    .schema("hris")
+    .from("employees")
+    .update({ detailed_department_id: detailedDepartmentId })
+    .eq("id", employeeId);
+
+  if (error) return { error: error.message };
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "update",
+    tableName: "employees",
+    recordId: employeeId,
+    newValues: { detailed_department_id: detailedDepartmentId },
+  });
+
+  revalidatePath("/employees");
+  revalidatePath(`/employees/${employeeId}`);
+  return { success: true };
 }
 
 const ALLOWED_EMPLOYEE_STATUSES = [

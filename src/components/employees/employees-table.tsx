@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { DataTable } from "@/components/tables/data-table";
 import {
   getEmployeeColumns,
+  type DetailedDeptOption,
   type EmployeeRow,
 } from "@/components/tables/columns/employee-columns";
 import { ExportCsvButton } from "@/components/tables/export-csv-button";
@@ -13,14 +14,29 @@ interface EmployeesTableProps {
   data: EmployeeRow[];
   departmentOptions: { label: string; value: string }[];
   canEdit: boolean;
+  canEditDetailedDept?: boolean;
+  userDepartmentId?: string | null;
+  departments?: DetailedDeptOption[];
 }
 
 export function EmployeesTable({
   data,
   departmentOptions,
   canEdit,
+  canEditDetailedDept = false,
+  userDepartmentId = null,
+  departments = [],
 }: EmployeesTableProps) {
-  const columns = useMemo(() => getEmployeeColumns({ canEdit }), [canEdit]);
+  const columns = useMemo(
+    () =>
+      getEmployeeColumns({
+        canEdit,
+        canEditDetailedDept,
+        userDepartmentId,
+        departments,
+      }),
+    [canEdit, canEditDetailedDept, userDepartmentId, departments]
+  );
   return (
     <DataTable
       columns={columns}

@@ -29,7 +29,7 @@ interface BulkDtrPdfProps {
 export function BulkDtrPdf({ results, periodLabel }: BulkDtrPdfProps) {
   return (
     <Document>
-      {results.map(({ employee, entries, summary, schedule }) => {
+      {results.map(({ employee, entries, summary, schedule, signatory }) => {
         const fullName = [employee.first_name, employee.middle_name, employee.last_name]
           .filter(Boolean)
           .join(" ");
@@ -49,6 +49,7 @@ export function BulkDtrPdf({ results, periodLabel }: BulkDtrPdfProps) {
                   employeeName={fullName}
                   periodLabel={periodLabel}
                   schedule={schedule}
+                  signatory={signatory}
                 />
               </View>
               <View style={styles.half}>
@@ -58,6 +59,7 @@ export function BulkDtrPdf({ results, periodLabel }: BulkDtrPdfProps) {
                   employeeName={fullName}
                   periodLabel={periodLabel}
                   schedule={schedule}
+                  signatory={signatory}
                 />
               </View>
             </View>

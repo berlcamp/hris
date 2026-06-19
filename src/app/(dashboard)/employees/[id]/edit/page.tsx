@@ -60,6 +60,8 @@ export default async function EditEmployeePage({
           employment_type: employee.employment_type as "plantilla" | "jo" | "cos",
           position_id: employee.position_id,
           department_id: employee.department_id,
+          detailed_department_id: employee.detailed_department_id,
+          is_department_head: employee.is_department_head,
           salary_grade: employee.salary_grade,
           step_increment: employee.step_increment,
           hire_date: employee.hire_date,

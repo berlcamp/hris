@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Eye, Pencil, UserCog } from "lucide-react";
+import { MoreHorizontal, Eye, Pencil, UserCog, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -32,13 +32,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { changeEmployeeStatus } from "@/lib/actions/employee-actions";
+import {
+  changeEmployeeStatus,
+  updateEmployeeDetailedDepartment,
+} from "@/lib/actions/employee-actions";
 import {
   EMPLOYEE_STATUS_DESCRIPTIONS,
   EMPLOYEE_STATUS_LABELS,
 } from "@/lib/constants";
 import type { EmployeeStatus } from "@/lib/types";
-import type { EmployeeRow } from "./employee-columns";
+import type { DetailedDeptOption, EmployeeRow } from "./employee-columns";
+
+const NOT_DETAILED = "none";
 
 const STATUS_OPTIONS: { value: EmployeeStatus; label: string }[] = [
   { value: "active", label: EMPLOYEE_STATUS_LABELS.active },
@@ -55,12 +60,30 @@ const STATUS_OPTIONS: { value: EmployeeStatus; label: string }[] = [
 export function EmployeeActionsCell({
   employee,
   canEdit,
+  canEditDetailedDept = false,
+  userDepartmentId = null,
+  departments = [],
 }: {
   employee: EmployeeRow;
   canEdit: boolean;
+  canEditDetailedDept?: boolean;
+  userDepartmentId?: string | null;
+  departments?: DetailedDeptOption[];
 }) {
   const router = useRouter();
   const [showStatus, setShowStatus] = useState(false);
+  const [showDetailedDept, setShowDetailedDept] = useState(false);
+  const [detailedDept, setDetailedDept] = useState<string>(
+    employee.detailed_department_id ?? NOT_DETAILED
+  );
+  const [savingDetailedDept, setSavingDetailedDept] = useState(false);
+
+  // The single-field "detailed department" edit is allowed only for employees
+  // in the caller's own department (the server action re-checks this).
+  const canEditThisDetailedDept =
+    canEditDetailedDept &&
+    !!userDepartmentId &&
+    employee.department_id === userDepartmentId;
   const [status, setStatus] = useState<EmployeeStatus>(
     (employee.status as EmployeeStatus) ?? "active"
   );
@@ -102,6 +125,28 @@ export function EmployeeActionsCell({
     setSaving(false);
   };
 
+  const openDetailedDeptDialog = () => {
+    setDetailedDept(employee.detailed_department_id ?? NOT_DETAILED);
+    setShowDetailedDept(true);
+  };
+
+  const handleSaveDetailedDept = async () => {
+    setSavingDetailedDept(true);
+    const result = await updateEmployeeDetailedDepartment(
+      employee.id,
+      detailedDept === NOT_DETAILED ? null : detailedDept
+    );
+
+    if ("error" in result) {
+      toast.error(result.error);
+    } else {
+      toast.success(`Updated detailed department for ${fullName}.`);
+      setShowDetailedDept(false);
+      router.refresh();
+    }
+    setSavingDetailedDept(false);
+  };
+
   return (
     <>
       <DropdownMenu>
@@ -132,6 +177,12 @@ export function EmployeeActionsCell({
                 Change status
               </DropdownMenuItem>
             </>
+          )}
+          {canEditThisDetailedDept && (
+            <DropdownMenuItem onClick={openDetailedDeptDialog}>
+              <Building2 className="h-4 w-4" />
+              Set detailed department
+            </DropdownMenuItem>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -208,6 +259,55 @@ export function EmployeeActionsCell({
             </DialogClose>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? "Saving..." : "Save status"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDetailedDept} onOpenChange={setShowDetailedDept}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Set Detailed Department</DialogTitle>
+            <DialogDescription>
+              Office <strong>{fullName}</strong> is temporarily detailed to. This
+              does not change their home department; it is used by the DTR to
+              pick the verifying signatory.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor="detailed_department">Detailed to</Label>
+            <Select
+              value={detailedDept}
+              items={[
+                { value: NOT_DETAILED, label: "Not detailed" },
+                ...departments.map((d) => ({
+                  value: d.id,
+                  label: `${d.code} — ${d.name}`,
+                })),
+              ]}
+              onValueChange={(val) => setDetailedDept(val ?? NOT_DETAILED)}
+            >
+              <SelectTrigger id="detailed_department" className="w-full">
+                <SelectValue placeholder="Not detailed" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NOT_DETAILED}>Not detailed</SelectItem>
+                {departments.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.code} — {d.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>
+              Cancel
+            </DialogClose>
+            <Button onClick={handleSaveDetailedDept} disabled={savingDetailedDept}>
+              {savingDetailedDept ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

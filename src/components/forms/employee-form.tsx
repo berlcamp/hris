@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
@@ -118,6 +119,8 @@ export function EmployeeForm({
       employment_type: "plantilla",
       position_id: null,
       department_id: null,
+      detailed_department_id: null,
+      is_department_head: false,
       salary_grade: 1,
       step_increment: 1,
       hire_date: "",
@@ -128,6 +131,8 @@ export function EmployeeForm({
 
   const watchEmploymentType = watch("employment_type");
   const watchDepartment = watch("department_id");
+  const watchDetailedDepartment = watch("detailed_department_id");
+  const watchIsDepartmentHead = watch("is_department_head");
   const watchPosition = watch("position_id");
   const watchHireDate = watch("hire_date");
   const watchBirthDate = watch("birth_date");
@@ -484,6 +489,65 @@ export function EmployeeForm({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Detailed To (Department)</Label>
+              <Select
+                value={watchDetailedDepartment ?? "none"}
+                items={[
+                  { value: "none", label: "Not detailed" },
+                  ...departments.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })),
+                ]}
+                onValueChange={(val) =>
+                  setValue(
+                    "detailed_department_id",
+                    val === "none" ? null : val,
+                    { shouldValidate: true }
+                  )
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Not detailed" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not detailed</SelectItem>
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      {dept.code} — {dept.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Office the employee is temporarily detailed to. Used by the DTR
+                to pick the verifying signatory.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Designation</Label>
+              <div className="flex items-start gap-2 rounded-md border p-3">
+                <Checkbox
+                  id="is_department_head"
+                  checked={watchIsDepartmentHead}
+                  onCheckedChange={(checked) =>
+                    setValue("is_department_head", checked === true, {
+                      shouldValidate: true,
+                    })
+                  }
+                />
+                <div className="space-y-1 leading-none">
+                  <Label htmlFor="is_department_head" className="font-normal">
+                    Department Head
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Marks this employee as the head of their department.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

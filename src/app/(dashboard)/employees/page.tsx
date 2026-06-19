@@ -28,6 +28,10 @@ export default async function EmployeesPage() {
   }));
 
   const canCreate = ["super_admin", "hr_admin"].includes(user.role);
+  const canEditDetailedDept =
+    ["department_admin", "department_admin_and_department_head", "ocm_admin"].includes(
+      user.role
+    ) && !!user.departmentId;
 
   return (
     <div className="space-y-6">
@@ -53,6 +57,9 @@ export default async function EmployeesPage() {
         data={employees ?? []}
         departmentOptions={departmentOptions}
         canEdit={canCreate}
+        canEditDetailedDept={canEditDetailedDept}
+        userDepartmentId={user.departmentId}
+        departments={departments ?? []}
       />
     </div>
   );

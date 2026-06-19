@@ -21,6 +21,11 @@ import {
   recomputeAttendanceDeductionsBatch,
 } from "@/lib/actions/attendance-deduction-actions";
 import { getHolidayMap } from "@/lib/holiday-helpers";
+import {
+  resolveSignatories,
+  type DtrSignatory,
+  type SignatoryInput,
+} from "@/lib/dtr-signatory";
 import type { HolidayType } from "@/lib/validations/holiday-schema";
 import {
   NO_TIME_REASON_LABELS,
@@ -818,6 +823,21 @@ export interface BulkDtrResult {
   entries: DtrEntry[];
   summary: DtrSummary;
   schedule: DtrScheduleInfo;
+  signatory: DtrSignatory;
+}
+
+// Department shape (id/name/code) selected alongside DTR employees so the
+// signatory can be resolved. Both home and detailed departments use this.
+interface DtrSignatoryDeptRow {
+  id: string;
+  name: string;
+  code: string;
+}
+
+// Extra columns selected on employees purely to compute the DTR signatory.
+interface DtrSignatoryFields {
+  is_department_head: boolean;
+  detailed_department: DtrSignatoryDeptRow | null;
 }
 
 export async function getDepartmentDtrBulk(
@@ -850,7 +870,7 @@ export async function getDepartmentDtrBulk(
   const { data: department } = await supabase
     .schema("hris")
     .from("departments")
-    .select("id, name")
+    .select("id, name, code")
     .eq("id", departmentId)
     .maybeSingle();
 
@@ -858,7 +878,7 @@ export async function getDepartmentDtrBulk(
     .schema("hris")
     .from("employees")
     .select(
-      "id, first_name, last_name, middle_name, departments!employees_department_id_fkey(name), positions(title), plantilla(position_title), schedules(id, name, time_in, time_out, break_start, break_end)",
+      "id, first_name, last_name, middle_name, is_department_head, departments!employees_department_id_fkey(name), detailed_department:departments!employees_detailed_department_id_fkey(id, name, code), positions(title), plantilla(position_title), schedules(id, name, time_in, time_out, break_start, break_end)",
     )
     .eq("department_id", departmentId)
     .eq("status", "active")
@@ -866,9 +886,10 @@ export async function getDepartmentDtrBulk(
     .order("last_name", { ascending: true })
     .order("first_name", { ascending: true });
 
-  const employeeRowsAll = (employees ?? []) as unknown as (BulkDtrEmployee & {
-    schedules: (ScheduleLike & { name: string }) | null;
-  })[];
+  const employeeRowsAll = (employees ?? []) as unknown as (BulkDtrEmployee &
+    DtrSignatoryFields & {
+      schedules: (ScheduleLike & { name: string }) | null;
+    })[];
   if (employeeRowsAll.length === 0) {
     return { department: department ?? null, results: [] };
   }
@@ -968,6 +989,20 @@ export async function getDepartmentDtrBulk(
 
   const defaultSched = await resolveDefaultSchedule(supabase);
   const holidayMap = await getHolidayMap(supabase, startDate, endDate);
+
+  // Resolve the DTR signatory for every employee in one batched query. Every
+  // employee here shares the same home department (the one being exported).
+  const homeDept = (department as DtrSignatoryDeptRow | null) ?? null;
+  const signatoryMap = await resolveSignatories(
+    supabase,
+    employeeRows.map<SignatoryInput>((emp) => ({
+      id: emp.id,
+      is_department_head: emp.is_department_head ?? false,
+      homeDept,
+      detailedDept: emp.detailed_department,
+    })),
+  );
+
   const results: BulkDtrResult[] = employeeRows.map((emp) => {
     const logMap = logsByEmp.get(emp.id) ?? new Map<string, Record<string, unknown>>();
     const leaveMap = leavesByEmp.get(emp.id) ?? new Map<string, string>();
@@ -1166,6 +1201,7 @@ export async function getDepartmentDtrBulk(
         break_end: trimTimeStr(sched.break_end),
         has_break: hasBreak(sched),
       },
+      signatory: signatoryMap.get(emp.id) ?? { name: "", title: "" },
     };
   });
 
@@ -1195,7 +1231,7 @@ export async function getEmployeeDtrRange(
     .schema("hris")
     .from("employees")
     .select(
-      "id, first_name, last_name, middle_name, department_id, user_profile_id, departments!employees_department_id_fkey(name), positions(title), plantilla(position_title), schedules(id, name, time_in, time_out, break_start, break_end)",
+      "id, first_name, last_name, middle_name, department_id, user_profile_id, is_department_head, departments!employees_department_id_fkey(id, name, code), detailed_department:departments!employees_detailed_department_id_fkey(id, name, code), positions(title), plantilla(position_title), schedules(id, name, time_in, time_out, break_start, break_end)",
     )
     .eq("id", employeeId)
     .maybeSingle();
@@ -1449,9 +1485,21 @@ export async function getEmployeeDtrRange(
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  const emp = employee as unknown as BulkDtrEmployee & {
-    schedules: (ScheduleLike & { name: string }) | null;
-  };
+  const emp = employee as unknown as BulkDtrEmployee &
+    DtrSignatoryFields & {
+      departments: DtrSignatoryDeptRow | null;
+      schedules: (ScheduleLike & { name: string }) | null;
+    };
+
+  const signatoryMap = await resolveSignatories(supabase, [
+    {
+      id: emp.id,
+      is_department_head: emp.is_department_head ?? false,
+      homeDept: emp.departments,
+      detailedDept: emp.detailed_department,
+    },
+  ]);
+
   return {
     employee: {
       id: emp.id,
@@ -1480,6 +1528,7 @@ export async function getEmployeeDtrRange(
       break_end: trimTimeStr(empSchedule.break_end),
       has_break: hasBreak(empSchedule),
     },
+    signatory: signatoryMap.get(emp.id) ?? { name: "", title: "" },
   };
 }
 

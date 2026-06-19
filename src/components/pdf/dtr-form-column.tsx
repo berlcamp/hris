@@ -295,6 +295,7 @@ interface DtrFormColumnProps {
   employeeName: string;
   periodLabel: string;
   schedule: DtrScheduleInfo;
+  signatory: { name: string; title: string };
 }
 
 function dayLabelFor(entry: DtrEntry): string {
@@ -343,6 +344,7 @@ export function DtrFormColumn({
   employeeName,
   periodLabel,
   schedule,
+  signatory,
 }: DtrFormColumnProps) {
   const hasBreak = schedule.has_break;
   const totalUtMins =
@@ -650,11 +652,12 @@ export function DtrFormColumn({
         </Text>
       </View>
 
-      {/* City Mayor — printed name above the line, title below */}
+      {/* Signatory — printed name above the line, title below. Resolved per
+          employee (City Mayor / City Administrator / Department Head). */}
       <View style={styles.mayorBlock} wrap={false}>
-        <Text style={styles.mayorName}>SAM NORMAN G. FUENTES</Text>
+        <Text style={styles.mayorName}>{signatory.name || " "}</Text>
         <View style={styles.mayorLine} />
-        <Text style={styles.mayorTitle}>City Mayor</Text>
+        <Text style={styles.mayorTitle}>{signatory.title}</Text>
       </View>
 
       <Text style={styles.systemNote}>This DTR is system generated.</Text>
