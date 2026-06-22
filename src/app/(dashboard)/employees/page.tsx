@@ -4,6 +4,10 @@ import { Plus } from "lucide-react";
 import { getEmployees, getEmployeeForCurrentUser } from "@/lib/actions/employee-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
+import {
+  canEditDetailedDepartment,
+  canEditDetailedDepartmentAnyDept,
+} from "@/lib/auth-helpers";
 import { EmployeesTable } from "@/components/employees/employees-table";
 
 export default async function EmployeesPage() {
@@ -28,15 +32,12 @@ export default async function EmployeesPage() {
   }));
 
   const canCreate = ["super_admin", "hr_admin"].includes(user.role);
-  // OCM Admin can detail employees from any department, so it doesn't require a
-  // home department; department-scoped editors still do.
-  const canEditDetailedDeptAnyDept = user.role === "ocm_admin";
+  // super_admin and OCM Admin can detail employees from any department, so they
+  // don't require a home department; department-scoped editors still do.
+  const canEditDetailedDeptAnyDept = canEditDetailedDepartmentAnyDept(user.role);
   const canEditDetailedDept =
     canEditDetailedDeptAnyDept ||
-    (["department_admin", "department_admin_and_department_head"].includes(
-      user.role
-    ) &&
-      !!user.departmentId);
+    (canEditDetailedDepartment(user.role) && !!user.departmentId);
 
   return (
     <div className="space-y-6">

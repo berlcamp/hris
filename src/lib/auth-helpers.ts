@@ -55,9 +55,11 @@ export function isDeptScoped(role: UserRole | null | undefined): boolean {
 
 // Roles allowed to set an employee's "Detailed To" department through the quick
 // modal on the employees list. This is a narrow, single-field edit (it drives
-// the DTR signatory — see src/lib/dtr-signatory.ts) and is restricted to the
-// caller's own department. Full employee editing stays super_admin / hr_admin.
+// the DTR signatory — see src/lib/dtr-signatory.ts). Department-scoped editors
+// are restricted to their own department; super_admin and OCM Admin can set it
+// for employees in any department.
 const DETAILED_DEPT_EDITOR_ROLES: readonly UserRole[] = [
+  "super_admin",
   "department_admin",
   "department_admin_and_department_head",
   "ocm_admin",
@@ -69,13 +71,14 @@ export function canEditDetailedDepartment(
   return !!role && DETAILED_DEPT_EDITOR_ROLES.includes(role);
 }
 
-// OCM Admin manages employees detailed to the Office of the City Mayor, so it
-// may set the "Detailed To" department for employees in ANY department — unlike
-// the department-scoped editors, who are limited to their own department.
+// super_admin (full employee editing) and OCM Admin (manages employees detailed
+// to the Office of the City Mayor) may set the "Detailed To" department for
+// employees in ANY department — unlike the department-scoped editors, who are
+// limited to their own department.
 export function canEditDetailedDepartmentAnyDept(
   role: UserRole | null | undefined,
 ): boolean {
-  return role === "ocm_admin";
+  return role === "super_admin" || role === "ocm_admin";
 }
 
 // The composite "Dept Admin + Head" role. Acts as a dept-head approver but
