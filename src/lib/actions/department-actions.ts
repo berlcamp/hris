@@ -5,6 +5,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
 
+// Roles allowed to manage departments and department heads.
+const DEPT_MANAGER_ROLES = ["super_admin", "ocm_admin"];
+
 export interface DepartmentRow {
   id: string;
   name: string;
@@ -86,7 +89,7 @@ export async function getDepartmentEmployeeOptions(
   departmentId: string
 ): Promise<DepartmentEmployeeOption[]> {
   const user = await getCurrentUser();
-  if (!user || user.role !== "super_admin") return [];
+  if (!user || !DEPT_MANAGER_ROLES.includes(user.role)) return [];
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -112,7 +115,8 @@ export async function getDepartmentEmployeeOptions(
 
 export async function createDepartment(input: { name: string; code: string }) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "super_admin") return { error: "Unauthorized" };
+  if (!user || !DEPT_MANAGER_ROLES.includes(user.role))
+    return { error: "Unauthorized" };
 
   const name = input.name.trim();
   const code = input.code.trim().toUpperCase();
@@ -151,7 +155,8 @@ export async function updateDepartment(
   input: { name: string; code: string }
 ) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "super_admin") return { error: "Unauthorized" };
+  if (!user || !DEPT_MANAGER_ROLES.includes(user.role))
+    return { error: "Unauthorized" };
 
   const name = input.name.trim();
   const code = input.code.trim().toUpperCase();
@@ -188,7 +193,8 @@ export async function updateDepartment(
 
 export async function deleteDepartment(id: string) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "super_admin") return { error: "Unauthorized" };
+  if (!user || !DEPT_MANAGER_ROLES.includes(user.role))
+    return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
 
@@ -254,7 +260,8 @@ export async function setDepartmentHead(
   employeeId: string | null
 ) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "super_admin") return { error: "Unauthorized" };
+  if (!user || !DEPT_MANAGER_ROLES.includes(user.role))
+    return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
 

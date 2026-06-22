@@ -6,7 +6,7 @@ import { DepartmentManager } from "@/components/admin/department-manager";
 export default async function DepartmentsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "super_admin") redirect("/dashboard");
+  if (!["super_admin", "ocm_admin"].includes(user.role)) redirect("/dashboard");
 
   const departments = await getDepartmentsWithDetails();
 
