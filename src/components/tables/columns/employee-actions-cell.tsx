@@ -61,12 +61,14 @@ export function EmployeeActionsCell({
   employee,
   canEdit,
   canEditDetailedDept = false,
+  canEditDetailedDeptAnyDept = false,
   userDepartmentId = null,
   departments = [],
 }: {
   employee: EmployeeRow;
   canEdit: boolean;
   canEditDetailedDept?: boolean;
+  canEditDetailedDeptAnyDept?: boolean;
   userDepartmentId?: string | null;
   departments?: DetailedDeptOption[];
 }) {
@@ -79,11 +81,12 @@ export function EmployeeActionsCell({
   const [savingDetailedDept, setSavingDetailedDept] = useState(false);
 
   // The single-field "detailed department" edit is allowed only for employees
-  // in the caller's own department (the server action re-checks this).
+  // in the caller's own department, unless the caller can detail across all
+  // departments (OCM Admin). The server action re-checks this.
   const canEditThisDetailedDept =
     canEditDetailedDept &&
-    !!userDepartmentId &&
-    employee.department_id === userDepartmentId;
+    (canEditDetailedDeptAnyDept ||
+      (!!userDepartmentId && employee.department_id === userDepartmentId));
   const [status, setStatus] = useState<EmployeeStatus>(
     (employee.status as EmployeeStatus) ?? "active"
   );

@@ -28,10 +28,15 @@ export default async function EmployeesPage() {
   }));
 
   const canCreate = ["super_admin", "hr_admin"].includes(user.role);
+  // OCM Admin can detail employees from any department, so it doesn't require a
+  // home department; department-scoped editors still do.
+  const canEditDetailedDeptAnyDept = user.role === "ocm_admin";
   const canEditDetailedDept =
-    ["department_admin", "department_admin_and_department_head", "ocm_admin"].includes(
+    canEditDetailedDeptAnyDept ||
+    (["department_admin", "department_admin_and_department_head"].includes(
       user.role
-    ) && !!user.departmentId;
+    ) &&
+      !!user.departmentId);
 
   return (
     <div className="space-y-6">
@@ -58,6 +63,7 @@ export default async function EmployeesPage() {
         departmentOptions={departmentOptions}
         canEdit={canCreate}
         canEditDetailedDept={canEditDetailedDept}
+        canEditDetailedDeptAnyDept={canEditDetailedDeptAnyDept}
         userDepartmentId={user.departmentId}
         departments={departments ?? []}
       />

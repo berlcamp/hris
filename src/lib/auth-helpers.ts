@@ -69,6 +69,15 @@ export function canEditDetailedDepartment(
   return !!role && DETAILED_DEPT_EDITOR_ROLES.includes(role);
 }
 
+// OCM Admin manages employees detailed to the Office of the City Mayor, so it
+// may set the "Detailed To" department for employees in ANY department — unlike
+// the department-scoped editors, who are limited to their own department.
+export function canEditDetailedDepartmentAnyDept(
+  role: UserRole | null | undefined,
+): boolean {
+  return role === "ocm_admin";
+}
+
 // The composite "Dept Admin + Head" role. Acts as a dept-head approver but
 // is granted cross-department reach within the Leave module specifically —
 // e.g. they can file leave for any employee and approve at the dept-head

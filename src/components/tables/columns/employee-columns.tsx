@@ -26,6 +26,7 @@ export type EmployeeRow = {
   schedule_id: string | null;
   vl_sl_needs_manual_entry: boolean;
   departments: { name: string; code: string } | null;
+  detailed_departments: { name: string; code: string } | null;
   positions: { title: string; item_number: string | null } | null;
   plantilla: { position_title: string | null; item_number: string | null }[] | null;
   schedules: { id: string; name: string } | null;
@@ -60,11 +61,13 @@ export type DetailedDeptOption = { id: string; code: string; name: string };
 export function getEmployeeColumns({
   canEdit,
   canEditDetailedDept = false,
+  canEditDetailedDeptAnyDept = false,
   userDepartmentId = null,
   departments = [],
 }: {
   canEdit: boolean;
   canEditDetailedDept?: boolean;
+  canEditDetailedDeptAnyDept?: boolean;
   userDepartmentId?: string | null;
   departments?: DetailedDeptOption[];
 }): ColumnDef<EmployeeRow>[] {
@@ -154,25 +157,48 @@ export function getEmployeeColumns({
   },
   {
     id: "department",
-    accessorFn: (row) => row.departments?.name ?? "—",
+    // When an employee is detailed to another department, they appear under
+    // (and filter by) that detailed department — the home department is shown
+    // as muted subtext for reference.
+    accessorFn: (row) =>
+      (row.detailed_department_id
+        ? row.detailed_departments?.name
+        : row.departments?.name) ?? "—",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Department" />
     ),
     cell: ({ row }) => {
-      const dept = row.original.departments;
-      return dept ? (
-        <span>
-          <span className="font-mono text-xs text-muted-foreground mr-1.5">
-            {dept.code}
+      const home = row.original.departments;
+      const detailed = row.original.detailed_department_id
+        ? row.original.detailed_departments
+        : null;
+      const shown = detailed ?? home;
+      if (!shown) return <span className="text-muted-foreground">—</span>;
+      return (
+        <div className="flex flex-col">
+          <span className="flex items-center gap-1.5">
+            <span className="font-mono text-xs text-muted-foreground">
+              {shown.code}
+            </span>
+            <span>{shown.name}</span>
+            {detailed && (
+              <Badge variant="outline" className="text-[10px]">
+                Detailed
+              </Badge>
+            )}
           </span>
-          {dept.name}
-        </span>
-      ) : (
-        <span className="text-muted-foreground">—</span>
+          {detailed && home && (
+            <span className="text-xs text-muted-foreground">
+              from {home.name}
+            </span>
+          )}
+        </div>
       );
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.original.department_id);
+      return value.includes(
+        row.original.detailed_department_id ?? row.original.department_id
+      );
     },
   },
   {
@@ -239,6 +265,7 @@ export function getEmployeeColumns({
         employee={row.original}
         canEdit={canEdit}
         canEditDetailedDept={canEditDetailedDept}
+        canEditDetailedDeptAnyDept={canEditDetailedDeptAnyDept}
         userDepartmentId={userDepartmentId}
         departments={departments}
       />

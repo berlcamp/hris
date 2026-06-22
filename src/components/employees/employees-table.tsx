@@ -15,6 +15,7 @@ interface EmployeesTableProps {
   departmentOptions: { label: string; value: string }[];
   canEdit: boolean;
   canEditDetailedDept?: boolean;
+  canEditDetailedDeptAnyDept?: boolean;
   userDepartmentId?: string | null;
   departments?: DetailedDeptOption[];
 }
@@ -24,6 +25,7 @@ export function EmployeesTable({
   departmentOptions,
   canEdit,
   canEditDetailedDept = false,
+  canEditDetailedDeptAnyDept = false,
   userDepartmentId = null,
   departments = [],
 }: EmployeesTableProps) {
@@ -32,10 +34,17 @@ export function EmployeesTable({
       getEmployeeColumns({
         canEdit,
         canEditDetailedDept,
+        canEditDetailedDeptAnyDept,
         userDepartmentId,
         departments,
       }),
-    [canEdit, canEditDetailedDept, userDepartmentId, departments]
+    [
+      canEdit,
+      canEditDetailedDept,
+      canEditDetailedDeptAnyDept,
+      userDepartmentId,
+      departments,
+    ]
   );
   return (
     <DataTable

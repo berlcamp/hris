@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
   canEditDetailedDepartment,
+  canEditDetailedDepartmentAnyDept,
   isCompositeDeptAdminHead,
   isDeptHead,
   isDeptScoped,
@@ -48,6 +49,7 @@ export interface EmployeeWithRelations {
   updated_at: string;
   schedule_id: string | null;
   departments: { name: string; code: string } | null;
+  detailed_departments: { name: string; code: string } | null;
   positions: { title: string; item_number: string | null } | null;
   plantilla: { position_title: string | null; item_number: string | null }[] | null;
   schedules: {
@@ -69,7 +71,7 @@ export async function getEmployees() {
   let query = supabase
     .schema("hris")
     .from("employees")
-    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number), schedules(id, name, time_in, time_out, break_start, break_end)")
+    .select("*, departments!employees_department_id_fkey(name, code), detailed_departments:departments!employees_detailed_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number), schedules(id, name, time_in, time_out, break_start, break_end)")
     .order("created_at", { ascending: false });
 
   // Role-based filtering. The composite Dept Admin + Head reads employees
@@ -93,7 +95,7 @@ export async function getEmployeeById(id: string) {
   const { data, error } = await supabase
     .schema("hris")
     .from("employees")
-    .select("*, departments!employees_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number), schedules(id, name, time_in, time_out, break_start, break_end)")
+    .select("*, departments!employees_department_id_fkey(name, code), detailed_departments:departments!employees_detailed_department_id_fkey(name, code), positions(title, item_number), plantilla(position_title, item_number), schedules(id, name, time_in, time_out, break_start, break_end)")
     .eq("id", id)
     .single();
 
@@ -287,13 +289,18 @@ export async function updateEmployeeDetailedDepartment(
   if (!user || !canEditDetailedDepartment(user.role)) {
     return { error: "You are not allowed to edit the detailed department." };
   }
-  if (!user.departmentId) {
+
+  // OCM Admin can detail employees from any department; department-scoped
+  // editors are limited to their own department's employees.
+  const anyDept = canEditDetailedDepartmentAnyDept(user.role);
+  if (!anyDept && !user.departmentId) {
     return { error: "Your account is not assigned to a department." };
   }
 
   const supabase = createAdminClient();
 
-  // The employee must belong to the caller's own home department.
+  // The employee must belong to the caller's own home department (unless the
+  // caller can detail across departments).
   const { data: employee, error: fetchError } = await supabase
     .schema("hris")
     .from("employees")
@@ -302,7 +309,7 @@ export async function updateEmployeeDetailedDepartment(
     .single();
 
   if (fetchError || !employee) return { error: "Employee not found." };
-  if (employee.department_id !== user.departmentId) {
+  if (!anyDept && employee.department_id !== user.departmentId) {
     return { error: "You can only edit employees in your own department." };
   }
 
