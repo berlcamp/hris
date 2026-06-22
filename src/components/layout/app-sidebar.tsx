@@ -86,6 +86,9 @@ const deptManagerRoles: UserRole[] = [
   "department_admin",
   "department_admin_and_department_head",
 ];
+// Who can see the Employees list. OCM Admin gets read access plus the
+// single-field "detailed department" quick edit (see canEditDetailedDepartment).
+const employeesViewRoles: UserRole[] = [...deptManagerRoles, "ocm_admin"];
 const leaveAttendanceRoles: UserRole[] = [
   "super_admin",
   "ocm_admin",
@@ -109,9 +112,9 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Employee Management",
-    roles: deptManagerRoles,
+    roles: employeesViewRoles,
     items: [
-      { title: "Employees", href: "/employees", icon: Users, roles: deptManagerRoles },
+      { title: "Employees", href: "/employees", icon: Users, roles: employeesViewRoles },
       { title: "Plantilla", href: "/plantilla", icon: ScrollText, roles: adminRoles },
       {
         title: "Employee ID Generator",

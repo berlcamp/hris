@@ -15,6 +15,31 @@ import {
 } from "@/lib/leave-credits-helpers";
 import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
 
+// A leave application filed by an OCM Admin is "owned" by that OCM Admin: no
+// other user may approve, reject, or cancel it. This mirrors the detail page's
+// `restrictToUserId` UI gate so the rule is also enforced server-side. We
+// compare against the creator's current role on `user_profiles`.
+function normalizeCreatorRole(
+  rel: { role: string } | { role: string }[] | null | undefined
+): string | null {
+  if (!rel) return null;
+  return Array.isArray(rel) ? rel[0]?.role ?? null : rel.role ?? null;
+}
+
+function ocmAdminRestrictionError(
+  app: {
+    created_by?: string | null;
+    created_by_profile?: { role: string } | { role: string }[] | null;
+  },
+  user: { id: string }
+): string | null {
+  const creatorRole = normalizeCreatorRole(app.created_by_profile);
+  if (creatorRole === "ocm_admin" && app.created_by && app.created_by !== user.id) {
+    return "This leave was filed by an OCM Admin and can only be approved or cancelled by that OCM Admin.";
+  }
+  return null;
+}
+
 export interface LeaveTypeRow {
   id: string;
   code: string;
@@ -675,8 +700,6 @@ export async function cancelLeaveApplication(id: string) {
 export async function cancelApprovedLeaveApplication(id: string, reason: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
-    return { error: "Only HR Admin or Super Admin can cancel an approved leave" };
 
   const trimmed = (reason ?? "").trim();
   if (!trimmed) return { error: "Cancellation reason is required" };
@@ -687,7 +710,7 @@ export async function cancelApprovedLeaveApplication(id: string, reason: string)
     .schema("hris")
     .from("leave_applications")
     .select(
-      "employee_id, status, leave_type_id, start_date, end_date, days_applied, days_with_pay, hr_approved_at, hr_reviewer_id, leave_types(code)"
+      "employee_id, status, leave_type_id, start_date, end_date, days_applied, days_with_pay, hr_approved_at, hr_reviewer_id, created_by, leave_types(code), created_by_profile:user_profiles!leave_applications_created_by_fkey(role)"
     )
     .eq("id", id)
     .single();
@@ -695,6 +718,14 @@ export async function cancelApprovedLeaveApplication(id: string, reason: string)
   if (!app) return { error: "Application not found" };
   if (app.status !== "approved")
     return { error: "Only approved applications can be cancelled here" };
+
+  // OCM Admin-filed leaves can only be cancelled by that OCM Admin. For all
+  // other leaves, cancellation stays restricted to HR Admin / Super Admin.
+  const cancelRestriction = ocmAdminRestrictionError(app, user);
+  if (cancelRestriction) return { error: cancelRestriction };
+  const isOcmOwned = normalizeCreatorRole(app.created_by_profile) === "ocm_admin";
+  if (!isOcmOwned && !["super_admin", "hr_admin"].includes(user.role))
+    return { error: "Only HR Admin or Super Admin can cancel an approved leave" };
 
   const cancelledAt = new Date().toISOString();
   const { error } = await supabase
@@ -867,12 +898,17 @@ export async function approveLeave(id: string) {
   const { data: app } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("*, employees(department_id), leave_types(code)")
+    .select(
+      "*, employees(department_id), leave_types(code), created_by_profile:user_profiles!leave_applications_created_by_fkey(role)"
+    )
     .eq("id", id)
     .single();
 
   if (!app) return { error: "Application not found" };
   if (app.status !== "pending") return { error: "Application is not pending" };
+
+  const approveRestriction = ocmAdminRestrictionError(app, user);
+  if (approveRestriction) return { error: approveRestriction };
 
   const leaveTypeRel = app.leave_types as { code: string } | { code: string }[] | null;
   const leaveTypeCode = Array.isArray(leaveTypeRel)
@@ -1043,10 +1079,13 @@ export async function rejectLeave(id: string, reason: string) {
   const { data: app } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("dept_approved_at, employee_id, leave_type_id, start_date, end_date, days_applied, days_with_pay, employees(department_id), leave_types(code)")
+    .select("dept_approved_at, employee_id, leave_type_id, start_date, end_date, days_applied, days_with_pay, created_by, employees(department_id), leave_types(code), created_by_profile:user_profiles!leave_applications_created_by_fkey(role)")
     .eq("id", id)
     .maybeSingle();
   if (!app) return { error: "Application not found" };
+
+  const rejectRestriction = ocmAdminRestrictionError(app, user);
+  if (rejectRestriction) return { error: rejectRestriction };
 
   // Department head can only reject leaves for their own department.
   // The composite Dept Admin + Head role and OCM Admin are exempt and can

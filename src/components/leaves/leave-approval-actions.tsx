@@ -85,10 +85,13 @@ export function LeaveApprovalActions({
 
   // HR Admin / Super Admin can cancel an already-approved leave, with a
   // mandatory written reason. Credits are refunded automatically because the
-  // balance view only counts approved rows.
+  // balance view only counts approved rows. For OCM Admin-filed leaves the
+  // approval/cancel rights are locked to that OCM Admin (restrictToUserId), so
+  // the same OCM Admin — and only them — can also cancel the approved leave.
+  const isOwnRestricted = !!restrictToUserId && user.id === restrictToUserId;
   const canCancelApproved =
     status === "approved" &&
-    (user.role === "super_admin" || user.role === "hr_admin");
+    (user.role === "super_admin" || user.role === "hr_admin" || isOwnRestricted);
 
   // Super-admin-only: change the paid/LWOP split on an approved leave (e.g.
   // a leave originally recorded as LWOP because credits were unreconciled).
