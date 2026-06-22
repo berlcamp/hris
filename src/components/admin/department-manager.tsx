@@ -56,6 +56,13 @@ import {
 
 const NO_HEAD = "none";
 
+// Employees from another department are suffixed with their home-department code
+// so cross-department heads are easy to tell apart.
+function headOptionLabel(e: DepartmentEmployeeOption): string {
+  if (e.is_in_department || !e.department_code) return e.name;
+  return `${e.name} — ${e.department_code}`;
+}
+
 interface DepartmentManagerProps {
   departments: DepartmentRow[];
 }
@@ -75,6 +82,7 @@ export function DepartmentManager({ departments }: DepartmentManagerProps) {
   const [headDept, setHeadDept] = useState<DepartmentRow | null>(null);
   const [headOptions, setHeadOptions] = useState<DepartmentEmployeeOption[]>([]);
   const [selectedHead, setSelectedHead] = useState<string>(NO_HEAD);
+  const [headCustomName, setHeadCustomName] = useState("");
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [savingHead, setSavingHead] = useState(false);
 
@@ -130,6 +138,7 @@ export function DepartmentManager({ departments }: DepartmentManagerProps) {
   const openHeadDialog = async (dept: DepartmentRow) => {
     setHeadDept(dept);
     setSelectedHead(dept.head_employee_id ?? NO_HEAD);
+    setHeadCustomName(dept.head_employee_id ? "" : dept.head_custom_name ?? "");
     setHeadOptions([]);
     setHeadDialogOpen(true);
     setLoadingOptions(true);
@@ -146,10 +155,10 @@ export function DepartmentManager({ departments }: DepartmentManagerProps) {
   const handleSaveHead = async () => {
     if (!headDept) return;
     setSavingHead(true);
-    const result = await setDepartmentHead(
-      headDept.id,
-      selectedHead === NO_HEAD ? null : selectedHead
-    );
+    const result = await setDepartmentHead(headDept.id, {
+      employeeId: selectedHead === NO_HEAD ? null : selectedHead,
+      customName: selectedHead === NO_HEAD ? headCustomName : null,
+    });
     setSavingHead(false);
 
     if ("error" in result && result.error) {
@@ -339,7 +348,7 @@ export function DepartmentManager({ departments }: DepartmentManagerProps) {
             <DialogTitle>Set Department Head</DialogTitle>
             <DialogDescription>
               {headDept
-                ? `Choose the head of ${headDept.name}. The head signs subordinates' DTRs (City Administrator signs the head's own DTR).`
+                ? `Choose the head of ${headDept.name}. The head signs subordinates' DTRs (City Administrator signs the head's own DTR). Any active employee can be picked, including one who already heads another department.`
                 : ""}
             </DialogDescription>
           </DialogHeader>
@@ -355,7 +364,7 @@ export function DepartmentManager({ departments }: DepartmentManagerProps) {
                 value={selectedHead}
                 items={[
                   { value: NO_HEAD, label: "No head" },
-                  ...headOptions.map((e) => ({ value: e.id, label: e.name })),
+                  ...headOptions.map((e) => ({ value: e.id, label: headOptionLabel(e) })),
                 ]}
                 onValueChange={(val) => setSelectedHead(val ?? NO_HEAD)}
               >
@@ -366,7 +375,7 @@ export function DepartmentManager({ departments }: DepartmentManagerProps) {
                   <SelectItem value={NO_HEAD}>No head</SelectItem>
                   {headOptions.map((e) => (
                     <SelectItem key={e.id} value={e.id}>
-                      {e.name}
+                      {headOptionLabel(e)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -374,10 +383,30 @@ export function DepartmentManager({ departments }: DepartmentManagerProps) {
             )}
             {!loadingOptions && headOptions.length === 0 && (
               <p className="text-xs text-muted-foreground">
-                No active employees belong to this department yet.
+                No active employees available.
               </p>
             )}
           </div>
+
+          {!loadingOptions && (
+            <div className="space-y-2 border-t pt-4">
+              <Label htmlFor="dept-head-custom">
+                Or enter a custom head name
+              </Label>
+              <Input
+                id="dept-head-custom"
+                value={headCustomName}
+                onChange={(e) => setHeadCustomName(e.target.value)}
+                placeholder="e.g., Hon. Juan Dela Cruz"
+                disabled={selectedHead !== NO_HEAD}
+              />
+              <p className="text-xs text-muted-foreground">
+                Use this when the head is not an active employee. The name is
+                printed on the DTR as the signatory. Selecting an employee above
+                takes precedence over this field.
+              </p>
+            </div>
+          )}
           <DialogFooter>
             <Button
               variant="outline"

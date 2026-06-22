@@ -37,6 +37,7 @@ export interface Department {
   name: string;
   code: string;
   head_employee_id: string | null;
+  head_custom_name: string | null;
   created_at: string;
   updated_at: string;
 }

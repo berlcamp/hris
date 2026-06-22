@@ -78,27 +78,57 @@ export async function resolveSignatories(
     deptIdsNeedingHead.add(dept.id);
   }
 
+  // The head of a department is resolved from departments.head_employee_id (the
+  // single source of truth, set in Departments settings). The pointer can name
+  // an employee whose home department is a different one, so one employee may be
+  // the head of several departments. When no employee head is set, fall back to
+  // the department's free-text head_custom_name.
   const headNameByDept = new Map<string, string>();
   if (deptIdsNeedingHead.size > 0) {
-    const { data: heads } = await supabase
+    const deptIds = Array.from(deptIdsNeedingHead);
+    const { data: depts } = await supabase
       .schema("hris")
-      .from("employees")
-      .select("first_name, middle_name, last_name, suffix, department_id")
-      .in("department_id", Array.from(deptIdsNeedingHead))
-      .eq("is_department_head", true)
-      .eq("status", "active")
-      .order("last_name", { ascending: true });
+      .from("departments")
+      .select("id, head_employee_id, head_custom_name")
+      .in("id", deptIds);
 
-    for (const h of (heads ?? []) as Array<{
-      first_name: string;
-      middle_name: string | null;
-      last_name: string;
-      suffix: string | null;
-      department_id: string;
-    }>) {
-      // First head wins (ordered by last name) if a dept has more than one.
-      if (!headNameByDept.has(h.department_id)) {
-        headNameByDept.set(h.department_id, formatHeadName(h));
+    const deptRows = (depts ?? []) as Array<{
+      id: string;
+      head_employee_id: string | null;
+      head_custom_name: string | null;
+    }>;
+
+    const headIds = Array.from(
+      new Set(
+        deptRows
+          .map((d) => d.head_employee_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+
+    const nameByEmpId = new Map<string, string>();
+    if (headIds.length > 0) {
+      const { data: heads } = await supabase
+        .schema("hris")
+        .from("employees")
+        .select("id, first_name, middle_name, last_name, suffix")
+        .in("id", headIds);
+      for (const h of (heads ?? []) as Array<{
+        id: string;
+        first_name: string;
+        middle_name: string | null;
+        last_name: string;
+        suffix: string | null;
+      }>) {
+        nameByEmpId.set(h.id, formatHeadName(h));
+      }
+    }
+
+    for (const d of deptRows) {
+      if (d.head_employee_id && nameByEmpId.has(d.head_employee_id)) {
+        headNameByDept.set(d.id, nameByEmpId.get(d.head_employee_id)!);
+      } else if (d.head_custom_name?.trim()) {
+        headNameByDept.set(d.id, d.head_custom_name.trim().toUpperCase());
       }
     }
   }
