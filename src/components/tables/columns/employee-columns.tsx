@@ -177,9 +177,6 @@ export function getEmployeeColumns({
       return (
         <div className="flex flex-col">
           <span className="flex items-center gap-1.5">
-            <span className="font-mono text-xs text-muted-foreground">
-              {shown.code}
-            </span>
             <span>{shown.name}</span>
             {detailed && (
               <Badge variant="outline" className="text-[10px]">

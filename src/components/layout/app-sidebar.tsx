@@ -28,6 +28,7 @@ import {
   Hammer,
   CalendarClock,
   CalendarOff,
+  Network,
 } from "lucide-react";
 
 import {
@@ -189,6 +190,7 @@ const navGroups: NavGroup[] = [
     roles: ["super_admin", "dtr_manager"],
     items: [
       { title: "User Management", href: "/admin/users", icon: UserPlus, roles: ["super_admin"] },
+      { title: "Departments", href: "/admin/departments", icon: Network, roles: ["super_admin"] },
       { title: "Salary Grades", href: "/admin/salary-grades", icon: Building2, roles: ["super_admin"] },
       {
         title: "Salary CSV import",
