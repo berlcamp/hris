@@ -874,13 +874,19 @@ export async function getDepartmentDtrBulk(
     .eq("id", departmentId)
     .maybeSingle();
 
+  // Filter by EFFECTIVE department: an employee detailed to another office is
+  // exported under that detailed office, not their home one. So include
+  // employees detailed to this department, plus employees whose home is this
+  // department and who are not detailed elsewhere.
   const { data: employees } = await supabase
     .schema("hris")
     .from("employees")
     .select(
       "id, first_name, last_name, middle_name, is_department_head, departments!employees_department_id_fkey(name), detailed_department:departments!employees_detailed_department_id_fkey(id, name, code), positions(title), plantilla(position_title), schedules(id, name, time_in, time_out, break_start, break_end)",
     )
-    .eq("department_id", departmentId)
+    .or(
+      `detailed_department_id.eq.${departmentId},and(detailed_department_id.is.null,department_id.eq.${departmentId})`,
+    )
     .eq("status", "active")
     .eq("employment_type", "plantilla")
     .order("last_name", { ascending: true })
@@ -991,14 +997,17 @@ export async function getDepartmentDtrBulk(
   const holidayMap = await getHolidayMap(supabase, startDate, endDate);
 
   // Resolve the DTR signatory for every employee in one batched query. Every
-  // employee here shares the same home department (the one being exported).
-  const homeDept = (department as DtrSignatoryDeptRow | null) ?? null;
+  // employee here shares the same EFFECTIVE department (the one being exported):
+  // either it is their home department, or they are detailed into it. Passing
+  // the exported department as homeDept is therefore safe — for the detailed
+  // employees their detailedDept (the same department) takes precedence anyway.
+  const effectiveDept = (department as DtrSignatoryDeptRow | null) ?? null;
   const signatoryMap = await resolveSignatories(
     supabase,
     employeeRows.map<SignatoryInput>((emp) => ({
       id: emp.id,
       is_department_head: emp.is_department_head ?? false,
-      homeDept,
+      homeDept: effectiveDept,
       detailedDept: emp.detailed_department,
     })),
   );
