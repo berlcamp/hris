@@ -24,6 +24,11 @@ const NB_TIME_GROUP = NB_IN + NB_OUT; // 64
 
 const w = (n: number) => `${n}%` as const;
 
+// DTR highlight colors: tardiness / absence in red, official-duty reasons
+// (FW / OB / TRAVEL) in green.
+const RED = "#cc0000";
+const GREEN = "#008000";
+
 const styles = StyleSheet.create({
   column: {
     paddingHorizontal: 4,
@@ -166,14 +171,20 @@ const styles = StyleSheet.create({
     borderRight: "0.5pt solid #999",
     paddingVertical: 1.5,
   },
+  // A late arrival is printed in red.
+  timeCellLate: {
+    color: RED,
+    fontFamily: "Courier-Bold",
+  },
   // A single slot showing an official-duty shortcut (FW / OB / TRAVEL) in place
-  // of a time.
+  // of a time — printed in green.
   reasonCell: {
     fontSize: 6.5,
     fontFamily: "Helvetica-Bold",
     textAlign: "center",
     borderRight: "0.5pt solid #999",
     paddingVertical: 1.5,
+    color: GREEN,
   },
   utCell: {
     fontSize: 7,
@@ -307,9 +318,21 @@ function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
 
-function formatTime(t: string | null): string {
+// Render a 24-hour "HH:MM" (or "HH:MM:SS") clock value as 12-hour with an AM/PM
+// suffix, e.g. "08:00" → "8:00 AM", "17:30" → "5:30 PM", "00:15" → "12:15 AM".
+function to12h(t: string | null | undefined): string {
   if (!t) return "";
-  return t; // already HH:MM
+  const [hStr, mStr = "00"] = t.split(":");
+  let h = Number(hStr);
+  if (Number.isNaN(h)) return t;
+  const period = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${mStr.slice(0, 2)} ${period}`;
+}
+
+function formatTime(t: string | null): string {
+  return to12h(t);
 }
 
 // A single AM/PM time cell. Prints the official-duty shortcut (FW / OB /
@@ -318,16 +341,26 @@ function SlotCell({
   time,
   reason,
   width,
+  late = false,
 }: {
   time: string | null;
   reason: string | null;
   width: number;
+  late?: boolean;
 }) {
   if (reason) {
     return <Text style={[styles.reasonCell, { width: w(width) }]}>{reason}</Text>;
   }
   return (
-    <Text style={[styles.timeCell, { width: w(width) }]}>{formatTime(time)}</Text>
+    <Text
+      style={[
+        styles.timeCell,
+        { width: w(width) },
+        late && time ? styles.timeCellLate : {},
+      ]}
+    >
+      {formatTime(time)}
+    </Text>
   );
 }
 
@@ -372,6 +405,7 @@ export function DtrFormColumn({
     // A full holiday only spans the row when the employee did not work it;
     // otherwise the times below are shown.
     let spanLabel: string | null = null;
+    let spanColor: string | undefined;
     if (entry.holiday === "full" && hasNoPunch) {
       spanLabel = "HOLIDAY";
     } else if (isWeekend) {
@@ -380,8 +414,10 @@ export function DtrFormColumn({
       spanLabel = "ON LEAVE";
     } else if (entry.no_time_reason_label && hasNoPunch) {
       spanLabel = entry.no_time_reason_label;
+      spanColor = GREEN;
     } else if (entry.is_absent && hasNoPunch) {
       spanLabel = "ABSENT";
+      spanColor = RED;
     }
 
     const totalUtForDay = entry.late_minutes + entry.undertime_minutes;
@@ -396,7 +432,9 @@ export function DtrFormColumn({
       >
         <Text style={styles.dayCell}>{dayLabel}</Text>
         {spanLabel ? (
-          <Text style={styles.spanCell}>{spanLabel}</Text>
+          <Text style={[styles.spanCell, spanColor ? { color: spanColor } : {}]}>
+            {spanLabel}
+          </Text>
         ) : hasBreak ? (
           <>
             {showAmHoliday ? (
@@ -409,6 +447,7 @@ export function DtrFormColumn({
                   time={entry.time_in_am}
                   reason={entry.reason_in_am}
                   width={W_AM_ARR}
+                  late={entry.is_late}
                 />
                 <SlotCell
                   time={entry.time_out_am}
@@ -453,6 +492,7 @@ export function DtrFormColumn({
                 time={entry.time_in_am}
                 reason={entry.reason_in_am}
                 width={NB_IN}
+                late={entry.is_late}
               />
             )}
             {showPmHoliday ? (
@@ -507,8 +547,8 @@ export function DtrFormColumn({
         <View style={{ flex: 1 }}>
           <Text style={styles.metaItalic}>
             {hasBreak
-              ? `Regular days: ${schedule.time_in}–${schedule.break_start} / ${schedule.break_end}–${schedule.time_out}`
-              : `Shift: ${schedule.time_in}–${schedule.time_out} (no break)`}
+              ? `Regular days: ${to12h(schedule.time_in)}–${to12h(schedule.break_start)} / ${to12h(schedule.break_end)}–${to12h(schedule.time_out)}`
+              : `Shift: ${to12h(schedule.time_in)}–${to12h(schedule.time_out)} (no break)`}
           </Text>
           <Text style={styles.metaItalic}>Saturdays: —</Text>
         </View>

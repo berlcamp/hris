@@ -17,6 +17,8 @@ export type Database = {
       attendance_logs: {
         Row: {
           created_at: string | null
+          created_by: string | null
+          created_by_email: string | null
           date: string
           employee_id: string
           id: string
@@ -25,15 +27,21 @@ export type Database = {
           is_undertime: boolean | null
           late_minutes: number | null
           remarks: string | null
+          schedule_id: string | null
           source: string | null
           time_in_am: string | null
           time_in_pm: string | null
           time_out_am: string | null
           time_out_pm: string | null
           undertime_minutes: number | null
+          updated_at: string | null
+          updated_by: string | null
+          updated_by_email: string | null
         }
         Insert: {
           created_at?: string | null
+          created_by?: string | null
+          created_by_email?: string | null
           date: string
           employee_id: string
           id?: string
@@ -42,15 +50,21 @@ export type Database = {
           is_undertime?: boolean | null
           late_minutes?: number | null
           remarks?: string | null
+          schedule_id?: string | null
           source?: string | null
           time_in_am?: string | null
           time_in_pm?: string | null
           time_out_am?: string | null
           time_out_pm?: string | null
           undertime_minutes?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+          updated_by_email?: string | null
         }
         Update: {
           created_at?: string | null
+          created_by?: string | null
+          created_by_email?: string | null
           date?: string
           employee_id?: string
           id?: string
@@ -65,6 +79,9 @@ export type Database = {
           time_out_am?: string | null
           time_out_pm?: string | null
           undertime_minutes?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+          updated_by_email?: string | null
         }
         Relationships: [
           {
@@ -72,6 +89,13 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_logs_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "schedules"
             referencedColumns: ["id"]
           },
         ]

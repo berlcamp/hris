@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { getAttendanceEntryForEdit } from "@/lib/actions/attendance-actions";
+import { getSchedules } from "@/lib/actions/schedule-actions";
 import { isAttendanceManager } from "@/lib/auth-helpers";
 import { ManualEntryForm } from "@/components/attendance/manual-entry-form";
 
@@ -18,7 +19,10 @@ export default async function AttendanceEntryPage({
   }
 
   const { id } = await searchParams;
-  const employees = await getEmployees();
+  const [employees, schedules] = await Promise.all([
+    getEmployees(),
+    getSchedules(),
+  ]);
   const entry = id ? await getAttendanceEntryForEdit(id) : null;
   const isEdit = !!entry;
 
@@ -26,6 +30,7 @@ export default async function AttendanceEntryPage({
     ? {
         employeeId: entry.employee_id,
         date: entry.date,
+        scheduleId: entry.schedule_id,
         timeInAm: entry.time_in_am,
         timeOutAm: entry.time_out_am,
         timeInPm: entry.time_in_pm,
@@ -39,7 +44,7 @@ export default async function AttendanceEntryPage({
     : undefined;
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">
           {isEdit ? "Correct Attendance Entry" : "Manual Attendance Entry"}
@@ -52,6 +57,7 @@ export default async function AttendanceEntryPage({
       </div>
       <ManualEntryForm
         employees={(employees ?? []).filter((e) => e.status === "active")}
+        schedules={schedules}
         initialValues={initialValues}
       />
     </div>

@@ -87,9 +87,13 @@ const deptManagerRoles: UserRole[] = [
   "department_admin",
   "department_admin_and_department_head",
 ];
-// Who can see the Employees list. OCM Admin gets read access plus the
-// single-field "detailed department" quick edit (see canEditDetailedDepartment).
-const employeesViewRoles: UserRole[] = [...deptManagerRoles, "ocm_admin"];
+// Who can see the Employees list. OCM Admin and DTR Manager get read access plus
+// the single-field "detailed department" quick edit (see canEditDetailedDepartment).
+const employeesViewRoles: UserRole[] = [
+  ...deptManagerRoles,
+  "ocm_admin",
+  "dtr_manager",
+];
 const leaveAttendanceRoles: UserRole[] = [
   "super_admin",
   "ocm_admin",
@@ -185,12 +189,13 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Administration",
-    // DTR Manager only sees Work Schedules within this group; OCM Admin only
-    // sees Departments; every other item stays super_admin-only.
+    // DTR Manager sees Work Schedules, Holidays and Departments within this
+    // group; OCM Admin only sees Departments; every other item stays
+    // super_admin-only.
     roles: ["super_admin", "dtr_manager", "ocm_admin"],
     items: [
       { title: "User Management", href: "/admin/users", icon: UserPlus, roles: ["super_admin"] },
-      { title: "Departments", href: "/admin/departments", icon: Network, roles: ["super_admin", "ocm_admin"] },
+      { title: "Departments", href: "/admin/departments", icon: Network, roles: ["super_admin", "ocm_admin", "dtr_manager"] },
       { title: "Salary Grades", href: "/admin/salary-grades", icon: Building2, roles: ["super_admin"] },
       {
         title: "Salary CSV import",

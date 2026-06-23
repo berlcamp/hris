@@ -143,7 +143,7 @@ export async function resolveSignatories(
     } else {
       result.set(e.id, {
         name: dept ? headNameByDept.get(dept.id) ?? "" : "",
-        title: "Department Head",
+        title: "Department Head / OIC",
       });
     }
   }

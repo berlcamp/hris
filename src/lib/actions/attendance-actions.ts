@@ -8,10 +8,10 @@ import { logAudit } from "@/lib/audit";
 import {
   DEFAULT_SCHEDULE,
   bucketPunchesForDuty,
-  crossesMidnight,
   dutyDateFor,
   hasBreak,
   lateMinutesFor,
+  timeOnNextDayForNightShift,
   trimTimeStr,
   undertimeMinutesFor,
   type ScheduleLike,
@@ -52,6 +52,13 @@ export interface AttendanceLogRow {
   remarks: string | null;
   source: string;
   created_at: string;
+  created_by_email: string | null;
+  updated_by_email: string | null;
+  updated_at: string | null;
+  // Per-day schedule override (migration 047). NULL means the entry inherits the
+  // employee's assigned schedule. `schedules` is the joined override, if any.
+  schedule_id: string | null;
+  schedules: { name: string } | null;
   employees: {
     first_name: string;
     last_name: string;
@@ -242,6 +249,31 @@ function slotReasonShort(code: unknown): string | null {
   return code ? NO_TIME_REASON_SHORT[code as NoTimeReason] ?? null : null;
 }
 
+// DTR undertime ceiling. A standard workday is 8 hours, so undertime is capped
+// at 7 hours: anything from 8 hours up means the employee rendered no
+// meaningful service that day and the day is counted ABSENT instead of as a
+// near-full-day undertime.
+const UNDERTIME_CAP_MINUTES = 7 * 60; // 420
+const UNDERTIME_ABSENT_MINUTES = 8 * 60; // 480
+
+// Applies the cap/absence rule to a day's already-excused late + undertime
+// minutes. When undertime reaches 8 hours the day is reclassified absent and
+// both late and undertime are zeroed; otherwise undertime is clamped to 7 hours.
+function applyUndertimeAbsenceRule(
+  lateMins: number,
+  undertimeMins: number,
+  alreadyAbsent: boolean,
+): { lateMins: number; undertimeMins: number; absent: boolean } {
+  if (undertimeMins >= UNDERTIME_ABSENT_MINUTES) {
+    return { lateMins: 0, undertimeMins: 0, absent: true };
+  }
+  return {
+    lateMins,
+    undertimeMins: Math.min(undertimeMins, UNDERTIME_CAP_MINUTES),
+    absent: alreadyAbsent,
+  };
+}
+
 // --- Data Fetching ---
 
 export async function getAttendanceLogs(filters?: {
@@ -258,7 +290,7 @@ export async function getAttendanceLogs(filters?: {
     .schema("hris")
     .from("attendance_logs")
     .select(
-      "*, employees!attendance_logs_employee_id_fkey(first_name, last_name, departments!employees_department_id_fkey(name, code))"
+      "*, schedules!attendance_logs_schedule_id_fkey(name), employees!attendance_logs_employee_id_fkey(first_name, last_name, departments!employees_department_id_fkey(name, code))"
     )
     .order("date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -314,9 +346,9 @@ export async function getAttendanceLogs(filters?: {
 
 // --- Manual Attendance Entry ---
 
-export async function createAttendanceEntry(input: {
-  employee_id: string;
-  date: string;
+// The HH:MM time + per-slot official-duty reason fields shared by single-date
+// and date-range manual entry.
+interface ManualEntryTimeFields {
   time_in_am: string | null;
   time_out_am: string | null;
   time_in_pm: string | null;
@@ -327,66 +359,52 @@ export async function createAttendanceEntry(input: {
   reason_out_am?: NoTimeReason | null;
   reason_in_pm?: NoTimeReason | null;
   reason_out_pm?: NoTimeReason | null;
-}) {
-  const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
-    throw new Error("Unauthorized");
-  }
+  // Per-day schedule override (migration 047). NULL/undefined => inherit the
+  // employee's assigned schedule.
+  schedule_id?: string | null;
+}
 
-  const supabase = createAdminClient();
-
-  // Resolve the employee's schedule so manual entry uses the same late /
-  // undertime baseline as the importer.
-  const { data: emp } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select(
-      "schedules(id, time_in, time_out, break_start, break_end)",
-    )
-    .eq("id", input.employee_id)
-    .maybeSingle();
-  const sched: ScheduleLike =
-    (emp?.schedules as unknown as ScheduleLike | null) ??
-    (await resolveDefaultSchedule(supabase));
-
-  // Check for existing entry on this date for this employee
-  const { data: existing } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("id")
-    .eq("employee_id", input.employee_id)
-    .eq("date", input.date)
-    .maybeSingle();
-
+// Builds the attendance_logs row for one duty date from the manual-entry fields,
+// applying night-shift next-day handling, late/undertime flags, and official-duty
+// reason rules. Shared by createAttendanceEntry and createAttendanceEntryRange.
+function buildManualEntryRecord(
+  employeeId: string,
+  date: string,
+  fields: ManualEntryTimeFields,
+  sched: ScheduleLike,
+) {
   // For night shifts, any HH:MM that precedes the shift's time_in is
   // interpreted as the next calendar day (e.g. a 05:00 clock-out for a
   // 22:00–05:00 shift). Day shifts always stay on the duty date.
-  const isNight = crossesMidnight(sched);
+  // A night-shift HH:MM rolls to the next calendar day only when it falls in the
+  // early-morning portion of the shift (per the off-shift midpoint). This keeps
+  // an on-time/early evening clock-in (e.g. 22:00 for a 22:00–05:00 shift) on the
+  // duty date instead of mis-dating it a day ahead — which previously read as a
+  // full ~1440-min "late". Clock-outs like 06:30 still correctly roll forward.
   const dateFor = (t: string | null): string => {
-    if (!t) return input.date;
-    if (!isNight) return input.date;
-    return t < sched.time_in ? addDaysIso(input.date, 1) : input.date;
+    if (!t) return date;
+    return timeOnNextDayForNightShift(t, sched) ? addDaysIso(date, 1) : date;
   };
   const nextDay = (t: string | null): boolean =>
-    !!t && isNight && t < sched.time_in;
+    !!t && timeOnNextDayForNightShift(t, sched);
 
   const flags = computeAttendanceFlags(
     {
-      ...input,
-      time_in_am_next_day: nextDay(input.time_in_am),
-      time_out_pm_next_day: nextDay(input.time_out_pm),
+      ...fields,
+      time_in_am_next_day: nextDay(fields.time_in_am),
+      time_out_pm_next_day: nextDay(fields.time_out_pm),
     },
-    input.date,
+    date,
     sched,
   );
 
-  const noTimeReason = input.no_time_reason ?? null;
+  const noTimeReason = fields.no_time_reason ?? null;
   // A reason is only meaningful for a slot that has no time. Drop any reason on
   // a slot the user also typed a time into.
-  const reasonInAm = input.time_in_am ? null : input.reason_in_am ?? null;
-  const reasonOutAm = input.time_out_am ? null : input.reason_out_am ?? null;
-  const reasonInPm = input.time_in_pm ? null : input.reason_in_pm ?? null;
-  const reasonOutPm = input.time_out_pm ? null : input.reason_out_pm ?? null;
+  const reasonInAm = fields.time_in_am ? null : fields.reason_in_am ?? null;
+  const reasonOutAm = fields.time_out_am ? null : fields.reason_out_am ?? null;
+  const reasonInPm = fields.time_in_pm ? null : fields.reason_in_pm ?? null;
+  const reasonOutPm = fields.time_out_pm ? null : fields.reason_out_pm ?? null;
   const hasAnyReason =
     !!noTimeReason ||
     !!reasonInAm ||
@@ -394,14 +412,15 @@ export async function createAttendanceEntry(input: {
     !!reasonInPm ||
     !!reasonOutPm;
 
-  const record = {
-    employee_id: input.employee_id,
-    date: input.date,
-    time_in_am: toTimestamp(dateFor(input.time_in_am), input.time_in_am),
-    time_out_am: toTimestamp(dateFor(input.time_out_am), input.time_out_am),
-    time_in_pm: toTimestamp(dateFor(input.time_in_pm), input.time_in_pm),
-    time_out_pm: toTimestamp(dateFor(input.time_out_pm), input.time_out_pm),
-    remarks: input.remarks || null,
+  return {
+    employee_id: employeeId,
+    date,
+    schedule_id: fields.schedule_id ?? null,
+    time_in_am: toTimestamp(dateFor(fields.time_in_am), fields.time_in_am),
+    time_out_am: toTimestamp(dateFor(fields.time_out_am), fields.time_out_am),
+    time_in_pm: toTimestamp(dateFor(fields.time_in_pm), fields.time_in_pm),
+    time_out_pm: toTimestamp(dateFor(fields.time_out_pm), fields.time_out_pm),
+    remarks: fields.remarks || null,
     no_time_reason: noTimeReason,
     time_in_am_reason: reasonInAm,
     time_out_am_reason: reasonOutAm,
@@ -415,23 +434,153 @@ export async function createAttendanceEntry(input: {
     ...(reasonOutPm ? { is_undertime: false, undertime_minutes: 0 } : {}),
     ...(hasAnyReason ? { is_absent: false } : {}),
   };
+}
 
-  if (existing) {
-    // Update existing
-    const { error } = await supabase
-      .schema("hris")
-      .from("attendance_logs")
-      .update(record)
-      .eq("id", existing.id);
-    if (error) throw error;
-  } else {
-    // Insert new
-    const { error } = await supabase
-      .schema("hris")
-      .from("attendance_logs")
-      .insert(record);
-    if (error) throw error;
+// Resolves the employee's schedule (falling back to the default) so manual entry
+// uses the same late / undertime baseline as the importer.
+async function resolveEmployeeSchedule(
+  supabase: ReturnType<typeof createAdminClient>,
+  employeeId: string,
+): Promise<ScheduleLike> {
+  const { data: emp } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select("schedules(id, time_in, time_out, break_start, break_end)")
+    .eq("id", employeeId)
+    .maybeSingle();
+  return (
+    (emp?.schedules as unknown as ScheduleLike | null) ??
+    (await resolveDefaultSchedule(supabase))
+  );
+}
+
+// Loads a specific schedule by id for a per-day override. Returns null if the id
+// doesn't resolve (e.g. the schedule was deleted) so the caller can fall back to
+// the employee's assigned schedule.
+async function resolveScheduleById(
+  supabase: ReturnType<typeof createAdminClient>,
+  scheduleId: string,
+): Promise<ScheduleLike | null> {
+  const { data } = await supabase
+    .schema("hris")
+    .from("schedules")
+    .select("id, time_in, time_out, break_start, break_end")
+    .eq("id", scheduleId)
+    .maybeSingle();
+  return (data as unknown as ScheduleLike | null) ?? null;
+}
+
+// Fetches every per-day override schedule referenced by a set of attendance logs
+// in one query, keyed by schedule id. The DTR builders use it to recompute
+// late / undertime for a day against its pinned schedule instead of the
+// employee's assigned one.
+async function loadOverrideSchedules(
+  supabase: ReturnType<typeof createAdminClient>,
+  logs: { schedule_id?: string | null }[],
+): Promise<Map<string, ScheduleLike>> {
+  const ids = [
+    ...new Set(
+      logs.map((l) => l.schedule_id).filter((id): id is string => !!id),
+    ),
+  ];
+  const map = new Map<string, ScheduleLike>();
+  if (ids.length === 0) return map;
+  const { data } = await supabase
+    .schema("hris")
+    .from("schedules")
+    .select("id, time_in, time_out, break_start, break_end")
+    .in("id", ids);
+  for (const s of (data ?? []) as unknown as ScheduleLike[]) {
+    map.set(s.id, s);
   }
+  return map;
+}
+
+// Audit columns for an attendance_logs upsert. On a fresh row the signed-in user
+// is the creator and the updated_* fields stay null; on an edit the original
+// creator is preserved and the editor is stamped.
+function auditFields(
+  existing: { created_by: string | null; created_by_email: string | null } | null | undefined,
+  user: { id: string; email: string },
+  now: string,
+) {
+  if (!existing) {
+    return {
+      created_by: user.id,
+      created_by_email: user.email,
+      updated_by: null as string | null,
+      updated_by_email: null as string | null,
+      updated_at: null as string | null,
+    };
+  }
+  return {
+    created_by: existing.created_by,
+    created_by_email: existing.created_by_email,
+    updated_by: user.id,
+    updated_by_email: user.email,
+    updated_at: now,
+  };
+}
+
+export async function createAttendanceEntry(input: {
+  employee_id: string;
+  date: string;
+  time_in_am: string | null;
+  time_out_am: string | null;
+  time_in_pm: string | null;
+  time_out_pm: string | null;
+  remarks?: string;
+  no_time_reason?: NoTimeReason | null;
+  reason_in_am?: NoTimeReason | null;
+  reason_out_am?: NoTimeReason | null;
+  reason_in_pm?: NoTimeReason | null;
+  reason_out_pm?: NoTimeReason | null;
+  schedule_id?: string | null;
+}) {
+  const user = await getCurrentUser();
+  if (!user || !isAttendanceManager(user.role)) {
+    throw new Error("Unauthorized");
+  }
+
+  const supabase = createAdminClient();
+  // A per-day override schedule (if picked and still valid) takes precedence over
+  // the employee's assigned schedule for late/undertime and night-shift handling.
+  const overrideSched = input.schedule_id
+    ? await resolveScheduleById(supabase, input.schedule_id)
+    : null;
+  const sched =
+    overrideSched ?? (await resolveEmployeeSchedule(supabase, input.employee_id));
+  const scheduleId = overrideSched ? input.schedule_id! : null;
+
+  // Preserve the original creator across edits.
+  const { data: existing } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .select("created_by, created_by_email")
+    .eq("employee_id", input.employee_id)
+    .eq("date", input.date)
+    .maybeSingle();
+
+  const record = {
+    ...buildManualEntryRecord(
+      input.employee_id,
+      input.date,
+      { ...input, schedule_id: scheduleId },
+      sched,
+    ),
+    ...auditFields(
+      existing as { created_by: string | null; created_by_email: string | null } | null,
+      { id: user.id, email: user.email },
+      new Date().toISOString(),
+    ),
+  };
+
+  // (employee_id, date) is unique; upsert so re-entering a date overwrites.
+  const { error } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .upsert(record, { onConflict: "employee_id,date" });
+  if (error) throw error;
 
   // Keep the VL ledger in sync with the (possibly mid-month) edit.
   const [y, m] = input.date.split("-").map(Number);
@@ -439,6 +588,105 @@ export async function createAttendanceEntry(input: {
 
   revalidatePath("/attendance");
   return { success: true };
+}
+
+// Saves several manual entries for one employee in a single call — each with its
+// own date and times — so a stretch of days can be filled from a per-date grid.
+export async function createAttendanceEntriesBulk(input: {
+  employee_id: string;
+  entries: Array<
+    ManualEntryTimeFields & {
+      date: string;
+    }
+  >;
+}) {
+  const user = await getCurrentUser();
+  if (!user || !isAttendanceManager(user.role)) {
+    throw new Error("Unauthorized");
+  }
+
+  if (!input.entries || input.entries.length === 0) {
+    return { success: true, count: 0 };
+  }
+  // Guard against an unbounded payload.
+  if (input.entries.length > 366) {
+    throw new Error("Too many dates in one save (max 366).");
+  }
+
+  const supabase = createAdminClient();
+  const employeeSched = await resolveEmployeeSchedule(supabase, input.employee_id);
+
+  // Resolve any per-day override schedules referenced across the batch in one
+  // query. Entries with no (or an invalid) override fall back to the employee's
+  // assigned schedule, exactly like single-entry create.
+  const overrideIds = [
+    ...new Set(
+      input.entries
+        .map((e) => e.schedule_id)
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  const overrideSchedById = new Map<string, ScheduleLike>();
+  if (overrideIds.length > 0) {
+    const { data: schedRows } = await supabase
+      .schema("hris")
+      .from("schedules")
+      .select("id, time_in, time_out, break_start, break_end")
+      .in("id", overrideIds);
+    for (const s of (schedRows ?? []) as unknown as ScheduleLike[]) {
+      overrideSchedById.set(s.id, s);
+    }
+  }
+
+  // Preserve the original creator of any dates that already exist.
+  const { data: existingRows } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .select("date, created_by, created_by_email")
+    .eq("employee_id", input.employee_id)
+    .in("date", input.entries.map((e) => e.date));
+  const existingByDate = new Map(
+    ((existingRows ?? []) as Array<{
+      date: string;
+      created_by: string | null;
+      created_by_email: string | null;
+    }>).map((r) => [r.date, r]),
+  );
+  const now = new Date().toISOString();
+  const actor = { id: user.id, email: user.email };
+
+  const records = input.entries.map((e) => {
+    const override = e.schedule_id
+      ? overrideSchedById.get(e.schedule_id) ?? null
+      : null;
+    const sched = override ?? employeeSched;
+    const scheduleId = override ? e.schedule_id! : null;
+    return {
+      ...buildManualEntryRecord(
+        input.employee_id,
+        e.date,
+        { ...e, schedule_id: scheduleId },
+        sched,
+      ),
+      ...auditFields(existingByDate.get(e.date), actor, now),
+    };
+  });
+
+  const { error } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .upsert(records, { onConflict: "employee_id,date" });
+  if (error) throw error;
+
+  // Recompute the VL ledger once per affected month.
+  const months = new Set(input.entries.map((e) => e.date.slice(0, 7)));
+  for (const ym of months) {
+    const [y, m] = ym.split("-").map(Number);
+    await recomputeAttendanceDeductionFor(input.employee_id, y, m);
+  }
+
+  revalidatePath("/attendance");
+  return { success: true, count: records.length };
 }
 
 // --- Delete a single attendance entry ---
@@ -501,7 +749,7 @@ export async function getAttendanceEntryForEdit(id: string) {
     .schema("hris")
     .from("attendance_logs")
     .select(
-      "id, employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
+      "id, employee_id, date, schedule_id, time_in_am, time_out_am, time_in_pm, time_out_pm, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
     )
     .eq("id", id)
     .maybeSingle();
@@ -513,6 +761,7 @@ export async function getAttendanceEntryForEdit(id: string) {
     id: data.id as string,
     employee_id: data.employee_id as string,
     date: data.date as string,
+    schedule_id: (data.schedule_id as string | null) ?? null,
     time_in_am: extractTime(data.time_in_am as string | null) ?? "",
     time_out_am: extractTime(data.time_out_am as string | null) ?? "",
     time_in_pm: extractTime(data.time_in_pm as string | null) ?? "",
@@ -695,6 +944,35 @@ export async function importDahuaAttendance(
     });
   }
 
+  // Honor per-day schedule overrides: if a day being written already has a
+  // schedule pinned to it (assigned by a DTR manager), score that day against
+  // the pinned schedule instead of the employee's assigned one — and preserve
+  // the pin. Without this, an import would silently recompute late/undertime
+  // against the wrong schedule for rotating-shift days.
+  const overrideSchedByKey = new Map<string, ScheduleLike>();
+  {
+    const dutyDates = [...new Set([...grouped.values()].map((g) => g.dutyDate))];
+    if (employeeIds.length > 0 && dutyDates.length > 0) {
+      const { data: existing } = await supabase
+        .schema("hris")
+        .from("attendance_logs")
+        .select("employee_id, date, schedule_id")
+        .in("employee_id", employeeIds)
+        .in("date", dutyDates);
+      const existingRows = (existing ?? []) as {
+        employee_id: string;
+        date: string;
+        schedule_id: string | null;
+      }[];
+      const schedById = await loadOverrideSchedules(supabase, existingRows);
+      for (const r of existingRows) {
+        if (!r.schedule_id) continue;
+        const sched = schedById.get(r.schedule_id);
+        if (sched) overrideSchedByKey.set(`${r.employee_id}_${r.date}`, sched);
+      }
+    }
+  }
+
   let imported = 0;
   let errors = 0;
   const skipped = skipKeys.size;
@@ -703,12 +981,17 @@ export async function importDahuaAttendance(
   // Build every record in memory first. Computing buckets/flags is pure CPU
   // work, so no DB round-trips happen here.
   const records: Record<string, unknown>[] = [];
-  for (const [, group] of grouped) {
+  for (const [key, group] of grouped) {
     try {
+      // A pinned override schedule for this day wins over the employee's
+      // assigned one (for break-window bucketing and late/undertime).
+      const overrideSched = overrideSchedByKey.get(key) ?? null;
+      const effSched = overrideSched ?? group.sched;
+
       const bucket = bucketPunchesForDuty(
         dedupePunches(group.punches),
         group.dutyDate,
-        group.sched,
+        effSched,
       );
 
       const flags = computeAttendanceFlags(
@@ -721,7 +1004,7 @@ export async function importDahuaAttendance(
           time_out_pm_next_day: bucket.time_out_pm_next_day,
         },
         group.dutyDate,
-        group.sched,
+        effSched,
       );
 
       const nextDate = addDaysIso(group.dutyDate, 1);
@@ -730,6 +1013,7 @@ export async function importDahuaAttendance(
       records.push({
         employee_id: group.employeeId,
         date: group.dutyDate,
+        schedule_id: overrideSched?.id ?? null,
         time_in_am: toTimestamp(dateOf(bucket.time_in_am_next_day), bucket.time_in_am),
         time_out_am: toTimestamp(dateOf(bucket.time_out_am_next_day), bucket.time_out_am),
         time_in_pm: toTimestamp(dateOf(bucket.time_in_pm_next_day), bucket.time_in_pm),
@@ -924,7 +1208,7 @@ export async function getDepartmentDtrBulk(
       .schema("hris")
       .from("attendance_logs")
       .select(
-        "employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
+        "employee_id, date, schedule_id, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
       )
       .in("employee_id", empIds)
       .gte("date", startDate)
@@ -994,6 +1278,7 @@ export async function getDepartmentDtrBulk(
   }
 
   const defaultSched = await resolveDefaultSchedule(supabase);
+  const overrideSchedMap = await loadOverrideSchedules(supabase, logs ?? []);
   const holidayMap = await getHolidayMap(supabase, startDate, endDate);
 
   // Resolve the DTR signatory for every employee in one batched query. Every
@@ -1070,18 +1355,23 @@ export async function getDepartmentDtrBulk(
           : null;
         const tInAmRaw = log.time_in_am as string | null;
         const tOutPmRaw = log.time_out_pm as string | null;
-        // Recompute late/undertime against the *current* schedule so the
-        // footer always agrees with the "Official hours" line, even when the
-        // employee's schedule was changed after import.
+        // A day pinned to an override schedule is scored against that schedule;
+        // otherwise against the employee's current assigned schedule. Either way
+        // late/undertime are recomputed (not read from the stored flags) so the
+        // numbers stay correct even after a schedule change.
+        const daySched =
+          (log.schedule_id
+            ? overrideSchedMap.get(log.schedule_id as string)
+            : null) ?? sched;
         const lateMins = lateMinutesFor(
           day.date,
-          sched,
+          daySched,
           extractTime(tInAmRaw),
           timestampOnNextDay(tInAmRaw, day.date),
         );
         const undertimeMins = undertimeMinutesFor(
           day.date,
-          sched,
+          daySched,
           extractTime(tOutPmRaw),
           timestampOnNextDay(tOutPmRaw, day.date),
           !!tInAmRaw,
@@ -1099,41 +1389,50 @@ export async function getDepartmentDtrBulk(
         const effLateMins = reasonInAm || holidayExcusesLate ? 0 : lateMins;
         const effUndertimeMins =
           reasonOutPm || holidayExcusesUndertime ? 0 : undertimeMins;
-        const isLate = effLateMins > 0;
-        const isUndertime = effUndertimeMins > 0;
+        // Cap undertime at 7h; 8h+ reclassifies the day as absent.
+        const {
+          lateMins: finalLateMins,
+          undertimeMins: finalUndertimeMins,
+          absent: dayAbsent,
+        } = applyUndertimeAbsenceRule(effLateMins, effUndertimeMins, isAbsent);
+        const isLate = finalLateMins > 0;
+        const isUndertime = finalUndertimeMins > 0;
+        // An absent day (already absent, or reclassified by the 8h rule) prints
+        // ABSENT across the row, so any partial punches are not shown.
+        const showTimes = !dayAbsent;
 
         entries.push({
           date: day.date,
           day_of_week: day.dayOfWeek,
-          time_in_am: extractTime(tInAmRaw),
-          time_out_am: extractTime(log.time_out_am as string | null),
-          time_in_pm: extractTime(log.time_in_pm as string | null),
-          time_out_pm: extractTime(tOutPmRaw),
+          time_in_am: showTimes ? extractTime(tInAmRaw) : null,
+          time_out_am: showTimes ? extractTime(log.time_out_am as string | null) : null,
+          time_in_pm: showTimes ? extractTime(log.time_in_pm as string | null) : null,
+          time_out_pm: showTimes ? extractTime(tOutPmRaw) : null,
           is_late: isLate,
-          late_minutes: effLateMins,
+          late_minutes: finalLateMins,
           is_undertime: isUndertime,
-          undertime_minutes: effUndertimeMins,
-          is_absent: isAbsent,
+          undertime_minutes: finalUndertimeMins,
+          is_absent: dayAbsent,
           remarks: (log.remarks as string | null) ?? null,
           leave_type: leaveCode,
           holiday: holidayType,
           holiday_name: holidayName,
           no_time_reason_label: noTimeReasonLabel,
-          reason_in_am: reasonInAm,
-          reason_out_am: reasonOutAm,
-          reason_in_pm: reasonInPm,
-          reason_out_pm: reasonOutPm,
+          reason_in_am: showTimes ? reasonInAm : null,
+          reason_out_am: showTimes ? reasonOutAm : null,
+          reason_in_pm: showTimes ? reasonInPm : null,
+          reason_out_pm: showTimes ? reasonOutPm : null,
         });
 
-        if (!isAbsent) totalPresent++;
+        if (!dayAbsent) totalPresent++;
         else totalAbsent++;
         if (isLate) {
           totalLateCount++;
-          totalLateMinutes += effLateMins;
+          totalLateMinutes += finalLateMins;
         }
         if (isUndertime) {
           totalUndertimeCount++;
-          totalUndertimeMinutes += effUndertimeMins;
+          totalUndertimeMinutes += finalUndertimeMins;
         }
       } else if (!day.isWeekend && leaveCode) {
         entries.push({
@@ -1268,7 +1567,7 @@ export async function getEmployeeDtrRange(
       .schema("hris")
       .from("attendance_logs")
       .select(
-        "date, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
+        "date, schedule_id, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
       )
       .eq("employee_id", employeeId)
       .gte("date", startDate)
@@ -1330,6 +1629,7 @@ export async function getEmployeeDtrRange(
     ((employee as unknown) as { schedules: ScheduleLike | null }).schedules ??
     (await resolveDefaultSchedule(supabase));
 
+  const overrideSchedMap = await loadOverrideSchedules(supabase, logs ?? []);
   const holidayMap = await getHolidayMap(supabase, startDate, endDate);
 
   const cursor = new Date(startDate + "T00:00:00");
@@ -1383,15 +1683,21 @@ export async function getEmployeeDtrRange(
         : null;
       const tInAmRaw = log.time_in_am as string | null;
       const tOutPmRaw = log.time_out_pm as string | null;
+      // Score the day against its pinned override schedule when one is set,
+      // otherwise the employee's current assigned schedule.
+      const daySched =
+        (log.schedule_id
+          ? overrideSchedMap.get(log.schedule_id as string)
+          : null) ?? empSchedule;
       const lateMins = lateMinutesFor(
         dateStr,
-        empSchedule,
+        daySched,
         extractTime(tInAmRaw),
         timestampOnNextDay(tInAmRaw, dateStr),
       );
       const undertimeMins = undertimeMinutesFor(
         dateStr,
-        empSchedule,
+        daySched,
         extractTime(tOutPmRaw),
         timestampOnNextDay(tOutPmRaw, dateStr),
         !!tInAmRaw,
@@ -1409,41 +1715,50 @@ export async function getEmployeeDtrRange(
       const effLateMins = reasonInAm || holidayExcusesLate ? 0 : lateMins;
       const effUndertimeMins =
         reasonOutPm || holidayExcusesUndertime ? 0 : undertimeMins;
-      const isLate = effLateMins > 0;
-      const isUndertime = effUndertimeMins > 0;
+      // Cap undertime at 7h; 8h+ reclassifies the day as absent.
+      const {
+        lateMins: finalLateMins,
+        undertimeMins: finalUndertimeMins,
+        absent: dayAbsent,
+      } = applyUndertimeAbsenceRule(effLateMins, effUndertimeMins, isAbsent);
+      const isLate = finalLateMins > 0;
+      const isUndertime = finalUndertimeMins > 0;
+      // An absent day (already absent, or reclassified by the 8h rule) prints
+      // ABSENT across the row, so any partial punches are not shown.
+      const showTimes = !dayAbsent;
 
       entries.push({
         date: dateStr,
         day_of_week: dayOfWeek,
-        time_in_am: extractTime(tInAmRaw),
-        time_out_am: extractTime(log.time_out_am as string | null),
-        time_in_pm: extractTime(log.time_in_pm as string | null),
-        time_out_pm: extractTime(tOutPmRaw),
+        time_in_am: showTimes ? extractTime(tInAmRaw) : null,
+        time_out_am: showTimes ? extractTime(log.time_out_am as string | null) : null,
+        time_in_pm: showTimes ? extractTime(log.time_in_pm as string | null) : null,
+        time_out_pm: showTimes ? extractTime(tOutPmRaw) : null,
         is_late: isLate,
-        late_minutes: effLateMins,
+        late_minutes: finalLateMins,
         is_undertime: isUndertime,
-        undertime_minutes: effUndertimeMins,
-        is_absent: isAbsent,
+        undertime_minutes: finalUndertimeMins,
+        is_absent: dayAbsent,
         remarks: (log.remarks as string | null) ?? null,
         leave_type: leaveCode,
         holiday: holidayType,
         holiday_name: holidayName,
         no_time_reason_label: noTimeReasonLabel,
-        reason_in_am: reasonInAm,
-        reason_out_am: reasonOutAm,
-        reason_in_pm: reasonInPm,
-        reason_out_pm: reasonOutPm,
+        reason_in_am: showTimes ? reasonInAm : null,
+        reason_out_am: showTimes ? reasonOutAm : null,
+        reason_in_pm: showTimes ? reasonInPm : null,
+        reason_out_pm: showTimes ? reasonOutPm : null,
       });
 
-      if (!isAbsent) totalPresent++;
+      if (!dayAbsent) totalPresent++;
       else totalAbsent++;
       if (isLate) {
         totalLateCount++;
-        totalLateMinutes += effLateMins;
+        totalLateMinutes += finalLateMins;
       }
       if (isUndertime) {
         totalUndertimeCount++;
-        totalUndertimeMinutes += effUndertimeMins;
+        totalUndertimeMinutes += finalUndertimeMins;
       }
     } else if (!isWeekend && leaveCode) {
       entries.push({
@@ -1692,29 +2007,36 @@ export async function getAttendanceReport(
         if (isAbsent) {
           daysAbsent++;
         } else {
-          daysPresent++;
           const tIn = log.time_in_am as string | null;
           const tOut = log.time_out_pm as string | null;
-          const lm = lateMinutesFor(
+          const lmRaw = lateMinutesFor(
             day.date,
             sched,
             extractTime(tIn),
             timestampOnNextDay(tIn, day.date),
           );
-          const um = undertimeMinutesFor(
+          const umRaw = undertimeMinutesFor(
             day.date,
             sched,
             extractTime(tOut),
             timestampOnNextDay(tOut, day.date),
             !!tIn,
           );
-          if (lm > 0) {
-            lateCount++;
-            lateMinutes += lm;
-          }
-          if (um > 0) {
-            undertimeCount++;
-            undertimeMinutes += um;
+          // Same DTR rule: undertime caps at 7h; 8h+ counts the day absent.
+          const { lateMins: lm, undertimeMins: um, absent } =
+            applyUndertimeAbsenceRule(lmRaw, umRaw, false);
+          if (absent) {
+            daysAbsent++;
+          } else {
+            daysPresent++;
+            if (lm > 0) {
+              lateCount++;
+              lateMinutes += lm;
+            }
+            if (um > 0) {
+              undertimeCount++;
+              undertimeMinutes += um;
+            }
           }
         }
       } else if (!day.isWeekend && leaveSet.has(day.date)) {

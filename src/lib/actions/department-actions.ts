@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
 
 // Roles allowed to manage departments and department heads.
-const DEPT_MANAGER_ROLES = ["super_admin", "ocm_admin"];
+const DEPT_MANAGER_ROLES = ["super_admin", "ocm_admin", "dtr_manager"];
 
 export interface DepartmentRow {
   id: string;

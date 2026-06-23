@@ -73,6 +73,24 @@ export function dutyDateFor(
   return punchDate;
 }
 
+// For a midnight-crossing schedule, decides whether a wall-clock HH:MM belongs
+// to the calendar day AFTER the duty date — i.e. the early-morning portion of
+// the shift (a 02:00 or 06:30 punch) rather than the duty-date evening. Uses the
+// off-shift midpoint (mirroring dutyDateFor) so an EARLY arrival just before
+// time_in (e.g. 21:50 for a 22:00 shift) correctly stays on the duty date
+// instead of being mistaken for the next morning. Day shifts always return
+// false. Accepts "HH:MM" or "HH:MM:SS".
+export function timeOnNextDayForNightShift(
+  time: string,
+  sched: ScheduleLike,
+): boolean {
+  if (!crossesMidnight(sched)) return false;
+  const ti = timeToMinutes(sched.time_in);
+  const to = timeToMinutes(sched.time_out);
+  const splitMin = Math.floor((ti + to) / 2);
+  return timeToMinutes(time) < splitMin;
+}
+
 // Returns the wall-clock datetime for a HH:MM time relative to duty date `D`.
 // If `time` falls before `time_in` (numerically), it belongs to D+1 (i.e. the
 // schedule wraps past midnight).

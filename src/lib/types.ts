@@ -216,6 +216,11 @@ export interface AttendanceLog {
   remarks: string | null;
   source: string;
   created_at: string;
+  created_by: string | null;
+  created_by_email: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+  updated_by_email: string | null;
 }
 
 export interface DtrSummary {
