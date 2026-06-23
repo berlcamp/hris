@@ -136,13 +136,16 @@ export function createAttendanceColumns(
       filterFn: (row, id, value) => value.includes(row.getValue(id)),
     },
     {
-      accessorKey: "remarks",
-      header: "Remarks",
-      cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">
-          {row.original.remarks ?? "—"}
-        </span>
-      ),
+      id: "schedule",
+      header: "Schedule",
+      cell: ({ row }) =>
+        row.original.schedules?.name ? (
+          <Badge variant="outline" className="text-xs">
+            {row.original.schedules.name}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground text-xs">Assigned</span>
+        ),
     },
     ...(canManage
       ? [

@@ -1,12 +1,35 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, Loader2 } from "lucide-react";
+import {
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  MessageSquare,
+  History,
+  Loader2,
+} from "lucide-react";
+import { format } from "date-fns";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,10 +43,17 @@ import {
 import { deleteAttendanceEntry } from "@/lib/actions/attendance-actions";
 import type { AttendanceLogRow } from "@/lib/actions/attendance-actions";
 
+function formatTimestamp(value: string | null) {
+  if (!value) return null;
+  return format(new Date(value), "MMM d, yyyy h:mm a");
+}
+
 export function AttendanceActionsCell({ row }: { row: AttendanceLogRow }) {
   const router = useRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [remarksOpen, setRemarksOpen] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -45,27 +75,97 @@ export function AttendanceActionsCell({ row }: { row: AttendanceLogRow }) {
     ? `${row.employees.last_name}, ${row.employees.first_name}`
     : "this employee";
 
+  const dateLabel = format(new Date(row.date + "T00:00:00"), "MMM d, yyyy");
+  const createdAt = formatTimestamp(row.created_at);
+  const updatedAt = formatTimestamp(row.updated_at);
+
   return (
     <>
-      <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          title="Correct entry"
-          render={<Link href={`/attendance/entry?id=${row.id}`} />}
-        >
-          <Pencil className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          title="Delete entry"
-          className="text-destructive hover:text-destructive"
-          onClick={() => setConfirmOpen(true)}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
+          <MoreHorizontal className="h-4 w-4" />
+          <span className="sr-only">Open menu</span>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onClick={() => router.push(`/attendance/entry?id=${row.id}`)}
+          >
+            <Pencil className="h-4 w-4" />
+            Correct entry
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setRemarksOpen(true)}>
+            <MessageSquare className="h-4 w-4" />
+            Remarks
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setLogsOpen(true)}>
+            <History className="h-4 w-4" />
+            Logs
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => setConfirmOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Dialog open={remarksOpen} onOpenChange={setRemarksOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remarks</DialogTitle>
+            <DialogDescription>
+              {employeeName} — {dateLabel}
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm whitespace-pre-wrap">
+            {row.remarks ?? (
+              <span className="text-muted-foreground">No remarks recorded.</span>
+            )}
+          </p>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Close</DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Entry Logs</DialogTitle>
+            <DialogDescription>
+              {employeeName} — {dateLabel}
+            </DialogDescription>
+          </DialogHeader>
+          <dl className="space-y-3 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Source</dt>
+              <dd className="capitalize">{row.source}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Recorded by</dt>
+              <dd className="text-right">{row.created_by_email ?? "—"}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Recorded at</dt>
+              <dd className="text-right">{createdAt ?? "—"}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Last edited by</dt>
+              <dd className="text-right">{row.updated_by_email ?? "—"}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Last edited at</dt>
+              <dd className="text-right">{updatedAt ?? "—"}</dd>
+            </div>
+          </dl>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Close</DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={confirmOpen}
