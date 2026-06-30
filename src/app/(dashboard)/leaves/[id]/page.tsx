@@ -227,6 +227,9 @@ export default async function LeaveDetailPage({
                   <TableHead>Leave Type</TableHead>
                   <TableHead className="text-right">Total Earned</TableHead>
                   <TableHead className="text-right">Used</TableHead>
+                  {showProjection && (
+                    <TableHead className="text-right">This Application</TableHead>
+                  )}
                   <TableHead className="text-right">Balance</TableHead>
                 </TableRow>
               </TableHeader>
@@ -240,17 +243,15 @@ export default async function LeaveDetailPage({
                   )
                   .map((c) => {
                     const isRequested = c.leave_type_id === leave.leave_type_id;
-                    // For a pending/draft leave, project Used + Balance on the
-                    // requested row so the deduction is visible in both columns
-                    // (instead of only on a separate "Balance After" column).
+                    // For a pending/draft leave, show the paid portion of this
+                    // application in its own "This Application" column and apply
+                    // it to the projected Balance — keeping it distinct from the
+                    // credits already consumed by approved leaves ("Used").
                     // Only the paid portion deducts from credits.
                     const projectThisRow = showProjection && isRequested;
-                    const used =
-                      Number(c.used_credits) +
-                      (projectThisRow ? liveDaysWithPay : 0);
-                    const balance =
-                      Number(c.balance) -
-                      (projectThisRow ? liveDaysWithPay : 0);
+                    const used = Number(c.used_credits);
+                    const thisApplication = projectThisRow ? liveDaysWithPay : 0;
+                    const balance = Number(c.balance) - thisApplication;
                     return (
                       <TableRow
                         key={c.id}
@@ -279,6 +280,17 @@ export default async function LeaveDetailPage({
                           {Number(c.total_credits)}
                         </TableCell>
                         <TableCell className="text-right">{used}</TableCell>
+                        {showProjection && (
+                          <TableCell className="text-right">
+                            {thisApplication > 0 ? (
+                              <span className="text-amber-700 dark:text-amber-500 font-medium">
+                                {thisApplication}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        )}
                         <TableCell className="text-right">
                           <span
                             className={cn(
