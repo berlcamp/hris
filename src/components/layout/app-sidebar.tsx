@@ -103,9 +103,23 @@ const leaveAttendanceRoles: UserRole[] = [
   "department_admin_and_department_head",
   "employee",
 ];
-// Attendance & DTR is also visible to the dedicated DTR Manager role, which has
-// no access to the Leave items in this group.
-const attendanceRoles: UserRole[] = [...leaveAttendanceRoles, "dtr_manager"];
+// Attendance & DTR is visible to HR/admin roles, employees (their own DTR) and
+// the dedicated DTR Manager role — but NOT to the department-scoped roles
+// (department_head, department_admin, composite), which have no attendance
+// access. The DTR Manager has no access to the Leave items in this group.
+const attendanceRoles: UserRole[] = [
+  "super_admin",
+  "ocm_admin",
+  "hr_admin",
+  "employee",
+  "dtr_manager",
+];
+// The Leave & Attendance nav group must remain visible to department-scoped
+// roles for the Leave items, even though they can't see Attendance & DTR.
+const leaveAttendanceGroupRoles: UserRole[] = [
+  ...leaveAttendanceRoles,
+  "dtr_manager",
+];
 
 const navGroups: NavGroup[] = [
   {
@@ -140,7 +154,7 @@ const navGroups: NavGroup[] = [
   },
   {
     label: "Leave & Attendance",
-    roles: attendanceRoles,
+    roles: leaveAttendanceGroupRoles,
     items: [
       { title: "Leave Management", href: "/leaves", icon: CalendarDays, roles: leaveAttendanceRoles },
       {

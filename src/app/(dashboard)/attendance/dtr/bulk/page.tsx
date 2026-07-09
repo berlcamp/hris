@@ -1,36 +1,21 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
-import {
-  isDeptScoped,
-  isCompositeDeptAdminHead,
-  isAttendanceManager,
-} from "@/lib/auth-helpers";
+import { isAttendanceManager } from "@/lib/auth-helpers";
 import { BulkDtrClient } from "@/components/attendance/bulk-dtr-client";
 
 export default async function BulkDtrPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const isAdmin = isAttendanceManager(user.role);
-  const isComposite = isCompositeDeptAdminHead(user.role);
-
-  if (!isAdmin && !isDeptScoped(user.role)) {
-    redirect("/attendance/dtr");
+  // Bulk DTR is attendance-manager only. Department-scoped roles have no
+  // attendance access at all.
+  if (!isAttendanceManager(user.role)) {
+    redirect("/dashboard");
   }
 
-  const allDepartments = await getDepartments();
-
-  // Non-admin, non-composite dept-scoped users can only export their own dept.
-  const departments =
-    isAdmin || isComposite
-      ? allDepartments
-      : allDepartments.filter((d) => d.id === user.departmentId);
-
-  const defaultDepartmentId =
-    !isAdmin && !isComposite && user.departmentId
-      ? user.departmentId
-      : null;
+  const departments = await getDepartments();
+  const defaultDepartmentId = null;
 
   return (
     <div className="space-y-6">

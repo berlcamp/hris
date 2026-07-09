@@ -41,6 +41,23 @@ export function canManageSchedules(
   return !!role && SCHEDULE_MANAGER_ROLES.includes(role);
 }
 
+// Roles allowed to open the Attendance & DTR module at all. Department-scoped
+// roles (department_head, department_admin and the composite) are deliberately
+// excluded — they have no access to attendance/DTR.
+const ATTENDANCE_ACCESS_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "ocm_admin",
+  "hr_admin",
+  "employee",
+  "dtr_manager",
+] as const;
+
+export function canAccessAttendance(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && ATTENDANCE_ACCESS_ROLES.includes(role);
+}
+
 export function isDeptHead(role: UserRole | null | undefined): boolean {
   return !!role && DEPT_HEAD_ROLES.includes(role);
 }

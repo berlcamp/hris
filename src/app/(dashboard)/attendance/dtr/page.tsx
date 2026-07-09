@@ -4,17 +4,18 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
-import { isDeptScoped, isAttendanceManager } from "@/lib/auth-helpers";
+import { canAccessAttendance, isAttendanceManager } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { IndividualDtrClient } from "@/components/attendance/individual-dtr-client";
 
 export default async function DtrPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (!canAccessAttendance(user.role)) redirect("/dashboard");
 
   const employees = await getEmployees();
   const isAdmin = isAttendanceManager(user.role);
-  const canBulkDtr = isAdmin || isDeptScoped(user.role);
+  const canBulkDtr = isAdmin;
 
   // If user is an employee, find their employee record
   let currentEmployeeId: string | null = null;

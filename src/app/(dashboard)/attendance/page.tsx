@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { Plus, Clock, FileSpreadsheet, Printer, CalendarOff } from "lucide-react";
+import { Plus, FileSpreadsheet, Printer, CalendarOff } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { getAttendanceLogs } from "@/lib/actions/attendance-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
-  isDeptScoped,
+  canAccessAttendance,
   isAttendanceManager,
   canManageSchedules,
 } from "@/lib/auth-helpers";
@@ -16,10 +16,11 @@ import { DahuaImportDialog } from "@/components/attendance/dahua-import-dialog";
 export default async function AttendancePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (!canAccessAttendance(user.role)) redirect("/dashboard");
 
   const logs = await getAttendanceLogs();
   const isAdmin = isAttendanceManager(user.role);
-  const canBulkDtr = isAdmin || isDeptScoped(user.role);
+  const canBulkDtr = isAdmin;
   const canManageHolidays = canManageSchedules(user.role);
 
   return (
