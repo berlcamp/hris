@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getEffectivePosition } from "@/lib/employee-position";
+import { getCurrentUser } from "@/lib/actions/auth-actions";
 
 export async function getDocuments(employeeId: string) {
   const supabase = createAdminClient();
@@ -120,6 +121,11 @@ export async function deleteDocument(documentId: string, employeeId: string) {
 }
 
 export async function generateServiceRecordPdf(employeeId: string) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !["super_admin", "hr_admin"].includes(currentUser.role)) {
+    return { error: "You do not have permission to generate service records." };
+  }
+
   const supabase = createAdminClient();
 
   // Get employee data

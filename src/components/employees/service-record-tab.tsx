@@ -52,10 +52,12 @@ export function ServiceRecordTab({
   serviceRecords,
   employeeId,
   employeeName,
+  canGeneratePdf,
 }: {
   serviceRecords: ServiceRecord[];
   employeeId: string;
   employeeName: string;
+  canGeneratePdf: boolean;
 }) {
   const [generating, setGenerating] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -88,15 +90,17 @@ export function ServiceRecordTab({
         <Plus className="h-4 w-4" />
         Add Record
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleGeneratePdf}
-        disabled={generating}
-      >
-        <FileText className="h-4 w-4" />
-        {generating ? "Generating..." : "Generate PDF"}
-      </Button>
+      {canGeneratePdf ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleGeneratePdf}
+          disabled={generating}
+        >
+          <FileText className="h-4 w-4" />
+          {generating ? "Generating..." : "Generate PDF"}
+        </Button>
+      ) : null}
     </div>
   );
 

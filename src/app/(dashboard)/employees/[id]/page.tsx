@@ -228,6 +228,7 @@ export default async function EmployeeProfilePage({
             serviceRecords={serviceRecords ?? []}
             employeeId={id}
             employeeName={fullName}
+            canGeneratePdf={canEditPlantilla}
           />
         </TabsContent>
 
