@@ -1,6 +1,14 @@
 // Database types — these will be replaced with auto-generated types from Supabase
 // Run: supabase gen types typescript --schema hris > src/lib/database.types.ts
 
+import type {
+  RspVacancyStatus,
+  RspApplicationStatus,
+  RspAppointmentStatus,
+  RspAppointmentNature,
+  RspAppointmentStatusType,
+} from "@/lib/rsp-constants";
+
 export type UserRole =
   | "super_admin"
   | "ocm_admin"
@@ -196,6 +204,45 @@ export interface LeaveApplication {
   dept_approved_at: string | null;
   hr_approved_at: string | null;
   rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CtoDayType = "regular" | "rest_day" | "holiday";
+
+export interface CtoCredit {
+  id: string;
+  employee_id: string;
+  ot_date: string;
+  day_type: CtoDayType;
+  hours_worked: number;
+  multiplier: number;
+  hours_earned: number;
+  expiry_date: string;
+  office_order_no: string | null;
+  notes: string | null;
+  voided_at: string | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface CtoApplication {
+  id: string;
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  cto_dates: string[];
+  hours_applied: number;
+  reason: string | null;
+  status: ApprovalStatus;
+  department_head_id: string | null;
+  hr_reviewer_id: string | null;
+  dept_approved_at: string | null;
+  hr_approved_at: string | null;
+  rejection_reason: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -413,6 +460,127 @@ export interface JoPayrollMember {
   days: number | null;
   hours: number | null;
   rate: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
+// RSP (Recruitment, Selection, Placement)
+// Status/nature unions live in src/lib/rsp-constants.ts
+// ============================================================
+
+export type {
+  RspVacancyStatus,
+  RspApplicationStatus,
+  RspAppointmentStatus,
+  RspAppointmentNature,
+  RspAppointmentStatusType,
+};
+
+export interface RspVacancy {
+  id: string;
+  plantilla_id: string;
+  item_number: string;
+  position_title: string;
+  organizational_unit: string | null;
+  place_of_assignment: string | null;
+  salary_grade: number | null;
+  monthly_salary: number | null;
+  qs_education: string | null;
+  qs_training: string | null;
+  qs_training_hours: number | null;
+  qs_experience: string | null;
+  qs_experience_years: number | null;
+  qs_eligibility: string | null;
+  publication_date: string | null;
+  closing_date: string | null;
+  csc_bulletin_no: string | null;
+  publication_expiry_date: string | null;
+  hrmpsb_deliberation_date: string | null;
+  status: RspVacancyStatus;
+  remarks: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RspApplicant {
+  id: string;
+  last_name: string;
+  first_name: string;
+  middle_name: string | null;
+  name_extension: string | null;
+  sex: "male" | "female" | null;
+  birth_date: string | null;
+  address: string | null;
+  email: string | null;
+  mobile_no: string | null;
+  employee_id: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RspApplication {
+  id: string;
+  vacancy_id: string;
+  applicant_id: string;
+  date_received: string;
+  education: string | null;
+  training: string | null;
+  training_hours: number | null;
+  experience: string | null;
+  experience_years: number | null;
+  eligibility: string | null;
+  status: RspApplicationStatus;
+  screened_by: string | null;
+  screened_at: string | null;
+  screening_remarks: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RspAssessmentCriterion {
+  id: string;
+  vacancy_id: string;
+  name: string;
+  weight: number;
+  max_score: number;
+  sort_order: number;
+}
+
+export interface RspAssessmentScore {
+  id: string;
+  application_id: string;
+  criterion_id: string;
+  score: number;
+  remarks: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RspAppointment {
+  id: string;
+  vacancy_id: string;
+  application_id: string;
+  plantilla_id: string;
+  nature: RspAppointmentNature;
+  nature_others: string | null;
+  status_type: RspAppointmentStatusType;
+  item_number: string | null;
+  vice: string | null;
+  date_of_signing: string;
+  oath_date: string | null;
+  assumption_date: string | null;
+  probation_end_date: string | null;
+  employment_period_from: string | null;
+  employment_period_to: string | null;
+  appointing_authority: string | null;
+  appointing_authority_position: string | null;
+  status: RspAppointmentStatus;
+  remarks: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }

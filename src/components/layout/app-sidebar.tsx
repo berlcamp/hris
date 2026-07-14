@@ -29,6 +29,9 @@ import {
   CalendarClock,
   CalendarOff,
   Network,
+  UserSearch,
+  Timer,
+  Hourglass,
 } from "lucide-react";
 
 import {
@@ -135,6 +138,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Employees", href: "/employees", icon: Users, roles: employeesViewRoles },
       { title: "Plantilla", href: "/plantilla", icon: ScrollText, roles: adminRoles },
+      { title: "Recruitment (RSP)", href: "/rsp", icon: UserSearch, roles: adminRoles },
       {
         title: "Employee ID Generator",
         href: "/employee-id-generator",
@@ -162,6 +166,13 @@ const navGroups: NavGroup[] = [
         href: "/leaves/credits",
         icon: CreditCard,
         roles: ["super_admin"],
+      },
+      { title: "CTO Management", href: "/cto", icon: Timer, roles: leaveAttendanceRoles },
+      {
+        title: "COC Credits",
+        href: "/cto/credits",
+        icon: Hourglass,
+        roles: ["super_admin", "hr_admin"],
       },
       { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: attendanceRoles },
     ],
@@ -302,8 +313,10 @@ export function AppSidebar() {
                     pathname === item.href ||
                     (item.href !== "/dashboard" &&
                       item.href !== "/leaves" &&
+                      item.href !== "/cto" &&
                       pathname.startsWith(item.href)) ||
-                    (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits"))));
+                    (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits")))) ||
+                    (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits"))));
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
