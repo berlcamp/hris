@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { getAttendanceEntryForEdit } from "@/lib/actions/attendance-actions";
 import { getSchedules } from "@/lib/actions/schedule-actions";
-import { isAttendanceManager } from "@/lib/auth-helpers";
+import { canManualEntry } from "@/lib/auth-helpers";
 import { ManualEntryForm } from "@/components/attendance/manual-entry-form";
 
 export default async function AttendanceEntryPage({
@@ -14,7 +14,7 @@ export default async function AttendanceEntryPage({
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  if (!isAttendanceManager(user.role)) {
+  if (!canManualEntry(user.role)) {
     redirect("/attendance");
   }
 

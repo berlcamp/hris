@@ -48,7 +48,14 @@ function formatTimestamp(value: string | null) {
   return format(new Date(value), "MMM d, yyyy h:mm a");
 }
 
-export function AttendanceActionsCell({ row }: { row: AttendanceLogRow }) {
+export function AttendanceActionsCell({
+  row,
+  canDelete = false,
+}: {
+  row: AttendanceLogRow;
+  /** Deleting an entry is narrower than correcting one — see isAttendanceManager. */
+  canDelete?: boolean;
+}) {
   const router = useRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -101,14 +108,18 @@ export function AttendanceActionsCell({ row }: { row: AttendanceLogRow }) {
             <History className="h-4 w-4" />
             Logs
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setConfirmOpen(true)}
-          >
-            <Trash2 className="h-4 w-4" />
-            Delete
-          </DropdownMenuItem>
+          {canDelete && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setConfirmOpen(true)}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

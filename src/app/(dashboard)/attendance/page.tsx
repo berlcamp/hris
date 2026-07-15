@@ -7,6 +7,7 @@ import { getAttendanceLogs } from "@/lib/actions/attendance-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
   canAccessAttendance,
+  canManualEntry,
   canPrintDtr,
   isAttendanceManager,
   canManageSchedules,
@@ -22,6 +23,7 @@ export default async function AttendancePage() {
   const logs = await getAttendanceLogs();
   const isAdmin = isAttendanceManager(user.role);
   const canBulkDtr = canPrintDtr(user.role);
+  const canEnterManually = canManualEntry(user.role);
   const canManageHolidays = canManageSchedules(user.role);
 
   return (
@@ -59,21 +61,23 @@ export default async function AttendancePage() {
               </Button>
             </Link>
           )}
-          {isAdmin && (
-            <>
-              <DahuaImportDialog />
-              <Link href="/attendance/entry">
-                <Button size="sm">
-                  <Plus className="h-4 w-4" />
-                  Manual Entry
-                </Button>
-              </Link>
-            </>
+          {isAdmin && <DahuaImportDialog />}
+          {canEnterManually && (
+            <Link href="/attendance/entry">
+              <Button size="sm">
+                <Plus className="h-4 w-4" />
+                Manual Entry
+              </Button>
+            </Link>
           )}
         </div>
       </div>
 
-      <AttendanceTableClient data={logs} canManage={isAdmin} />
+      <AttendanceTableClient
+        data={logs}
+        canManage={canEnterManually}
+        canDelete={isAdmin}
+      />
     </div>
   );
 }

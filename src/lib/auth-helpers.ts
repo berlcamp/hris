@@ -27,6 +27,20 @@ export function isAttendanceManager(
   return !!role && ATTENDANCE_MANAGER_ROLES.includes(role);
 }
 
+// Roles that can record and correct attendance by hand. Wider than
+// ATTENDANCE_MANAGER_ROLES because OCM Admin files and fixes entries across
+// departments, but narrower in reach than the manager roles: OCM Admin gets
+// neither the Dahua biometric import nor entry deletion (both stay on
+// isAttendanceManager).
+const MANUAL_ENTRY_ROLES: readonly UserRole[] = [
+  ...ATTENDANCE_MANAGER_ROLES,
+  "ocm_admin",
+] as const;
+
+export function canManualEntry(role: UserRole | null | undefined): boolean {
+  return !!role && MANUAL_ENTRY_ROLES.includes(role);
+}
+
 // Roles that can generate DTRs (individual + bulk) for employees in ANY
 // department. Wider than ATTENDANCE_MANAGER_ROLES because OCM Admin needs to
 // print DTRs across departments without gaining manual entry, biometric import

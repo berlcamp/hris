@@ -18,6 +18,7 @@ function TimeBadge({ time, type }: { time: string | null; type: "in" | "out" }) 
 
 export function createAttendanceColumns(
   canManage = false,
+  canDelete = false,
 ): ColumnDef<AttendanceLogRow>[] {
   return [
     {
@@ -151,7 +152,9 @@ export function createAttendanceColumns(
       ? [
           {
             id: "actions",
-            cell: ({ row }) => <AttendanceActionsCell row={row.original} />,
+            cell: ({ row }) => (
+              <AttendanceActionsCell row={row.original} canDelete={canDelete} />
+            ),
           } satisfies ColumnDef<AttendanceLogRow>,
         ]
       : []),

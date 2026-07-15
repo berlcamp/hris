@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
   isDeptScoped,
   isAttendanceManager,
+  canManualEntry,
   canPrintDtr,
 } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
@@ -542,7 +543,7 @@ export async function createAttendanceEntry(input: {
   schedule_id?: string | null;
 }) {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !canManualEntry(user.role)) {
     throw new Error("Unauthorized");
   }
 
@@ -605,7 +606,7 @@ export async function createAttendanceEntriesBulk(input: {
   >;
 }) {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !canManualEntry(user.role)) {
     throw new Error("Unauthorized");
   }
 
@@ -744,7 +745,7 @@ export async function deleteAttendanceEntry(
 
 export async function getAttendanceEntryForEdit(id: string) {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !canManualEntry(user.role)) {
     throw new Error("Unauthorized");
   }
 
