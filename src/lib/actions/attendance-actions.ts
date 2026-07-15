@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptScoped, isAttendanceManager } from "@/lib/auth-helpers";
+import {
+  isDeptScoped,
+  isAttendanceManager,
+  canPrintDtr,
+} from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   DEFAULT_SCHEDULE,
@@ -1130,17 +1134,9 @@ export async function getDepartmentDtrBulk(
   endDate: string,
 ): Promise<{ department: { id: string; name: string } | null; results: BulkDtrResult[] }> {
   const user = await getCurrentUser();
-  if (!user) throw new Error("Unauthorized");
-
-  // Dept-scoped users (non-composite) may only export their own department
-  if (
-    isDeptScoped(user.role) &&
-    user.role !== "department_admin_and_department_head" &&
-    user.departmentId &&
-    departmentId !== user.departmentId
-  ) {
-    throw new Error("Unauthorized");
-  }
+  // Bulk export covers a whole department, so it is limited to the roles that
+  // print DTRs across departments (mirrors the /attendance/dtr/bulk gate).
+  if (!user || !canPrintDtr(user.role)) throw new Error("Unauthorized");
 
   if (!startDate || !endDate) {
     throw new Error("Date range required");

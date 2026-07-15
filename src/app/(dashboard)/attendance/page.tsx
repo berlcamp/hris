@@ -7,6 +7,7 @@ import { getAttendanceLogs } from "@/lib/actions/attendance-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
   canAccessAttendance,
+  canPrintDtr,
   isAttendanceManager,
   canManageSchedules,
 } from "@/lib/auth-helpers";
@@ -20,7 +21,7 @@ export default async function AttendancePage() {
 
   const logs = await getAttendanceLogs();
   const isAdmin = isAttendanceManager(user.role);
-  const canBulkDtr = isAdmin;
+  const canBulkDtr = canPrintDtr(user.role);
   const canManageHolidays = canManageSchedules(user.role);
 
   return (

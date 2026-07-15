@@ -1,16 +1,16 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
-import { isAttendanceManager } from "@/lib/auth-helpers";
+import { canPrintDtr } from "@/lib/auth-helpers";
 import { BulkDtrClient } from "@/components/attendance/bulk-dtr-client";
 
 export default async function BulkDtrPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  // Bulk DTR is attendance-manager only. Department-scoped roles have no
-  // attendance access at all.
-  if (!isAttendanceManager(user.role)) {
+  // Bulk DTR is limited to the roles that print DTRs across departments.
+  // Department-scoped roles have no attendance access at all.
+  if (!canPrintDtr(user.role)) {
     redirect("/dashboard");
   }
 

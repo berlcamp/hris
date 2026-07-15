@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
-import { canAccessAttendance, isAttendanceManager } from "@/lib/auth-helpers";
+import { canAccessAttendance, canPrintDtr } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { IndividualDtrClient } from "@/components/attendance/individual-dtr-client";
 
@@ -14,7 +14,7 @@ export default async function DtrPage() {
   if (!canAccessAttendance(user.role)) redirect("/dashboard");
 
   const employees = await getEmployees();
-  const isAdmin = isAttendanceManager(user.role);
+  const isAdmin = canPrintDtr(user.role);
   const canBulkDtr = isAdmin;
 
   // If user is an employee, find their employee record

@@ -27,6 +27,19 @@ export function isAttendanceManager(
   return !!role && ATTENDANCE_MANAGER_ROLES.includes(role);
 }
 
+// Roles that can generate DTRs (individual + bulk) for employees in ANY
+// department. Wider than ATTENDANCE_MANAGER_ROLES because OCM Admin needs to
+// print DTRs across departments without gaining manual entry, biometric import
+// or delete rights.
+const DTR_PRINTER_ROLES: readonly UserRole[] = [
+  ...ATTENDANCE_MANAGER_ROLES,
+  "ocm_admin",
+] as const;
+
+export function canPrintDtr(role: UserRole | null | undefined): boolean {
+  return !!role && DTR_PRINTER_ROLES.includes(role);
+}
+
 // Roles that can manage work schedules. Schedules are an attendance concern, so
 // the dedicated DTR Manager role gets access alongside super_admin (other
 // Administration tools stay super_admin-only).
