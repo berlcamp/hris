@@ -179,8 +179,20 @@ function bucketByStatus(punches: Punch[]): BucketResult {
     const slot = STATUS_SLOT[p.status];
     return slot === "out_am" || slot === "in_pm";
   });
-  const outAm = breaks.length > 0 ? breaks[0] : null;
-  const inPm = breaks.length > 1 ? breaks[breaks.length - 1] : null;
+
+  // "Earliest break punch = left for lunch" only holds if the employee was
+  // HERE in the morning. With no Check In, they were absent/on leave in the AM
+  // and arrived at midday, so the first break punch is the PM ARRIVAL — not a
+  // departure from a lunch they never took. Recording it as time_out_am would
+  // print a phantom AM departure and leave the real arrival blank.
+  const outAm = inAm ? (breaks.length > 0 ? breaks[0] : null) : null;
+  const inPm = inAm
+    ? breaks.length > 1
+      ? breaks[breaks.length - 1]
+      : null
+    : breaks.length > 0
+      ? breaks[0]
+      : null;
 
   return {
     time_in_am: inAm?.time ?? null,
@@ -268,17 +280,46 @@ export function bucketPunchesForDuty(
     else if (p.ms < breakEndMs) mid.push(p);
     else pm.push(p);
   }
-  // If there are punches during the break window: first goes to AM-out (if
-  // missing), the rest to PM (the last of them becomes PM-in if missing).
+  // Punches inside the break window are lunch punches — but only for someone
+  // who was here in the morning. With an AM arrival, the first goes to AM-out
+  // (if missing) and the rest to PM (the last becoming PM-in if missing).
+  //
+  // With NO morning punch the employee was absent/on leave in the AM and simply
+  // arrived at midday, so every break-window punch is a PM punch. Pushing one
+  // into the empty AM bucket is what made a lone 12:45 arrival print as AM
+  // Arrival and read as ~4.75 hours late.
   if (mid.length > 0) {
-    if (am.length < 2) am.push(mid[0]);
-    if (mid.length > 1) pm.unshift(mid[mid.length - 1]);
+    if (am.length > 0) {
+      if (am.length < 2) am.push(mid[0]);
+      if (mid.length > 1) pm.unshift(mid[mid.length - 1]);
+    } else {
+      pm.unshift(...mid);
+    }
   }
 
   const amFirst = am[0];
   const amLast = am.length > 1 ? am[am.length - 1] : null;
-  const pmFirst = pm[0] ?? null;
-  const pmLast = pm.length > 1 ? pm[pm.length - 1] : null;
+
+  // A lone PM punch is ambiguous: it is either the return from lunch (arrival)
+  // or the end of the day (departure). Trust the device's own label when it
+  // carries one; otherwise split on the midpoint of the PM session, so a 17:05
+  // punch reads as the departure it plainly is rather than an arrival that
+  // leaves time_out_pm blank and charges a phantom half-day of undertime.
+  let pmFirst: Punch | null = null;
+  let pmLast: Punch | null = null;
+  if (pm.length > 1) {
+    pmFirst = pm[0];
+    pmLast = pm[pm.length - 1];
+  } else if (pm.length === 1) {
+    const only = pm[0];
+    const slot = STATUS_SLOT[only.status];
+    const pmMidpointMs =
+      (breakEndMs + shiftMomentMs(dutyDate, sched, sched.time_out)) / 2;
+    const isDeparture =
+      slot === "out_pm" ? true : slot === "in_pm" ? false : only.ms >= pmMidpointMs;
+    if (isDeparture) pmLast = only;
+    else pmFirst = only;
+  }
 
   return {
     time_in_am: amFirst?.time ?? null,

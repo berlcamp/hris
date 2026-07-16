@@ -24,7 +24,40 @@ npm run start    # next start (serves the built app)
 npm run lint     # eslint (flat config, eslint-config-next core-web-vitals + typescript)
 ```
 
-There is no test runner configured; do not invent one.
+### Local Supabase stack (Docker) + tests
+
+Requires **Node 22** (`nvm use` — the tests use `--experimental-strip-types`) and Docker
+via **Colima** (`colima start`, no Docker Desktop / no sudo). The Supabase CLI is a
+devDependency, so `npm run db:*` resolves it from `node_modules/.bin`.
+
+```bash
+colima start && npm run db:start   # start the local stack
+npm run db:reset                   # apply all migrations + supabase/seed.sql
+npm run test:dtr                   # pure unit tests (no stack needed)
+npm run test:db                    # real Postgres + PostgREST (stack must be up)
+npm test                           # both
+```
+
+Verification order, most valuable first:
+
+1. **Real stack** (`supabase/tests/*.test.mts`) — exercises the actual code path against
+   real PostgREST + Postgres. The only way to catch serialization/timezone bugs that
+   reasoning about SQL cannot see (migration 035 exists because one bit this project).
+2. **Pure unit tests** for date/time logic in `src/lib/attendance-schedule.ts` — fast and
+   where the DTR bucketing rules belong.
+3. `npm run lint && npm run build` before closing any change.
+
+**This project runs on non-default ports** (API `54421`, DB `54422`) so it can coexist
+with the sibling `prime-hrm-2` stack in the same Colima VM. Studio, Realtime, Storage,
+Edge Runtime and Analytics are **disabled** in `config.toml`: two stacks do not fit in
+8 GiB, and Analytics' `vector` container cannot bind-mount Colima's Docker socket
+(`operation not supported`) and takes the whole stack down with it.
+
+`supabase/migrations/0115_local_legacy_staging_stubs.sql` creates the four `public.*`
+legacy staging tables (`adm_employees`, `hr_service_records`,
+`hr_service_records_activity_log`, `hr_plantilla`) that migrations 012/013/048 import
+from. They exist in production only, so without the stubs `db reset` dies at 012. Every
+statement is `CREATE TABLE IF NOT EXISTS`, so it is a **no-op in production**.
 
 Database migrations are SQL files under `supabase/migrations/` numbered `NNN_*.sql`. They are not auto-run by the app. **The developer applies migrations to production directly and immediately — your job is done once the migration file is written. Do NOT suggest `supabase db push`, the Supabase CLI/dashboard, or any other "apply this migration" step; do not add reminders to run it.** New migrations must keep the numeric prefix sequence and start with `SET search_path TO hris, public, auth, extensions;` when they touch the `hris` schema.
 
