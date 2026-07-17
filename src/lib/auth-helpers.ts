@@ -12,6 +12,23 @@ const DEPT_ADMIN_ROLES: readonly UserRole[] = [
   "department_admin_and_department_head",
 ] as const;
 
+// Roles with full HR records reach: create/edit employees and their records,
+// manage the plantilla, manage the salary grade table, work the NOSI module,
+// and view the employee QR code. "hr_record_manager" is a dedicated role limited
+// to exactly this reach — it has NO access to attendance/DTR, leave, CTO/COC,
+// RSP, payroll, reports, or any other administration tool.
+const HR_RECORDS_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "hr_record_manager",
+] as const;
+
+export function canManageHrRecords(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && HR_RECORDS_ROLES.includes(role);
+}
+
 // Roles that can fully manage attendance/DTR (read all, manual entry, imports,
 // deletes). "dtr_manager" is a dedicated role with the same attendance reach as
 // super_admin / hr_admin but no other admin powers.

@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 
 import { getNosiById } from "@/lib/actions/nosi-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageHrRecords } from "@/lib/auth-helpers";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { NosiApprovalActions } from "@/components/nosi/nosi-approval-actions";
 import { NosiDeleteDraft } from "@/components/nosi/nosi-delete-draft";
@@ -48,7 +49,7 @@ export default async function NosiDetailPage({
   const formatPHP = (n: number) =>
     n > 0 ? `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}` : "₱0.00";
 
-  const canManageDrafts = ["super_admin", "hr_admin"].includes(user.role);
+  const canManageDrafts = canManageHrRecords(user.role);
 
   const timeline = [
     { label: "Created", done: true, date: nosi.created_at },

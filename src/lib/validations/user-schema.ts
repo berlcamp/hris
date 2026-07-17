@@ -13,6 +13,7 @@ export const userFormSchema = z.object({
     [
       "ocm_admin",
       "hr_admin",
+      "hr_record_manager",
       "department_head",
       "department_admin",
       "department_admin_and_department_head",

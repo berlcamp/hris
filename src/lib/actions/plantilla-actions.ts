@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { canManageHrRecords, isDeptHead } from "@/lib/auth-helpers";
 
 export interface PlantillaRecord {
   id: string;
@@ -140,7 +140,7 @@ export async function updatePlantilla(
 ) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!canManageHrRecords(user.role))
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();

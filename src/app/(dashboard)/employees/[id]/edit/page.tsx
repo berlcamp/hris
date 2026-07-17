@@ -7,6 +7,7 @@ import {
 } from "@/lib/actions/employee-actions";
 import { getSchedules } from "@/lib/actions/schedule-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageHrRecords } from "@/lib/auth-helpers";
 
 export default async function EditEmployeePage({
   params,
@@ -17,7 +18,7 @@ export default async function EditEmployeePage({
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) {
+  if (!canManageHrRecords(user.role)) {
     redirect(`/employees/${id}`);
   }
 

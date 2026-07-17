@@ -7,6 +7,7 @@ import {
   getNosisRecords,
 } from "@/lib/actions/nosi-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageHrRecords } from "@/lib/auth-helpers";
 import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -32,14 +33,14 @@ function daysThroughEndOfNextYear(): number {
 export default async function NosiPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!canManageHrRecords(user.role)) redirect("/dashboard");
 
   const [{ eligible, upcoming, missingNosiBasis }, records] = await Promise.all([
     getNosiEligibilityOverview(daysThroughEndOfNextYear()),
     getNosisRecords(),
   ]);
 
-  const canCreate = ["super_admin", "hr_admin"].includes(user.role);
+  const canCreate = canManageHrRecords(user.role);
 
   return (
     <div className="space-y-6">

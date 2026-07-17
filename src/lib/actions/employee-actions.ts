@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
   canEditDetailedDepartment,
   canEditDetailedDepartmentAnyDept,
+  canManageHrRecords,
   isCompositeDeptAdminHead,
   isDeptHead,
   isDeptScoped,
@@ -153,8 +154,8 @@ export async function generateEmployeeNo(): Promise<string> {
 
 export async function createEmployee(input: EmployeeFormValues) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
-    return { error: "Only HR Admin or Super Admin can create employees." };
+  if (!user || !canManageHrRecords(user.role)) {
+    return { error: "You do not have permission to create employees." };
   }
 
   const supabase = createAdminClient();
@@ -221,8 +222,8 @@ export async function updateEmployee(
   input: EmployeeFormValues
 ) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
-    return { error: "Only HR Admin or Super Admin can edit employees." };
+  if (!user || !canManageHrRecords(user.role)) {
+    return { error: "You do not have permission to edit employees." };
   }
 
   const supabase = createAdminClient();
@@ -356,8 +357,8 @@ export async function changeEmployeeStatus(input: {
   remarks?: string | null;
 }): Promise<{ success: true } | { error: string }> {
   const currentUser = await getCurrentUser();
-  if (!currentUser || !["super_admin", "hr_admin"].includes(currentUser.role)) {
-    return { error: "Only HR Admin or Super Admin can change employee status." };
+  if (!currentUser || !canManageHrRecords(currentUser.role)) {
+    return { error: "You do not have permission to change employee status." };
   }
 
   if (!ALLOWED_EMPLOYEE_STATUSES.includes(input.status)) {
@@ -499,7 +500,7 @@ export async function addSalaryHistoryRecord(
   input: SalaryHistoryEntryFormValues
 ): Promise<{ success: true; id: string } | { error: string }> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !canManageHrRecords(user.role)) {
     return { error: "Unauthorized" };
   }
 
@@ -554,7 +555,7 @@ export async function updateSalaryHistoryRecord(
   input: SalaryHistoryUpdateFormValues
 ): Promise<{ success: true } | { error: string }> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !canManageHrRecords(user.role)) {
     return { error: "Unauthorized" };
   }
 

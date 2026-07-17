@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { addYears, differenceInCalendarDays, startOfDay } from "date-fns";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { canManageHrRecords, isDeptHead } from "@/lib/auth-helpers";
 import { getSystemSettings } from "@/lib/actions/settings-actions";
 import { NOSI_BASIS_SALARY_REASONS } from "@/lib/constants";
 
@@ -486,10 +486,7 @@ export async function getNosiSalaryContextForEmployee(
 ): Promise<NosiSalaryContext | { error: string }> {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (
-    !["super_admin", "hr_admin"].includes(user.role) &&
-    !isDeptHead(user.role)
-  ) {
+  if (!canManageHrRecords(user.role) && !isDeptHead(user.role)) {
     return { error: "Insufficient permissions" };
   }
 
@@ -634,7 +631,7 @@ export async function submitNosi(id: string) {
 export async function deleteDraftNosi(id: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!canManageHrRecords(user.role))
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();
@@ -658,10 +655,7 @@ export async function deleteDraftNosi(id: string) {
 export async function reviewNosi(id: string, approved: boolean, remarks?: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (
-    !["hr_admin", "super_admin"].includes(user.role) &&
-    !isDeptHead(user.role)
-  )
+  if (!canManageHrRecords(user.role) && !isDeptHead(user.role))
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();
@@ -684,7 +678,7 @@ export async function reviewNosi(id: string, approved: boolean, remarks?: string
   // hr_admin and super_admin both finalize NOSI approval; department_head
   // only records an endorsement (reviewed_by/reviewed_at), leaving the
   // status at pending until HR/super admin approves.
-  if (user.role === "super_admin" || user.role === "hr_admin") {
+  if (canManageHrRecords(user.role)) {
     const nowIso = new Date().toISOString();
     // Stamp reviewed_* if not already set so the timeline reflects the step.
     const reviewPatch =

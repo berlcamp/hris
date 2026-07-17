@@ -7,11 +7,12 @@ import {
 } from "@/lib/actions/employee-actions";
 import { getSchedules } from "@/lib/actions/schedule-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageHrRecords } from "@/lib/auth-helpers";
 
 export default async function NewEmployeePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/employees");
+  if (!canManageHrRecords(user.role)) redirect("/employees");
 
   const [departments, positions, schedules, employeeNo] = await Promise.all([
     getDepartments(),

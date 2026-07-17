@@ -76,6 +76,7 @@ const allRoles: UserRole[] = [
   "super_admin",
   "ocm_admin",
   "hr_admin",
+  "hr_record_manager",
   "department_head",
   "department_admin",
   "department_admin_and_department_head",
@@ -83,6 +84,11 @@ const allRoles: UserRole[] = [
   "employee",
 ];
 const adminRoles: UserRole[] = ["super_admin", "hr_admin"];
+// HR records reach: employees, plantilla, salary grades and NOSI. The dedicated
+// HR Record Manager role joins the two admin roles for these items only — it
+// gets none of the other modules (attendance, leave, CTO/COC, RSP, payroll,
+// reports, or the rest of Administration).
+const hrRecordsRoles: UserRole[] = ["super_admin", "hr_admin", "hr_record_manager"];
 const deptManagerRoles: UserRole[] = [
   "super_admin",
   "hr_admin",
@@ -96,6 +102,7 @@ const employeesViewRoles: UserRole[] = [
   ...deptManagerRoles,
   "ocm_admin",
   "dtr_manager",
+  "hr_record_manager",
 ];
 const leaveAttendanceRoles: UserRole[] = [
   "super_admin",
@@ -137,7 +144,7 @@ const navGroups: NavGroup[] = [
     roles: employeesViewRoles,
     items: [
       { title: "Employees", href: "/employees", icon: Users, roles: employeesViewRoles },
-      { title: "Plantilla", href: "/plantilla", icon: ScrollText, roles: adminRoles },
+      { title: "Plantilla", href: "/plantilla", icon: ScrollText, roles: hrRecordsRoles },
       { title: "Recruitment (RSP)", href: "/rsp", icon: UserSearch, roles: adminRoles },
       {
         title: "Employee ID Generator",
@@ -145,8 +152,16 @@ const navGroups: NavGroup[] = [
         icon: ScanSearch,
         roles: ["super_admin"],
       },
-      { title: "NOSI", href: "/nosi", icon: TrendingUp, roles: adminRoles },
+      { title: "NOSI", href: "/nosi", icon: TrendingUp, roles: hrRecordsRoles },
       { title: "NOSA", href: "/nosa", icon: FileText, roles: adminRoles },
+      // Salary Grades lives under Administration for admins; the HR Record
+      // Manager reaches it here so it needs no Administration group at all.
+      {
+        title: "Salary Grades",
+        href: "/admin/salary-grades",
+        icon: Building2,
+        roles: ["hr_record_manager"],
+      },
     ],
   },
   {
@@ -247,6 +262,7 @@ const roleLabels: Record<UserRole, string> = {
   super_admin: "Super Admin",
   ocm_admin: "OCM Admin",
   hr_admin: "HR Admin",
+  hr_record_manager: "HR Record Manager",
   department_head: "Dept Head",
   department_admin: "Dept Admin",
   department_admin_and_department_head: "Dept Admin + Head",

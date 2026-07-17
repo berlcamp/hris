@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageHrRecords } from "@/lib/auth-helpers";
 import { getSalaryGrades, getDistinctTranches } from "@/lib/actions/salary-grade-actions";
 import { SalaryGradeManager } from "@/components/admin/salary-grade-manager";
 
 export default async function SalaryGradesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "super_admin") redirect("/dashboard");
+  if (!canManageHrRecords(user.role)) redirect("/dashboard");
 
   const [grades, tranches] = await Promise.all([
     getSalaryGrades(),

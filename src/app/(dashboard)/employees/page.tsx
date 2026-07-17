@@ -7,6 +7,7 @@ import { getDepartments } from "@/lib/actions/user-actions";
 import {
   canEditDetailedDepartment,
   canEditDetailedDepartmentAnyDept,
+  canManageHrRecords,
 } from "@/lib/auth-helpers";
 import { EmployeesTable } from "@/components/employees/employees-table";
 
@@ -31,7 +32,7 @@ export default async function EmployeesPage() {
     value: d.id,
   }));
 
-  const canCreate = ["super_admin", "hr_admin"].includes(user.role);
+  const canCreate = canManageHrRecords(user.role);
   // super_admin and OCM Admin can detail employees from any department, so they
   // don't require a home department; department-scoped editors still do.
   const canEditDetailedDeptAnyDept = canEditDetailedDepartmentAnyDept(user.role);

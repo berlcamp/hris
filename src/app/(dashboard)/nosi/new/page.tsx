@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageHrRecords } from "@/lib/auth-helpers";
 import { NosiForm } from "@/components/nosi/nosi-form";
 import { getEmployees, getEmployeeById } from "@/lib/actions/employee-actions";
 
@@ -10,7 +11,7 @@ export default async function NewNosiPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/nosi");
+  if (!canManageHrRecords(user.role)) redirect("/nosi");
 
   const { employee_id } = await searchParams;
 

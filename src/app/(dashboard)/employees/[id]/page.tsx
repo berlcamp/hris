@@ -47,7 +47,10 @@ import { DocumentsTab } from "@/components/employees/documents-tab";
 import { LeaveCreditsTab } from "@/components/employees/leave-credits-tab";
 import { PlantillaTab } from "@/components/employees/plantilla-tab";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageHrRecords } from "@/lib/auth-helpers";
 import { getEffectivePosition } from "@/lib/employee-position";
+import { buildEmployeeQrUrl, generateEmployeeQrDataUrl } from "@/lib/employee-qr";
+import { EmployeeQrButton } from "@/components/employees/employee-qr-button";
 
 export default async function EmployeeProfilePage({
   params,
@@ -86,11 +89,21 @@ export default async function EmployeeProfilePage({
       ? await getPlantillaByEmployee(id)
       : null;
 
-  const canEditPlantilla = ["super_admin", "hr_admin"].includes(currentUser?.role ?? "");
-  const canManageSalaryHistory = canEditPlantilla;
-  const canEditEmployee = canEditPlantilla;
+  // super_admin / hr_admin only. Drives the leave-credit admin actions and the
+  // service-record PDF (deliberately kept off the HR Record Manager).
+  const isHrAdmin = ["super_admin", "hr_admin"].includes(currentUser?.role ?? "");
+  // super_admin / hr_admin / hr_record_manager — the HR records reach: edit the
+  // employee, manage salary history and plantilla, and view the QR code.
+  const canManageRecords = canManageHrRecords(currentUser?.role);
+  const canManageSalaryHistory = canManageRecords;
+  const canEditEmployee = canManageRecords;
 
   if (!employee) notFound();
+
+  const qrUrl = buildEmployeeQrUrl(employee.id);
+  const qrDataUrl = canManageRecords
+    ? await generateEmployeeQrDataUrl(employee.id)
+    : null;
 
   const fullName = [
     employee.first_name,
@@ -160,14 +173,23 @@ export default async function EmployeeProfilePage({
             })()}
           </div>
         </div>
-        {canEditEmployee && (
-          <Link href={`/employees/${id}/edit`}>
-            <Button variant="outline" size="sm">
-              <Pencil className="h-4 w-4" />
-              Edit
-            </Button>
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {canManageRecords && qrDataUrl && (
+            <EmployeeQrButton
+              employeeName={fullName}
+              url={qrUrl}
+              qrDataUrl={qrDataUrl}
+            />
+          )}
+          {canEditEmployee && (
+            <Link href={`/employees/${id}/edit`}>
+              <Button variant="outline" size="sm">
+                <Pencil className="h-4 w-4" />
+                Edit
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -228,7 +250,7 @@ export default async function EmployeeProfilePage({
             serviceRecords={serviceRecords ?? []}
             employeeId={id}
             employeeName={fullName}
-            canGeneratePdf={canEditPlantilla}
+            canGeneratePdf={isHrAdmin}
           />
         </TabsContent>
 
@@ -249,7 +271,7 @@ export default async function EmployeeProfilePage({
             employeeId={id}
             employeeName={fullName}
             leaveTypes={leaveTypes}
-            isAdmin={canEditPlantilla}
+            isAdmin={isHrAdmin}
             needsManualEntry={Boolean(employee.vl_sl_needs_manual_entry)}
           />
         </TabsContent>
@@ -259,7 +281,7 @@ export default async function EmployeeProfilePage({
             <PlantillaTab
               plantilla={plantilla}
               employeeId={id}
-              canEdit={canEditPlantilla}
+              canEdit={canManageRecords}
             />
           </TabsContent>
         )}

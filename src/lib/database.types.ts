@@ -1186,6 +1186,7 @@ export type Database = {
         | "super_admin"
         | "ocm_admin"
         | "hr_admin"
+        | "hr_record_manager"
         | "department_head"
         | "department_admin"
         | "department_admin_and_department_head"
@@ -1371,6 +1372,7 @@ export const Constants = {
         "super_admin",
         "ocm_admin",
         "hr_admin",
+        "hr_record_manager",
         "department_head",
         "department_admin",
         "department_admin_and_department_head",

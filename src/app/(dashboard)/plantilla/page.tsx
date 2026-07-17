@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageHrRecords } from "@/lib/auth-helpers";
 import { getAllPlantilla } from "@/lib/actions/plantilla-actions";
 import { PlantillaTable } from "@/components/plantilla/plantilla-table";
 
 export default async function PlantillaPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!canManageHrRecords(user.role)) redirect("/dashboard");
 
   const records = await getAllPlantilla();
 
