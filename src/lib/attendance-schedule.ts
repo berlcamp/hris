@@ -348,18 +348,40 @@ export function lateMinutesFor(
   return Math.max(0, Math.round((actualMs - scheduledMs) / 60000));
 }
 
-// Undertime = minutes the actual clock-out was earlier than time_out. For
-// no-break shifts the out is stored in time_out_pm.
+// PM late = minutes the actual return from lunch (time_in_pm) was past the
+// scheduled break_end. Only meaningful for has-break schedules; returns 0 for
+// no-break shifts or when there is no PM clock-in. This is afternoon service
+// not rendered, so the DTR charges it as undertime.
+export function pmLateMinutesFor(
+  dutyDate: string,
+  sched: ScheduleLike,
+  clockInPmTime: string | null,
+  clockInPmOnNextDay: boolean,
+): number {
+  if (!hasBreak(sched) || !clockInPmTime) return 0;
+  const scheduledMs = shiftMomentMs(dutyDate, sched, sched.break_end!);
+  const actualDate = clockInPmOnNextDay ? addDaysIso(dutyDate, 1) : dutyDate;
+  const actualMs = new Date(`${actualDate}T${hhmm(clockInPmTime)}:00`).getTime();
+  return Math.max(0, Math.round((actualMs - scheduledMs) / 60000));
+}
+
+// Undertime = minutes the actual clock-out was earlier than time_out, PLUS any
+// late return from lunch (see pmLateMinutesFor). For no-break shifts the out is
+// stored in time_out_pm.
 // When clockOutTime is null but the employee was present (clockedIn = true),
 // the missing PM session is counted as undertime:
 //   - Has-break schedule: break_end → time_out (e.g. 1 PM → 5 PM = 4 hrs)
 //   - No-break shift: time_in → time_out (full shift)
+// The missing-clock-out window already spans from break_end, so the PM-late
+// component is NOT added there — it would double-charge the same afternoon.
 export function undertimeMinutesFor(
   dutyDate: string,
   sched: ScheduleLike,
   clockOutTime: string | null,
   clockOutOnNextDay: boolean,
   clockedIn = false,
+  clockInPmTime: string | null = null,
+  clockInPmOnNextDay = false,
 ): number {
   const scheduledDate = crossesMidnight(sched)
     ? addDaysIso(dutyDate, 1)
@@ -375,5 +397,12 @@ export function undertimeMinutesFor(
   }
   const actualDate = clockOutOnNextDay ? addDaysIso(dutyDate, 1) : dutyDate;
   const actualMs = new Date(`${actualDate}T${hhmm(clockOutTime)}:00`).getTime();
-  return Math.max(0, Math.round((scheduledMs - actualMs) / 60000));
+  const earlyDeparture = Math.max(0, Math.round((scheduledMs - actualMs) / 60000));
+  const pmLate = pmLateMinutesFor(
+    dutyDate,
+    sched,
+    clockInPmTime,
+    clockInPmOnNextDay,
+  );
+  return earlyDeparture + pmLate;
 }

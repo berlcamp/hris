@@ -199,3 +199,45 @@ test("absent AM, three PM punches → first is PM arrival, last is PM out", () =
   assert.equal(b.time_in_pm, "12:45");
   assert.equal(b.time_out_pm, "17:05");
 });
+
+// ── PM tardiness (late return from lunch) counts as undertime ────────
+
+test("late return from lunch is charged as undertime", () => {
+  // Left at 12:00, returned at 13:30 (30 min past the 13:00 break end),
+  // out on time at 17:00 → 30 minutes of afternoon service not rendered.
+  assert.equal(
+    undertimeMinutesFor(D, REGULAR, "17:00", false, true, "13:30", false),
+    30,
+  );
+});
+
+test("on-time return from lunch adds no undertime", () => {
+  assert.equal(
+    undertimeMinutesFor(D, REGULAR, "17:00", false, true, "12:58", false),
+    0,
+  );
+});
+
+test("late PM return AND early departure both count", () => {
+  // Back at 13:15 (15 late) and left at 16:45 (15 early) → 30 total.
+  assert.equal(
+    undertimeMinutesFor(D, REGULAR, "16:45", false, true, "13:15", false),
+    30,
+  );
+});
+
+test("no-break schedule ignores the PM-in argument", () => {
+  assert.equal(
+    undertimeMinutesFor(D, NO_BREAK, "16:00", false, true, "13:30", false),
+    0,
+  );
+});
+
+test("missing clock-out with a late PM return is not double-charged", () => {
+  // No time_out_pm → the whole afternoon (13:00→17:00 = 240) is already the
+  // undertime; the late PM return must not stack on top of that.
+  assert.equal(
+    undertimeMinutesFor(D, REGULAR, null, false, true, "13:30", false),
+    240,
+  );
+});

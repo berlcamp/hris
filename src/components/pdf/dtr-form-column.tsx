@@ -197,14 +197,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 1.5,
   },
-  // Spanning row (weekend/leave/absent/full holiday)
+  // Spanning row (weekend/leave/absent/full holiday). Covers the AM+PM groups
+  // only; the Undertime Hours/Minutes cells render to its right so an absent
+  // day can still show its 8-hour undertime.
   spanCell: {
-    width: w(100 - W_DAY),
+    width: w(W_AM_GROUP + W_PM_GROUP),
     paddingVertical: 1.5,
     textAlign: "center",
     fontFamily: "Helvetica-Bold",
     fontSize: 7,
     letterSpacing: 1,
+    borderRight: "0.5pt solid #999",
   },
   // Half-day holiday overlay covering only the AM or PM group of cells.
   holidayHalf: {
@@ -432,9 +435,20 @@ export function DtrFormColumn({
       >
         <Text style={styles.dayCell}>{dayLabel}</Text>
         {spanLabel ? (
-          <Text style={[styles.spanCell, spanColor ? { color: spanColor } : {}]}>
-            {spanLabel}
-          </Text>
+          <>
+            <Text style={[styles.spanCell, spanColor ? { color: spanColor } : {}]}>
+              {spanLabel}
+            </Text>
+            {/* Undertime still prints alongside the span label — an absent day
+                carries a full 8-hour undertime; other spans (weekend / leave /
+                holiday) carry none, so the cells stay blank. */}
+            <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
+              {totalUtForDay > 0 ? String(utH) : ""}
+            </Text>
+            <Text style={[styles.utCellLast, { width: w(W_UT_MIN) }]}>
+              {totalUtForDay > 0 ? pad2(utM) : ""}
+            </Text>
+          </>
         ) : hasBreak ? (
           <>
             {showAmHoliday ? (
@@ -466,6 +480,7 @@ export function DtrFormColumn({
                   time={entry.time_in_pm}
                   reason={entry.reason_in_pm}
                   width={W_PM_ARR}
+                  late={entry.is_pm_late}
                 />
                 <SlotCell
                   time={entry.time_out_pm}

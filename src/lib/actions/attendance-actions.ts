@@ -16,6 +16,7 @@ import {
   dutyDateFor,
   hasBreak,
   lateMinutesFor,
+  pmLateMinutesFor,
   timeOnNextDayForNightShift,
   trimTimeStr,
   undertimeMinutesFor,
@@ -80,6 +81,9 @@ export interface DtrEntry {
   time_out_pm: string | null;
   is_late: boolean;
   late_minutes: number;
+  // True when the return from lunch (time_in_pm) was past break_end — the PM
+  // arrival prints red like a late AM arrival. Absent on non-worked rows.
+  is_pm_late?: boolean;
   is_undertime: boolean;
   undertime_minutes: number;
   is_absent: boolean;
@@ -208,6 +212,7 @@ function computeAttendanceFlags(
     time_in_pm: string | null;
     time_out_pm: string | null;
     time_in_am_next_day?: boolean;
+    time_in_pm_next_day?: boolean;
     time_out_pm_next_day?: boolean;
   },
   dutyDate: string,
@@ -230,6 +235,8 @@ function computeAttendanceFlags(
     entry.time_out_pm,
     entry.time_out_pm_next_day ?? false,
     !!entry.time_in_am,
+    entry.time_in_pm,
+    entry.time_in_pm_next_day ?? false,
   );
 
   return {
@@ -1351,6 +1358,7 @@ export async function getDepartmentDtrBulk(
           ? NO_TIME_REASON_LABELS[log.no_time_reason as NoTimeReason] ?? null
           : null;
         const tInAmRaw = log.time_in_am as string | null;
+        const tInPmRaw = log.time_in_pm as string | null;
         const tOutPmRaw = log.time_out_pm as string | null;
         // A day pinned to an override schedule is scored against that schedule;
         // otherwise against the employee's current assigned schedule. Either way
@@ -1372,6 +1380,8 @@ export async function getDepartmentDtrBulk(
           extractTime(tOutPmRaw),
           timestampOnNextDay(tOutPmRaw, day.date),
           !!tInAmRaw,
+          extractTime(tInPmRaw),
+          timestampOnNextDay(tInPmRaw, day.date),
         );
         const reasonInAm = slotReasonShort(log.time_in_am_reason);
         const reasonOutAm = slotReasonShort(log.time_out_am_reason);
@@ -1389,11 +1399,25 @@ export async function getDepartmentDtrBulk(
         // Cap undertime at 7h; 8h+ reclassifies the day as absent.
         const {
           lateMins: finalLateMins,
-          undertimeMins: finalUndertimeMins,
+          undertimeMins: cappedUndertimeMins,
           absent: dayAbsent,
         } = applyUndertimeAbsenceRule(effLateMins, effUndertimeMins, isAbsent);
+        // An absent day is charged a full 8-hour undertime on the DTR.
+        const finalUndertimeMins = dayAbsent
+          ? UNDERTIME_ABSENT_MINUTES
+          : cappedUndertimeMins;
         const isLate = finalLateMins > 0;
         const isUndertime = finalUndertimeMins > 0;
+        // A late return from lunch (unexcused, non-holiday) prints the PM
+        // arrival red.
+        const pmLateMins = pmLateMinutesFor(
+          day.date,
+          daySched,
+          extractTime(tInPmRaw),
+          timestampOnNextDay(tInPmRaw, day.date),
+        );
+        const isPmLate =
+          !reasonInPm && !holidayExcusesUndertime && pmLateMins > 0;
         // An absent day (already absent, or reclassified by the 8h rule) prints
         // ABSENT across the row, so any partial punches are not shown.
         const showTimes = !dayAbsent;
@@ -1407,6 +1431,7 @@ export async function getDepartmentDtrBulk(
           time_out_pm: showTimes ? extractTime(tOutPmRaw) : null,
           is_late: isLate,
           late_minutes: finalLateMins,
+          is_pm_late: showTimes && isPmLate,
           is_undertime: isUndertime,
           undertime_minutes: finalUndertimeMins,
           is_absent: dayAbsent,
@@ -1455,6 +1480,8 @@ export async function getDepartmentDtrBulk(
       } else {
         // A half-day holiday with no punches is not counted as an absence.
         const absent = !day.isWeekend && !isHalfHoliday;
+        // An absent day is charged a full 8-hour undertime on the DTR.
+        const absentUndertime = absent ? UNDERTIME_ABSENT_MINUTES : 0;
         entries.push({
           date: day.date,
           day_of_week: day.dayOfWeek,
@@ -1464,8 +1491,8 @@ export async function getDepartmentDtrBulk(
           time_out_pm: null,
           is_late: false,
           late_minutes: 0,
-          is_undertime: false,
-          undertime_minutes: 0,
+          is_undertime: absent,
+          undertime_minutes: absentUndertime,
           is_absent: absent,
           remarks: day.isWeekend ? "Weekend" : isHalfHoliday ? holidayName : null,
           leave_type: null,
@@ -1474,7 +1501,11 @@ export async function getDepartmentDtrBulk(
           no_time_reason_label: null,
           ...EMPTY_SLOT_REASONS,
         });
-        if (absent) totalAbsent++;
+        if (absent) {
+          totalAbsent++;
+          totalUndertimeCount++;
+          totalUndertimeMinutes += absentUndertime;
+        }
       }
     }
 
@@ -1679,6 +1710,7 @@ export async function getEmployeeDtrRange(
         ? NO_TIME_REASON_LABELS[log.no_time_reason as NoTimeReason] ?? null
         : null;
       const tInAmRaw = log.time_in_am as string | null;
+      const tInPmRaw = log.time_in_pm as string | null;
       const tOutPmRaw = log.time_out_pm as string | null;
       // Score the day against its pinned override schedule when one is set,
       // otherwise the employee's current assigned schedule.
@@ -1698,6 +1730,8 @@ export async function getEmployeeDtrRange(
         extractTime(tOutPmRaw),
         timestampOnNextDay(tOutPmRaw, dateStr),
         !!tInAmRaw,
+        extractTime(tInPmRaw),
+        timestampOnNextDay(tInPmRaw, dateStr),
       );
       const reasonInAm = slotReasonShort(log.time_in_am_reason);
       const reasonOutAm = slotReasonShort(log.time_out_am_reason);
@@ -1715,11 +1749,25 @@ export async function getEmployeeDtrRange(
       // Cap undertime at 7h; 8h+ reclassifies the day as absent.
       const {
         lateMins: finalLateMins,
-        undertimeMins: finalUndertimeMins,
+        undertimeMins: cappedUndertimeMins,
         absent: dayAbsent,
       } = applyUndertimeAbsenceRule(effLateMins, effUndertimeMins, isAbsent);
+      // An absent day is charged a full 8-hour undertime on the DTR.
+      const finalUndertimeMins = dayAbsent
+        ? UNDERTIME_ABSENT_MINUTES
+        : cappedUndertimeMins;
       const isLate = finalLateMins > 0;
       const isUndertime = finalUndertimeMins > 0;
+      // A late return from lunch (unexcused, non-holiday) prints the PM
+      // arrival red.
+      const pmLateMins = pmLateMinutesFor(
+        dateStr,
+        daySched,
+        extractTime(tInPmRaw),
+        timestampOnNextDay(tInPmRaw, dateStr),
+      );
+      const isPmLate =
+        !reasonInPm && !holidayExcusesUndertime && pmLateMins > 0;
       // An absent day (already absent, or reclassified by the 8h rule) prints
       // ABSENT across the row, so any partial punches are not shown.
       const showTimes = !dayAbsent;
@@ -1733,6 +1781,7 @@ export async function getEmployeeDtrRange(
         time_out_pm: showTimes ? extractTime(tOutPmRaw) : null,
         is_late: isLate,
         late_minutes: finalLateMins,
+        is_pm_late: showTimes && isPmLate,
         is_undertime: isUndertime,
         undertime_minutes: finalUndertimeMins,
         is_absent: dayAbsent,
@@ -1781,6 +1830,8 @@ export async function getEmployeeDtrRange(
     } else {
       // A half-day holiday with no punches is not counted as an absence.
       const absent = !isWeekend && !isHalfHoliday;
+      // An absent day is charged a full 8-hour undertime on the DTR.
+      const absentUndertime = absent ? UNDERTIME_ABSENT_MINUTES : 0;
       entries.push({
         date: dateStr,
         day_of_week: dayOfWeek,
@@ -1790,8 +1841,8 @@ export async function getEmployeeDtrRange(
         time_out_pm: null,
         is_late: false,
         late_minutes: 0,
-        is_undertime: false,
-        undertime_minutes: 0,
+        is_undertime: absent,
+        undertime_minutes: absentUndertime,
         is_absent: absent,
         remarks: isWeekend ? "Weekend" : isHalfHoliday ? holidayName : null,
         leave_type: null,
@@ -1800,7 +1851,11 @@ export async function getEmployeeDtrRange(
         no_time_reason_label: null,
         ...EMPTY_SLOT_REASONS,
       });
-      if (absent) totalAbsent++;
+      if (absent) {
+        totalAbsent++;
+        totalUndertimeCount++;
+        totalUndertimeMinutes += absentUndertime;
+      }
     }
 
     cursor.setDate(cursor.getDate() + 1);
@@ -2005,6 +2060,7 @@ export async function getAttendanceReport(
           daysAbsent++;
         } else {
           const tIn = log.time_in_am as string | null;
+          const tInPm = log.time_in_pm as string | null;
           const tOut = log.time_out_pm as string | null;
           const lmRaw = lateMinutesFor(
             day.date,
@@ -2018,6 +2074,8 @@ export async function getAttendanceReport(
             extractTime(tOut),
             timestampOnNextDay(tOut, day.date),
             !!tIn,
+            extractTime(tInPm),
+            timestampOnNextDay(tInPm, day.date),
           );
           // Same DTR rule: undertime caps at 7h; 8h+ counts the day absent.
           const { lateMins: lm, undertimeMins: um, absent } =
