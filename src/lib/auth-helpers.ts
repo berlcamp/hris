@@ -29,6 +29,21 @@ export function canManageHrRecords(
   return !!role && HR_RECORDS_ROLES.includes(role);
 }
 
+// Roles allowed to EDIT the salary grade table. The HR Record Manager reaches
+// the Salary Grades page (see canManageHrRecords) but is restricted to viewing
+// only — creating/updating/deleting/importing entries stays with the full HR
+// admins.
+const SALARY_GRADE_EDITOR_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "hr_admin",
+] as const;
+
+export function canManageSalaryGrades(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && SALARY_GRADE_EDITOR_ROLES.includes(role);
+}
+
 // Roles that can fully manage attendance/DTR (read all, manual entry, imports,
 // deletes). "dtr_manager" is a dedicated role with the same attendance reach as
 // super_admin / hr_admin but no other admin powers.

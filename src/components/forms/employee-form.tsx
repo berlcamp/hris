@@ -106,6 +106,7 @@ export function EmployeeForm({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(employeeFormSchema) as any,
     defaultValues: defaultValues ?? {
+      id_number: null,
       first_name: "",
       middle_name: null,
       last_name: "",
@@ -163,10 +164,17 @@ export function EmployeeForm({
   const onSubmit = async (data: EmployeeFormValues) => {
     setLoading(true);
 
+    // Normalize a blank ID number to null so it doesn't collide with other
+    // empty-string entries and the QR link cleanly reflects "no ID yet".
+    const payload: EmployeeFormValues = {
+      ...data,
+      id_number: data.id_number?.trim() ? data.id_number.trim() : null,
+    };
+
     const result =
       mode === "create"
-        ? await createEmployee(data)
-        : await updateEmployee(defaultValues!.id!, data);
+        ? await createEmployee(payload)
+        : await updateEmployee(defaultValues!.id!, payload);
 
     if ("error" in result && result.error) {
       toast.error(result.error);
@@ -185,15 +193,16 @@ export function EmployeeForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      {mode === "create" && employeeNo && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Identification</CardTitle>
-            <CardDescription>
-              Auto-generated identifier for this employee.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+      <Card>
+        <CardHeader>
+          <CardTitle>Identification</CardTitle>
+          <CardDescription>
+            Identifiers for this employee, including the ID number used by the
+            public QR code.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {mode === "create" && employeeNo && (
             <div className="space-y-2">
               <Label>Employee Number</Label>
               <Input value={employeeNo} disabled />
@@ -201,9 +210,28 @@ export function EmployeeForm({
                 Auto-generated upon creation.
               </p>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="id_number">ID Number</Label>
+            <Input
+              id="id_number"
+              placeholder="e.g. 2024-00123"
+              {...register("id_number")}
+              aria-invalid={!!errors.id_number}
+            />
+            {errors.id_number ? (
+              <p className="text-sm text-destructive">
+                {errors.id_number.message}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Encoded in the employee QR code as{" "}
+                <code>http://aoadmin.sortbrite.com/employee/&lt;id-number&gt;</code>.
+              </p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Personal Information */}
       <Card>

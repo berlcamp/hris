@@ -22,10 +22,14 @@ export default async function EmployeesPage() {
     redirect("/dashboard");
   }
 
-  const [employees, departments] = await Promise.all([
+  const [allEmployees, departments] = await Promise.all([
     getEmployees(),
     getDepartments(),
   ]);
+
+  // Job Order employees are managed elsewhere and are not listed on the main
+  // Employees page.
+  const employees = allEmployees.filter((e) => e.employment_type !== "jo");
 
   const departmentOptions = (departments ?? []).map((d) => ({
     label: d.name,

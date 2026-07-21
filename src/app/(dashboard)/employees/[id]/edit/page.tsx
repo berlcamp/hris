@@ -49,6 +49,7 @@ export default async function EditEmployeePage({
         mode="edit"
         defaultValues={{
           id: employee.id,
+          id_number: employee.id_number,
           first_name: employee.first_name,
           middle_name: employee.middle_name,
           last_name: employee.last_name,

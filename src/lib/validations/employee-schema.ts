@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 export const employeeFormSchema = z.object({
+  id_number: z
+    .string()
+    .max(50, "ID number must be less than 50 characters")
+    .nullable(),
   first_name: z
     .string()
     .min(1, "First name is required")

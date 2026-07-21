@@ -76,6 +76,7 @@ export interface Position {
 export interface Employee {
   id: string;
   user_profile_id: string | null;
+  id_number: string | null;
   first_name: string;
   middle_name: string | null;
   last_name: string;

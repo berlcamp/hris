@@ -23,6 +23,7 @@ import {
 export interface EmployeeWithRelations {
   id: string;
   biometric_no: number;
+  id_number: string | null;
   first_name: string;
   middle_name: string | null;
   last_name: string;
@@ -164,6 +165,7 @@ export async function createEmployee(input: EmployeeFormValues) {
     .schema("hris")
     .from("employees")
     .insert({
+      id_number: input.id_number,
       first_name: input.first_name,
       middle_name: input.middle_name,
       last_name: input.last_name,
@@ -232,6 +234,7 @@ export async function updateEmployee(
     .schema("hris")
     .from("employees")
     .update({
+      id_number: input.id_number,
       first_name: input.first_name,
       middle_name: input.middle_name,
       last_name: input.last_name,

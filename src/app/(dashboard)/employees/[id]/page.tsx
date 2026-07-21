@@ -100,10 +100,15 @@ export default async function EmployeeProfilePage({
 
   if (!employee) notFound();
 
-  const qrUrl = buildEmployeeQrUrl(employee.id);
-  const qrDataUrl = canManageRecords
-    ? await generateEmployeeQrDataUrl(employee.id)
+  // The QR encodes the employee's public ID number, not the internal UUID, so
+  // it only renders once an ID number has been assigned on the edit form.
+  const qrUrl = employee.id_number
+    ? buildEmployeeQrUrl(employee.id_number)
     : null;
+  const qrDataUrl =
+    canManageRecords && employee.id_number
+      ? await generateEmployeeQrDataUrl(employee.id_number)
+      : null;
 
   const fullName = [
     employee.first_name,
@@ -174,7 +179,7 @@ export default async function EmployeeProfilePage({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {canManageRecords && qrDataUrl && (
+          {canManageRecords && qrUrl && qrDataUrl && (
             <EmployeeQrButton
               employeeName={fullName}
               url={qrUrl}

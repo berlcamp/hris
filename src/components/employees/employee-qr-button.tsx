@@ -16,7 +16,7 @@ import {
 
 interface EmployeeQrButtonProps {
   employeeName: string;
-  /** The public URL the QR encodes (hris.asensoozamiz.com/employee/<uuid>). */
+  /** The public URL the QR encodes (aoadmin.sortbrite.com/employee/<id_number>). */
   url: string;
   /** Pre-rendered QR image as a PNG data URL. */
   qrDataUrl: string;

@@ -66,9 +66,11 @@ interface SalaryGradeEntry {
 interface SalaryGradeManagerProps {
   initialGrades: SalaryGradeEntry[];
   tranches: { tranche: number; effective_year: number }[];
+  /** View-only mode — hides all create/edit/delete/import controls. */
+  readOnly?: boolean;
 }
 
-export function SalaryGradeManager({ initialGrades, tranches }: SalaryGradeManagerProps) {
+export function SalaryGradeManager({ initialGrades, tranches, readOnly = false }: SalaryGradeManagerProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -251,6 +253,8 @@ export function SalaryGradeManager({ initialGrades, tranches }: SalaryGradeManag
 
         <div className="flex-1" />
 
+        {!readOnly && (
+        <>
         <Dialog open={importOpen} onOpenChange={setImportOpen}>
           <DialogTrigger render={<Button variant="outline" size="sm" />}>
             <Upload className="h-4 w-4" />
@@ -319,6 +323,8 @@ export function SalaryGradeManager({ initialGrades, tranches }: SalaryGradeManag
           </DialogTrigger>
           {formDialog}
         </Dialog>
+        </>
+        )}
       </div>
 
       <Card>
@@ -343,7 +349,9 @@ export function SalaryGradeManager({ initialGrades, tranches }: SalaryGradeManag
                     <TableHead>Amount</TableHead>
                     <TableHead>Tranche</TableHead>
                     <TableHead>Effective Year</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {!readOnly && (
+                      <TableHead className="text-right">Actions</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -358,19 +366,21 @@ export function SalaryGradeManager({ initialGrades, tranches }: SalaryGradeManag
                         <Badge variant="outline">Tranche {entry.tranche}</Badge>
                       </TableCell>
                       <TableCell>{entry.effective_year}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Dialog open={editEntry?.id === entry.id} onOpenChange={(open) => { if (!open) { setEditEntry(null); resetForm(); } }}>
-                            <Button variant="ghost" size="icon-sm" onClick={() => openEdit(entry)}>
-                              <Pencil className="h-4 w-4" />
+                      {!readOnly && (
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Dialog open={editEntry?.id === entry.id} onOpenChange={(open) => { if (!open) { setEditEntry(null); resetForm(); } }}>
+                              <Button variant="ghost" size="icon-sm" onClick={() => openEdit(entry)}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              {editEntry?.id === entry.id && formDialog}
+                            </Dialog>
+                            <Button variant="ghost" size="icon-sm" onClick={() => setDeleteId(entry.id)}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
-                            {editEntry?.id === entry.id && formDialog}
-                          </Dialog>
-                          <Button variant="ghost" size="icon-sm" onClick={() => setDeleteId(entry.id)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
