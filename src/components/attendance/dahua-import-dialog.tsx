@@ -25,6 +25,7 @@ import {
 } from "@/lib/actions/attendance-actions";
 import type { ImportPreviewRow } from "@/lib/actions/attendance-actions";
 import { parseDahuaFile } from "@/lib/dahua-parse";
+import { PastImportsPanel } from "@/components/attendance/past-imports-panel";
 
 type Step = "upload" | "preview" | "importing" | "done";
 
@@ -165,6 +166,10 @@ export function DahuaImportDialog() {
                 Choose File
               </Button>
             </label>
+
+            <div className="mt-4 w-full border-t pt-4">
+              <PastImportsPanel />
+            </div>
           </div>
         )}
 

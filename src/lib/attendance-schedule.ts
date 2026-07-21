@@ -164,21 +164,48 @@ function normPunchStatus(s: string | null | undefined): string {
 // returning). So the earliest break punch is the AM departure (left for lunch)
 // and the latest is the PM arrival (came back):
 //   time_out_am = earliest break punch    time_in_pm  = latest break punch
-// `punches` must be pre-sorted ascending by ms.
-function bucketByStatus(punches: Punch[]): BucketResult {
+// `punches` must be pre-sorted ascending by ms. `dutyDate`/`sched` are used only
+// to locate the PM midpoint when rescuing a mislabeled end-of-day punch (below).
+function bucketByStatus(
+  punches: Punch[],
+  dutyDate: string,
+  sched: ScheduleLike,
+): BucketResult {
   const inSlot = (slot: string) =>
     punches.filter((p) => STATUS_SLOT[p.status] === slot);
   const first = (arr: Punch[]) => arr[0] ?? null;
   const last = (arr: Punch[]) => arr[arr.length - 1] ?? null;
 
   const inAm = first(inSlot("in_am"));
-  const outPm = last(inSlot("out_pm"));
+  let outPm = last(inSlot("out_pm"));
 
   // Break Out + Break In merged and ordered; earliest = out, latest = in.
   const breaks = punches.filter((p) => {
     const slot = STATUS_SLOT[p.status];
     return slot === "out_am" || slot === "in_pm";
   });
+
+  // The device labels punches by ORDER (Check In / Break Out / Break In / Check
+  // Out), so on an early-release day the final logout comes through as a Break
+  // punch instead of a Check Out — no out_pm punch exists, and the merged break
+  // group ends with what is really the DEPARTURE. If the employee was present
+  // earlier in the day and that last break punch lands past the PM midpoint
+  // (nobody returns from lunch at 3PM), rescue it as time_out_pm and let the
+  // remaining break punches supply the real AM-out / PM-in. Without this the
+  // 3PM logout prints as the PM arrival, PM out stays blank, and the whole
+  // afternoon is charged as un-clocked-out undertime. The midpoint mirrors the
+  // window path's lone-PM heuristic; a genuine (early) lunch return stays put.
+  if (!outPm && (inAm || breaks.length > 1) && breaks.length > 0) {
+    const pmMidpointMs =
+      (shiftMomentMs(dutyDate, sched, sched.break_end!) +
+        shiftMomentMs(dutyDate, sched, sched.time_out)) /
+      2;
+    const lastBreak = breaks[breaks.length - 1];
+    if (lastBreak.ms >= pmMidpointMs) {
+      outPm = lastBreak;
+      breaks.pop();
+    }
+  }
 
   // "Earliest break punch = left for lunch" only holds if the employee was
   // HERE in the morning. With no Check In, they were absent/on leave in the AM
@@ -249,7 +276,7 @@ export function bucketPunchesForDuty(
     hasBreakPunch &&
     punches.every((p) => STATUS_SLOT[p.status])
   ) {
-    return bucketByStatus(punches);
+    return bucketByStatus(punches, dutyDate, sched);
   }
 
   // --- No-break path: single in/out ---

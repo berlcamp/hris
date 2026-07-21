@@ -193,6 +193,121 @@ test("re-importing with overwrite CLEARS the stale pre-fix AM arrival", async ()
   assert.equal(row.undertime_minutes, 0, "phantom undertime must be cleared");
 });
 
+test("event day (final logout mislabeled Break In) round-trips as PM in/out", async () => {
+  // The reported bug: on an early-release day the device labels the 15:00 logout
+  // as a Break punch, so the pre-fix bucketer put it in time_in_pm with no
+  // departure (240 min phantom undertime). The fix must store the real 13:00
+  // return as PM arrival and the 15:00 logout as PM departure — and survive the
+  // real TIMESTAMPTZ round trip.
+  const bucket = bucketPunchesForDuty(
+    [
+      { date: D, time: "08:00", status: "Check In" },
+      { date: D, time: "12:00", status: "Break Out" },
+      { date: D, time: "13:00", status: "Break In" },
+      { date: D, time: "15:00", status: "Break In" },
+    ],
+    D,
+    REGULAR,
+  );
+  const row = await writeDay(bucket);
+
+  assert.equal(extractTime(row.time_in_pm), "13:00", "real lunch return recovered");
+  assert.equal(extractTime(row.time_out_pm), "15:00", "3PM logout is the departure");
+});
+
+test("replay re-buckets a biometric day but never a manually-edited one", async () => {
+  // The safety guarantee behind runImportReplay: it overwrites only days still
+  // source = 'biometric'; a day a manager corrected (source = 'manual') is left
+  // alone. This mirrors the action's partition + upsert against the real DB.
+  const D2 = "2026-06-16";
+  await admin
+    .from("attendance_logs")
+    .delete()
+    .eq("employee_id", HALFDAY)
+    .in("date", [D, D2]);
+
+  await admin.from("attendance_logs").insert([
+    // A stale pre-fix biometric row (3PM logout stuck in PM arrival, no out).
+    {
+      employee_id: HALFDAY,
+      date: D,
+      time_in_am: toTimestamp(D, "08:00"),
+      time_out_am: toTimestamp(D, "12:00"),
+      time_in_pm: toTimestamp(D, "15:00"),
+      time_out_pm: null,
+      source: "biometric",
+    },
+    // A manager's manual correction on another day — departure typed as 17:00.
+    {
+      employee_id: HALFDAY,
+      date: D2,
+      time_in_am: toTimestamp(D2, "08:00"),
+      time_out_am: toTimestamp(D2, "12:00"),
+      time_in_pm: toTimestamp(D2, "13:00"),
+      time_out_pm: toTimestamp(D2, "17:00"),
+      source: "manual",
+    },
+  ]);
+
+  // Read existing sources per day, as runImportReplay does.
+  const { data: existing } = await admin
+    .from("attendance_logs")
+    .select("date, source")
+    .eq("employee_id", HALFDAY)
+    .in("date", [D, D2]);
+  const sourceByDate = new Map(
+    (existing ?? []).map((r) => [r.date as string, r.source as string]),
+  );
+
+  const punches = (d: string) => [
+    { date: d, time: "08:00", status: "Check In" },
+    { date: d, time: "12:00", status: "Break Out" },
+    { date: d, time: "13:00", status: "Break In" },
+    { date: d, time: "15:00", status: "Break In" },
+  ];
+
+  // Apply the skip rule: write only days absent or still biometric.
+  const toWrite = [D, D2]
+    .filter((d) => {
+      const s = sourceByDate.get(d);
+      return s === undefined || s === "biometric";
+    })
+    .map((d) => {
+      const b = bucketPunchesForDuty(punches(d), d, REGULAR);
+      return {
+        employee_id: HALFDAY,
+        date: d,
+        time_in_am: toTimestamp(d, b.time_in_am),
+        time_out_am: toTimestamp(d, b.time_out_am),
+        time_in_pm: toTimestamp(d, b.time_in_pm),
+        time_out_pm: toTimestamp(d, b.time_out_pm),
+        source: "biometric",
+      };
+    });
+
+  assert.equal(toWrite.length, 1, "only the biometric day is eligible");
+  const { error } = await admin
+    .from("attendance_logs")
+    .upsert(toWrite, { onConflict: "employee_id,date", ignoreDuplicates: false });
+  assert.equal(error, null, `upsert failed: ${error?.message}`);
+
+  const { data: rows } = await admin
+    .from("attendance_logs")
+    .select("date, time_in_pm, time_out_pm, source")
+    .eq("employee_id", HALFDAY)
+    .in("date", [D, D2]);
+  const byDate = new Map((rows ?? []).map((r) => [r.date as string, r]));
+
+  // D (biometric) was re-bucketed: 3PM is now the departure, 13:00 the arrival.
+  assert.equal(extractTime(byDate.get(D)!.time_in_pm), "13:00");
+  assert.equal(extractTime(byDate.get(D)!.time_out_pm), "15:00");
+  // D2 (manual) is untouched: the 17:00 departure the manager typed survives.
+  assert.equal(byDate.get(D2)!.source, "manual", "manual day stays manual");
+  assert.equal(extractTime(byDate.get(D2)!.time_out_pm), "17:00", "manual edit preserved");
+
+  await admin.from("attendance_logs").delete().eq("employee_id", HALFDAY).eq("date", D2);
+});
+
 test.after(async () => {
   await admin.from("attendance_logs").delete().eq("employee_id", HALFDAY).eq("date", D);
 });

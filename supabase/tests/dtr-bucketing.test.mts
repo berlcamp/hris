@@ -200,6 +200,98 @@ test("absent AM, three PM punches → first is PM arrival, last is PM out", () =
   assert.equal(b.time_out_pm, "17:05");
 });
 
+// ── Device labels the day's final logout as a Break punch ───────────
+// Dahua assigns punch labels by ORDER (1=Check In, 2=Break Out, 3=Break In,
+// 4=Check Out). On an early-release day the last punch comes through as a
+// Break In/Out instead of Check Out. bucketByStatus trusts labels, so without
+// a guard it collapses the whole break group to first+last — dropping the real
+// PM return and leaving PM out blank, which charges a phantom 4h undertime.
+
+test("event day: 4 punches, final logout mislabeled Break In → PM out, PM in recovered", () => {
+  const b = bucketPunchesForDuty(
+    [
+      punch("08:00", "checkin"),
+      punch("12:00", "breakout"),
+      punch("13:00", "breakin"),
+      punch("15:00", "breakin"), // the 3PM logout, mislabeled by the device
+    ],
+    D,
+    REGULAR,
+  );
+  assert.deepEqual(slots(b), {
+    in_am: "08:00",
+    out_am: "12:00",
+    in_pm: "13:00",
+    out_pm: "15:00",
+  });
+});
+
+test("event day: 3 punches (no PM return), mislabeled 15:31 logout → PM out", () => {
+  const b = bucketPunchesForDuty(
+    [
+      punch("07:38", "checkin"),
+      punch("12:01", "breakout"),
+      punch("15:31", "breakin"),
+    ],
+    D,
+    REGULAR,
+  );
+  assert.deepEqual(slots(b), {
+    in_am: "07:38",
+    out_am: "12:01",
+    in_pm: null,
+    out_pm: "15:31",
+  });
+});
+
+test("event day is charged the real early-out, not the phantom 4h", () => {
+  const b = bucketPunchesForDuty(
+    [
+      punch("08:00", "checkin"),
+      punch("12:00", "breakout"),
+      punch("13:00", "breakin"),
+      punch("15:00", "breakin"),
+    ],
+    D,
+    REGULAR,
+  );
+  // Left at 15:00 vs 17:00 = 120 min early departure — not the 240 phantom
+  // from a missing clock-out.
+  assert.equal(
+    undertimeMinutesFor(
+      D,
+      REGULAR,
+      b.time_out_pm,
+      false,
+      !!b.time_in_am,
+      b.time_in_pm,
+      false,
+    ),
+    120,
+  );
+});
+
+test("genuine missing clock-out (last punch is the lunch return) keeps PM out blank", () => {
+  // Guards against over-correcting: the last break punch here (13:15) is a real
+  // return from lunch, NOT a late-afternoon departure, so PM out stays blank and
+  // the afternoon is charged as un-clocked-out.
+  const b = bucketPunchesForDuty(
+    [
+      punch("08:00", "checkin"),
+      punch("12:00", "breakout"),
+      punch("13:15", "breakin"),
+    ],
+    D,
+    REGULAR,
+  );
+  assert.deepEqual(slots(b), {
+    in_am: "08:00",
+    out_am: "12:00",
+    in_pm: "13:15",
+    out_pm: null,
+  });
+});
+
 // ── PM tardiness (late return from lunch) counts as undertime ────────
 
 test("late return from lunch is charged as undertime", () => {

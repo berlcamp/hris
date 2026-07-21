@@ -878,6 +878,177 @@ export async function matchAndPreviewImport(
 
 // --- Import Dahua attendance data ---
 
+// Compact raw punch persisted per import batch so an import can be re-bucketed
+// later ("replay") without the original Dahua file. Mirrors the parsed rows the
+// browser sends to the importer.
+interface StoredPunch {
+  employeeNo: string;
+  employeeName: string;
+  date: string;
+  time: string;
+  status: string;
+}
+
+// Shared core for the Dahua importer AND import replay: groups matched punches
+// by employee + duty date, honors any per-day override schedule already pinned
+// to that day, buckets each group into AM/PM slots, and builds the
+// attendance_logs upsert row. Keeping this in ONE place is what lets replay
+// re-apply a bucketing fix identically to a fresh import. Returns each record's
+// `${employeeId}_${dutyDate}` key (parallel to `records`) and the source of any
+// existing row per key, so callers can decide what to overwrite vs. skip.
+async function buildBiometricRecords(
+  supabase: ReturnType<typeof createAdminClient>,
+  matchedPunches: {
+    employeeId: string;
+    date: string;
+    time: string;
+    status: string;
+  }[],
+  schedByEmp: Map<string, ScheduleLike>,
+  defaultSched: ScheduleLike,
+): Promise<{
+  records: Record<string, unknown>[];
+  keys: string[];
+  existingSourceByKey: Map<string, string>;
+  touched: { employeeId: string; year: number; month: number }[];
+  errors: number;
+}> {
+  interface Group {
+    employeeId: string;
+    dutyDate: string;
+    sched: ScheduleLike;
+    punches: { date: string; time: string; status: string }[];
+  }
+  const grouped = new Map<string, Group>();
+  for (const p of matchedPunches) {
+    const sched = schedByEmp.get(p.employeeId) ?? defaultSched;
+    const dutyDate = dutyDateFor(p.date, p.time, sched);
+    const key = `${p.employeeId}_${dutyDate}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, { employeeId: p.employeeId, dutyDate, sched, punches: [] });
+    }
+    grouped.get(key)!.punches.push({ date: p.date, time: p.time, status: p.status });
+  }
+
+  // Honor per-day schedule overrides pinned by a DTR manager, and capture each
+  // existing row's source so replay can skip days a human has since corrected.
+  const overrideSchedByKey = new Map<string, ScheduleLike>();
+  const existingSourceByKey = new Map<string, string>();
+  const employeeIds = [...new Set([...grouped.values()].map((g) => g.employeeId))];
+  const dutyDates = [...new Set([...grouped.values()].map((g) => g.dutyDate))];
+  if (employeeIds.length > 0 && dutyDates.length > 0) {
+    const { data: existing } = await supabase
+      .schema("hris")
+      .from("attendance_logs")
+      .select("employee_id, date, schedule_id, source")
+      .in("employee_id", employeeIds)
+      .in("date", dutyDates);
+    const existingRows = (existing ?? []) as {
+      employee_id: string;
+      date: string;
+      schedule_id: string | null;
+      source: string | null;
+    }[];
+    const schedById = await loadOverrideSchedules(supabase, existingRows);
+    for (const r of existingRows) {
+      const key = `${r.employee_id}_${r.date}`;
+      existingSourceByKey.set(key, r.source ?? "");
+      if (r.schedule_id) {
+        const sched = schedById.get(r.schedule_id);
+        if (sched) overrideSchedByKey.set(key, sched);
+      }
+    }
+  }
+
+  const records: Record<string, unknown>[] = [];
+  const keys: string[] = [];
+  const touched: { employeeId: string; year: number; month: number }[] = [];
+  let errors = 0;
+  for (const [key, group] of grouped) {
+    try {
+      // A pinned override schedule for this day wins over the employee's
+      // assigned one (for break-window bucketing and late/undertime).
+      const overrideSched = overrideSchedByKey.get(key) ?? null;
+      const effSched = overrideSched ?? group.sched;
+
+      const bucket = bucketPunchesForDuty(
+        dedupePunches(group.punches),
+        group.dutyDate,
+        effSched,
+      );
+
+      const flags = computeAttendanceFlags(
+        {
+          time_in_am: bucket.time_in_am,
+          time_out_am: bucket.time_out_am,
+          time_in_pm: bucket.time_in_pm,
+          time_out_pm: bucket.time_out_pm,
+          time_in_am_next_day: bucket.time_in_am_next_day,
+          time_out_pm_next_day: bucket.time_out_pm_next_day,
+        },
+        group.dutyDate,
+        effSched,
+      );
+
+      const nextDate = addDaysIso(group.dutyDate, 1);
+      const dateOf = (onNext: boolean) => (onNext ? nextDate : group.dutyDate);
+
+      records.push({
+        employee_id: group.employeeId,
+        date: group.dutyDate,
+        schedule_id: overrideSched?.id ?? null,
+        time_in_am: toTimestamp(dateOf(bucket.time_in_am_next_day), bucket.time_in_am),
+        time_out_am: toTimestamp(dateOf(bucket.time_out_am_next_day), bucket.time_out_am),
+        time_in_pm: toTimestamp(dateOf(bucket.time_in_pm_next_day), bucket.time_in_pm),
+        time_out_pm: toTimestamp(dateOf(bucket.time_out_pm_next_day), bucket.time_out_pm),
+        ...flags,
+        source: "biometric",
+        remarks: null,
+      });
+      keys.push(key);
+
+      const [yr, mo] = group.dutyDate.split("-").map(Number);
+      touched.push({ employeeId: group.employeeId, year: yr, month: mo });
+    } catch {
+      errors++;
+    }
+  }
+  return { records, keys, existingSourceByKey, touched, errors };
+}
+
+// Persist the raw parsed punches for this import so it can be replayed later.
+// Stores ALL rows (even unmatched) so a replay can re-match employees added
+// after the fact. Best-effort: a failed save must not fail the import itself.
+async function saveImportBatch(
+  supabase: ReturnType<typeof createAdminClient>,
+  importedBy: string,
+  previewRows: ImportPreviewRow[],
+): Promise<void> {
+  if (previewRows.length === 0) return;
+  const punches: StoredPunch[] = previewRows.map((r) => ({
+    employeeNo: r.employeeNo,
+    employeeName: r.employeeName,
+    date: r.date,
+    time: r.time,
+    status: r.status,
+  }));
+  const dates = punches.map((p) => p.date).filter(Boolean).sort();
+  try {
+    await supabase
+      .schema("hris")
+      .from("attendance_import_batches")
+      .insert({
+        imported_by: importedBy,
+        period_start: dates[0] ?? null,
+        period_end: dates[dates.length - 1] ?? null,
+        punch_count: punches.length,
+        punches,
+      });
+  } catch {
+    // swallow — the attendance rows are already written; replay is a convenience
+  }
+}
+
 export async function importDahuaAttendance(
   previewRows: ImportPreviewRow[],
   overwriteExisting: boolean
@@ -922,125 +1093,42 @@ export async function importDahuaAttendance(
     }
   }
 
-  // Group punches by employee + duty date.
-  interface Group {
-    employeeId: string;
-    dutyDate: string;
-    sched: ScheduleLike;
-    punches: { date: string; time: string; status: string }[];
-  }
-  const grouped = new Map<string, Group>();
+  // Pre-filter conflicts (skipped when not overwriting) and collect the matched
+  // punches; the shared builder handles grouping, override schedules, bucketing
+  // and flag computation — identical to replay.
   const skipKeys = new Set<string>();
-
+  const matched: {
+    employeeId: string;
+    date: string;
+    time: string;
+    status: string;
+  }[] = [];
   for (const row of previewRows) {
     if (!row.matched || !row.employeeId) continue;
     const sched = schedByEmp.get(row.employeeId) ?? defaultSched;
     const dutyDate = dutyDateFor(row.date, row.time, sched);
-    const key = `${row.employeeId}_${dutyDate}`;
     if (row.hasConflict && !overwriteExisting) {
-      skipKeys.add(key);
+      skipKeys.add(`${row.employeeId}_${dutyDate}`);
       continue;
     }
-    if (!grouped.has(key)) {
-      grouped.set(key, {
-        employeeId: row.employeeId,
-        dutyDate,
-        sched,
-        punches: [],
-      });
-    }
-    grouped.get(key)!.punches.push({
+    matched.push({
+      employeeId: row.employeeId,
       date: row.date,
       time: row.time,
       status: row.status,
     });
   }
 
-  // Honor per-day schedule overrides: if a day being written already has a
-  // schedule pinned to it (assigned by a DTR manager), score that day against
-  // the pinned schedule instead of the employee's assigned one — and preserve
-  // the pin. Without this, an import would silently recompute late/undertime
-  // against the wrong schedule for rotating-shift days.
-  const overrideSchedByKey = new Map<string, ScheduleLike>();
-  {
-    const dutyDates = [...new Set([...grouped.values()].map((g) => g.dutyDate))];
-    if (employeeIds.length > 0 && dutyDates.length > 0) {
-      const { data: existing } = await supabase
-        .schema("hris")
-        .from("attendance_logs")
-        .select("employee_id, date, schedule_id")
-        .in("employee_id", employeeIds)
-        .in("date", dutyDates);
-      const existingRows = (existing ?? []) as {
-        employee_id: string;
-        date: string;
-        schedule_id: string | null;
-      }[];
-      const schedById = await loadOverrideSchedules(supabase, existingRows);
-      for (const r of existingRows) {
-        if (!r.schedule_id) continue;
-        const sched = schedById.get(r.schedule_id);
-        if (sched) overrideSchedByKey.set(`${r.employee_id}_${r.date}`, sched);
-      }
-    }
-  }
+  const { records, touched, errors: buildErrors } = await buildBiometricRecords(
+    supabase,
+    matched,
+    schedByEmp,
+    defaultSched,
+  );
 
   let imported = 0;
-  let errors = 0;
+  let errors = buildErrors;
   const skipped = skipKeys.size;
-  const touched: { employeeId: string; year: number; month: number }[] = [];
-
-  // Build every record in memory first. Computing buckets/flags is pure CPU
-  // work, so no DB round-trips happen here.
-  const records: Record<string, unknown>[] = [];
-  for (const [key, group] of grouped) {
-    try {
-      // A pinned override schedule for this day wins over the employee's
-      // assigned one (for break-window bucketing and late/undertime).
-      const overrideSched = overrideSchedByKey.get(key) ?? null;
-      const effSched = overrideSched ?? group.sched;
-
-      const bucket = bucketPunchesForDuty(
-        dedupePunches(group.punches),
-        group.dutyDate,
-        effSched,
-      );
-
-      const flags = computeAttendanceFlags(
-        {
-          time_in_am: bucket.time_in_am,
-          time_out_am: bucket.time_out_am,
-          time_in_pm: bucket.time_in_pm,
-          time_out_pm: bucket.time_out_pm,
-          time_in_am_next_day: bucket.time_in_am_next_day,
-          time_out_pm_next_day: bucket.time_out_pm_next_day,
-        },
-        group.dutyDate,
-        effSched,
-      );
-
-      const nextDate = addDaysIso(group.dutyDate, 1);
-      const dateOf = (onNext: boolean) => (onNext ? nextDate : group.dutyDate);
-
-      records.push({
-        employee_id: group.employeeId,
-        date: group.dutyDate,
-        schedule_id: overrideSched?.id ?? null,
-        time_in_am: toTimestamp(dateOf(bucket.time_in_am_next_day), bucket.time_in_am),
-        time_out_am: toTimestamp(dateOf(bucket.time_out_am_next_day), bucket.time_out_am),
-        time_in_pm: toTimestamp(dateOf(bucket.time_in_pm_next_day), bucket.time_in_pm),
-        time_out_pm: toTimestamp(dateOf(bucket.time_out_pm_next_day), bucket.time_out_pm),
-        ...flags,
-        source: "biometric",
-        remarks: null,
-      });
-
-      const [yr, mo] = group.dutyDate.split("-").map(Number);
-      touched.push({ employeeId: group.employeeId, year: yr, month: mo });
-    } catch {
-      errors++;
-    }
-  }
 
   // Batch-upsert against the UNIQUE(employee_id, date) constraint instead of a
   // SELECT + INSERT/UPDATE per group. The old per-row loop did ~2 sequential DB
@@ -1073,6 +1161,9 @@ export async function importDahuaAttendance(
     await recomputeAttendanceDeductionsBatch(touched);
   }
 
+  // Save the raw punches so this import can be replayed after a bucketing fix.
+  await saveImportBatch(supabase, user.id, previewRows);
+
   await logAudit({
     userId: user.id,
     userEmail: user.email,
@@ -1089,8 +1180,216 @@ export async function importDahuaAttendance(
     errors,
     totalPunches: previewRows.length,
     unmatchedPunches: previewRows.length - matchedPunches,
-    dayRecords: grouped.size,
+    dayRecords: records.length,
   };
+}
+
+// --- Import batches: list + replay ---
+
+export interface ImportBatchRow {
+  id: string;
+  imported_at: string;
+  period_start: string | null;
+  period_end: string | null;
+  punch_count: number;
+  imported_by_name: string | null;
+}
+
+// Lists saved import batches, newest first, for the "Past Imports" list.
+export async function getImportBatches(): Promise<ImportBatchRow[]> {
+  const user = await getCurrentUser();
+  if (!user || !isAttendanceManager(user.role)) {
+    throw new Error("Unauthorized");
+  }
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("attendance_import_batches")
+    .select(
+      "id, imported_at, period_start, period_end, punch_count, user_profiles(full_name, email)",
+    )
+    .order("imported_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const prof = r.user_profiles as unknown as {
+      full_name: string | null;
+      email: string | null;
+    } | null;
+    return {
+      id: r.id as string,
+      imported_at: r.imported_at as string,
+      period_start: r.period_start as string | null,
+      period_end: r.period_end as string | null,
+      punch_count: r.punch_count as number,
+      imported_by_name: prof?.full_name ?? prof?.email ?? null,
+    };
+  });
+}
+
+// Loads a batch's raw punches and re-matches them to employees by biometric_no,
+// resolving each matched employee's schedule. Shared by preview + run. Returns
+// the matched punch list, schedule map, default schedule, and the count of
+// punches whose biometric_no isn't in the system.
+async function loadBatchForReplay(
+  supabase: ReturnType<typeof createAdminClient>,
+  batchId: string,
+): Promise<{
+  matched: { employeeId: string; date: string; time: string; status: string }[];
+  schedByEmp: Map<string, ScheduleLike>;
+  defaultSched: ScheduleLike;
+  unmatchedPunches: number;
+}> {
+  const { data: batch, error } = await supabase
+    .schema("hris")
+    .from("attendance_import_batches")
+    .select("punches")
+    .eq("id", batchId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!batch) throw new Error("Import not found");
+
+  const punches = (batch.punches ?? []) as StoredPunch[];
+  const uniqueNos = [...new Set(punches.map((p) => p.employeeNo))];
+  const numericNos = uniqueNos.map(Number).filter((n) => !isNaN(n));
+  const { data: employees } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select(
+      "id, biometric_no, schedules(id, time_in, time_out, break_start, break_end)",
+    )
+    .in("biometric_no", numericNos);
+  const empRows = (employees ?? []) as unknown as {
+    id: string;
+    biometric_no: number;
+    schedules: ScheduleLike | null;
+  }[];
+  const empMap = new Map(empRows.map((e) => [String(e.biometric_no), e.id]));
+  const defaultSched = await resolveDefaultSchedule(supabase);
+  const schedByEmp = new Map<string, ScheduleLike>(
+    empRows.map((e) => [e.id, e.schedules ?? defaultSched]),
+  );
+
+  const matched: {
+    employeeId: string;
+    date: string;
+    time: string;
+    status: string;
+  }[] = [];
+  let unmatchedPunches = 0;
+  for (const p of punches) {
+    const employeeId = empMap.get(p.employeeNo);
+    if (!employeeId) {
+      unmatchedPunches++;
+      continue;
+    }
+    matched.push({ employeeId, date: p.date, time: p.time, status: p.status });
+  }
+  return { matched, schedByEmp, defaultSched, unmatchedPunches };
+}
+
+export interface ReplayPreview {
+  daysToRebucket: number;
+  daysToSkip: number;
+  unmatchedPunches: number;
+}
+
+// Dry run: how many days a replay would re-bucket vs. skip (because the day is
+// no longer a plain biometric row — a manager corrected it since). No writes.
+export async function previewImportReplay(
+  batchId: string,
+): Promise<ReplayPreview> {
+  const user = await getCurrentUser();
+  if (!user || !isAttendanceManager(user.role)) {
+    throw new Error("Unauthorized");
+  }
+  const supabase = createAdminClient();
+  const { matched, schedByEmp, defaultSched, unmatchedPunches } =
+    await loadBatchForReplay(supabase, batchId);
+  const { keys, existingSourceByKey } = await buildBiometricRecords(
+    supabase,
+    matched,
+    schedByEmp,
+    defaultSched,
+  );
+  let daysToSkip = 0;
+  for (const key of keys) {
+    const src = existingSourceByKey.get(key);
+    if (src !== undefined && src !== "biometric") daysToSkip++;
+  }
+  return {
+    daysToRebucket: keys.length - daysToSkip,
+    daysToSkip,
+    unmatchedPunches,
+  };
+}
+
+// Re-buckets a saved import with the current logic. Overwrites only days whose
+// attendance_logs row is still source = 'biometric' (or absent); any day a
+// manager manually edited since is left untouched.
+export async function runImportReplay(batchId: string): Promise<{
+  reBucketed: number;
+  skipped: number;
+  unmatchedPunches: number;
+  errors: number;
+}> {
+  const user = await getCurrentUser();
+  if (!user || !isAttendanceManager(user.role)) {
+    throw new Error("Unauthorized");
+  }
+  const supabase = createAdminClient();
+  const { matched, schedByEmp, defaultSched, unmatchedPunches } =
+    await loadBatchForReplay(supabase, batchId);
+  const { records, keys, existingSourceByKey, touched, errors: buildErrors } =
+    await buildBiometricRecords(supabase, matched, schedByEmp, defaultSched);
+
+  // Keep only records whose day is safe to overwrite: no existing row, or an
+  // existing row still sourced from biometric. Skip anything a human touched.
+  const toWrite: Record<string, unknown>[] = [];
+  const toWriteTouched: typeof touched = [];
+  let skipped = 0;
+  for (let i = 0; i < records.length; i++) {
+    const src = existingSourceByKey.get(keys[i]);
+    if (src !== undefined && src !== "biometric") {
+      skipped++;
+      continue;
+    }
+    toWrite.push(records[i]);
+    toWriteTouched.push(touched[i]);
+  }
+
+  let errors = buildErrors;
+  let reBucketed = 0;
+  const CHUNK = 500;
+  for (let i = 0; i < toWrite.length; i += CHUNK) {
+    const chunk = toWrite.slice(i, i + CHUNK);
+    try {
+      const { data, error } = await supabase
+        .schema("hris")
+        .from("attendance_logs")
+        .upsert(chunk, { onConflict: "employee_id,date", ignoreDuplicates: false })
+        .select("id");
+      if (error) throw error;
+      reBucketed += data?.length ?? 0;
+    } catch {
+      errors += chunk.length;
+    }
+  }
+
+  if (toWriteTouched.length > 0) {
+    await recomputeAttendanceDeductionsBatch(toWriteTouched);
+  }
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "replay_attendance_import",
+    tableName: "attendance_logs",
+    recordId: batchId,
+    newValues: { reBucketed, skipped, unmatchedPunches, errors },
+  });
+
+  revalidatePath("/attendance");
+  return { reBucketed, skipped, unmatchedPunches, errors };
 }
 
 // --- Bulk DTR (department + date range) ---
