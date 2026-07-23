@@ -398,19 +398,18 @@ export function DtrFormColumn({
     const pmBlank = !entry.time_in_pm && !entry.time_out_pm;
     const hasNoPunch = amBlank && pmBlank;
 
-    // Half-day holiday always overlays "HOLIDAY" on the AM or PM cells, even
-    // when the employee punched in on that half — the declared holiday is what
-    // the printed DTR must show.
-    const showAmHoliday = entry.holiday === "half_am";
-    const showPmHoliday = entry.holiday === "half_pm";
+    // Half-day holiday overlays "HOLIDAY" on the AM or PM cells — but only when
+    // that half is blank. If the employee worked the holiday half, show times.
+    const showAmHoliday = entry.holiday === "half_am" && amBlank;
+    const showPmHoliday = entry.holiday === "half_pm" && pmBlank;
 
     // Spanning row for full holiday / weekend / approved leave /
     // official-duty reason (TRAVEL, FIELD WORK, OFFICIAL BUSINESS) / absent.
-    // A declared full holiday always spans the row, regardless of any punches
-    // recorded that day.
+    // A full holiday only spans the row when the employee did not work it;
+    // otherwise the times below are shown.
     let spanLabel: string | null = null;
     let spanColor: string | undefined;
-    if (entry.holiday === "full") {
+    if (entry.holiday === "full" && hasNoPunch) {
       spanLabel = "HOLIDAY";
     } else if (isWeekend) {
       spanLabel = entry.day_of_week.toUpperCase();
