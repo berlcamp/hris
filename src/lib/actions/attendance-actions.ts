@@ -411,12 +411,13 @@ function buildManualEntryRecord(
   );
 
   const noTimeReason = fields.no_time_reason ?? null;
-  // A reason is only meaningful for a slot that has no time. Drop any reason on
-  // a slot the user also typed a time into.
-  const reasonInAm = fields.time_in_am ? null : fields.reason_in_am ?? null;
-  const reasonOutAm = fields.time_out_am ? null : fields.reason_out_am ?? null;
-  const reasonInPm = fields.time_in_pm ? null : fields.reason_in_pm ?? null;
-  const reasonOutPm = fields.time_out_pm ? null : fields.reason_out_pm ?? null;
+  // A reason is kept even when the slot also has a punched time (e.g. a HOLIDAY
+  // the employee still logged in on). The DTR prints the reason for that slot
+  // instead of the time, and the time stays on record.
+  const reasonInAm = fields.reason_in_am ?? null;
+  const reasonOutAm = fields.reason_out_am ?? null;
+  const reasonInPm = fields.reason_in_pm ?? null;
+  const reasonOutPm = fields.reason_out_pm ?? null;
   const hasAnyReason =
     !!noTimeReason ||
     !!reasonInAm ||
