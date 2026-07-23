@@ -86,9 +86,10 @@ const toReason = (v: string): NoTimeReason | null =>
 
 const REASON_ITEMS = { [NO_REASON]: "No reason", ...NO_TIME_REASON_LABELS };
 
-// A time field paired with an official-duty reason selector. Enter a time OR
-// pick a reason for the blank slot (the DTR prints the reason instead of a
-// time); the two are mutually exclusive.
+// A time field paired with a reason selector. Both stay editable at all times:
+// a slot can carry a punched time AND a reason (e.g. a holiday the employee
+// still logged in on). When both are set the DTR prints the reason for that
+// cell and does not charge tardiness/undertime for it.
 function TimeReasonField({
   id,
   label,
@@ -104,7 +105,6 @@ function TimeReasonField({
   reason: string;
   onReason: (v: string) => void;
 }) {
-  const hasReason = reason !== NO_REASON;
   return (
     <div className="space-y-2">
       <Label htmlFor={id} className="text-xs">
@@ -115,13 +115,11 @@ function TimeReasonField({
         type="time"
         value={time}
         onChange={(e) => onTime(e.target.value)}
-        disabled={hasReason}
       />
       <Select
         items={REASON_ITEMS}
         value={reason}
         onValueChange={(v) => v && onReason(v)}
-        disabled={!!time}
       >
         <SelectTrigger className="w-full" size="sm">
           <SelectValue placeholder="No reason" />
@@ -587,9 +585,10 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  For a blank slot, pick a reason (TRAVEL, FIELD WORK, OFFICIAL
-                  BUSINESS) instead of a time. The DTR prints the reason in that
-                  cell and does not charge tardiness/undertime for it.
+                  Pick a reason (TRAVEL, FIELD WORK, OFFICIAL BUSINESS, HOLIDAY,
+                  OFF) for a slot — with or without a time. The DTR prints the
+                  reason in that cell instead of the time and does not charge
+                  tardiness/undertime for it.
                 </p>
               </div>
 

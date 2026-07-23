@@ -133,6 +133,7 @@ export const NO_TIME_REASONS = [
   "field_work",
   "official_business",
   "holiday",
+  "off",
 ] as const;
 
 export type NoTimeReason = (typeof NO_TIME_REASONS)[number];
@@ -142,6 +143,7 @@ export const NO_TIME_REASON_LABELS: Record<NoTimeReason, string> = {
   field_work: "FIELD WORK",
   official_business: "OFFICIAL BUSINESS",
   holiday: "HOLIDAY",
+  off: "OFF",
 };
 
 // Short labels printed inside a single DTR time cell.
@@ -150,6 +152,7 @@ export const NO_TIME_REASON_SHORT: Record<NoTimeReason, string> = {
   field_work: "FW",
   official_business: "OB",
   holiday: "HOLIDAY",
+  off: "OFF",
 };
 
 export const EMPLOYEE_NO_PREFIX = "LGU";
