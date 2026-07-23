@@ -126,11 +126,13 @@ export const NOSI_BASIS_SALARY_REASONS = [
 ] as const;
 
 // Reasons a manual attendance entry has no time punches but is not an absence
-// (employee out on official duty). The label is what prints on the DTR row.
+// (employee out on official duty, or the slot fell on a declared holiday). The
+// label is what prints on the DTR row.
 export const NO_TIME_REASONS = [
   "travel",
   "field_work",
   "official_business",
+  "holiday",
 ] as const;
 
 export type NoTimeReason = (typeof NO_TIME_REASONS)[number];
@@ -139,6 +141,7 @@ export const NO_TIME_REASON_LABELS: Record<NoTimeReason, string> = {
   travel: "TRAVEL",
   field_work: "FIELD WORK",
   official_business: "OFFICIAL BUSINESS",
+  holiday: "HOLIDAY",
 };
 
 // Short labels printed inside a single DTR time cell.
@@ -146,6 +149,7 @@ export const NO_TIME_REASON_SHORT: Record<NoTimeReason, string> = {
   travel: "TRAVEL",
   field_work: "FW",
   official_business: "OB",
+  holiday: "HOLIDAY",
 };
 
 export const EMPLOYEE_NO_PREFIX = "LGU";
