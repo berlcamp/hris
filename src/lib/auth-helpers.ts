@@ -170,3 +170,19 @@ export function isCompositeDeptAdminHead(
 ): boolean {
   return role === "department_admin_and_department_head";
 }
+
+// Roles that manage the Contract of Service module: the COS employee registry,
+// contracts and renewals, contract templates, and COS payroll. "cos_manager" is
+// a dedicated role limited to exactly this reach — it has NO access to
+// plantilla employees, attendance/DTR, leave, CTO/COC, RSP, regular or JO
+// payroll, reports, or any other administration tool. hr_admin is included to
+// preserve the access it holds today under the /cos-payroll guard.
+const COS_MANAGER_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "cos_manager",
+] as const;
+
+export function canManageCos(role: UserRole | null | undefined): boolean {
+  return !!role && COS_MANAGER_ROLES.includes(role);
+}
