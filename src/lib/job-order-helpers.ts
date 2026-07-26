@@ -5,9 +5,21 @@
  * with node:test (see supabase/tests/job-order-helpers.test.mts).
  */
 
-/** Collapse whitespace runs and trim. */
+/**
+ * Collapse whitespace runs and trim.
+ *
+ * Uses explicit ASCII character class [ \t\n\r\f\v] instead of \s to match
+ * Postgres POSIX behaviour exactly. JavaScript's \s matches additional Unicode
+ * spaces (U+FEFF, U+00A0, etc.) that Postgres does not, which would cause
+ * U+FEFF (BOM) to be stripped in JS but retained in Postgres. Similarly,
+ * JS String.trim() strips Unicode spaces; we use a regex that only trims
+ * ASCII space (0x20), matching Postgres btrim() default behaviour.
+ * This function must produce identical output to the normalizeAreaName SQL
+ * generated column so the CSV importer can reliably match existing areas
+ * and avoid duplicates.
+ */
 function squash(s: string): string {
-  return s.replace(/\s+/g, " ").trim();
+  return s.replace(/[ \t\n\r\f\v]+/g, " ").replace(/^ +| +$/g, "");
 }
 
 /**

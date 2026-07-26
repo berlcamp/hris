@@ -60,6 +60,22 @@ test("normalization matches the DB generated column", () => {
   assert.equal(normalizeAreaName("  Mayor's   Office "), "mayor's office");
 });
 
+test("normalizeAreaName collapses tabs and newlines", () => {
+  assert.equal(normalizeAreaName("Mayor's\tOffice"), "mayor's office");
+  assert.equal(normalizeAreaName("Mayor's\nOffice"), "mayor's office");
+  assert.equal(normalizeAreaName("Mayor's\r\nOffice"), "mayor's office");
+});
+
+test("normalizeAreaName preserves leading BOM (U+FEFF)", () => {
+  // Postgres btrim() defaults to ASCII space only; U+FEFF is not trimmed
+  assert.equal(normalizeAreaName("﻿Mayors Office"), "﻿mayors office");
+});
+
+test("normalizeAreaName does NOT collapse non-breaking space (U+00A0)", () => {
+  // Postgres POSIX \s does not match U+00A0, so it is not collapsed
+  assert.equal(normalizeAreaName("Mayor's Office"), "mayor's office");
+});
+
 // ── parseJoBoolean ──────────────────────────────────────────────────
 
 test("accepts every has_atm spelling the legacy char column holds", () => {
