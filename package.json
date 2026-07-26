@@ -14,7 +14,9 @@
     "db:types": "supabase gen types typescript --local --schema hris > src/lib/database.types.ts",
     "test:dtr": "node --experimental-strip-types --test supabase/tests/dtr-bucketing.test.mts",
     "test:db": "node --experimental-strip-types --test supabase/tests/dtr-import.test.mts",
-    "test": "npm run test:dtr && npm run test:db"
+    "test:cos": "node --experimental-strip-types --test supabase/tests/cos-unit.test.mts",
+    "test:cos-db": "node --experimental-strip-types --test supabase/tests/cos-employees.test.mts",
+    "test": "npm run test:dtr && npm run test:cos && npm run test:db && npm run test:cos-db"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
