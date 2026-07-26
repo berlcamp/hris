@@ -32,6 +32,8 @@ import {
   UserSearch,
   Timer,
   Hourglass,
+  HardHat,
+  MapPin,
 } from "lucide-react";
 
 import {
@@ -130,6 +132,10 @@ const leaveAttendanceGroupRoles: UserRole[] = [
   ...leaveAttendanceRoles,
   "dtr_manager",
 ];
+// Roles that can manage the Job Orders module: JO employees and Area
+// Assignments today; payrolls, memos and special orders join in later specs.
+// Mirrors canManageJobOrders in src/lib/auth-helpers.ts.
+const jobOrderRoles: UserRole[] = ["super_admin", "hr_admin", "jo_manager"];
 
 const navGroups: NavGroup[] = [
   {
@@ -217,6 +223,14 @@ const navGroups: NavGroup[] = [
       { title: "Regular Payroll", href: "/payroll", icon: CircleDollarSign, roles: adminRoles },
       { title: "COS Payroll", href: "/cos-payroll", icon: Briefcase, roles: adminRoles },
       { title: "Job Order Payroll", href: "/jo-payroll", icon: Hammer, roles: adminRoles },
+    ],
+  },
+  {
+    label: "Job Orders",
+    roles: jobOrderRoles,
+    items: [
+      { title: "Job Order Employees", href: "/job-orders", icon: HardHat, roles: jobOrderRoles },
+      { title: "Area Assignments", href: "/job-orders/areas", icon: MapPin, roles: jobOrderRoles },
     ],
   },
   {
@@ -331,9 +345,16 @@ export function AppSidebar() {
                     (item.href !== "/dashboard" &&
                       item.href !== "/leaves" &&
                       item.href !== "/cto" &&
+                      item.href !== "/job-orders" &&
                       pathname.startsWith(item.href)) ||
                     (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits")))) ||
-                    (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits"))));
+                    (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits")))) ||
+                    // "/job-orders/areas" is a sibling section, not a detail
+                    // page under "/job-orders" — without this it would also
+                    // highlight "Job Order Employees" while viewing "Area
+                    // Assignments", the same class of bug fixed above for
+                    // /leaves and /cto.
+                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas"))));
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
