@@ -15,7 +15,8 @@
 - Every Supabase query MUST call `.schema("hris")` before `.from(...)`. Omitting it silently queries `public`.
 - New migrations keep the numeric prefix sequence. The last existing migration is `054_attendance_reason_off.sql`, so this plan adds `055` and `056`.
 - Every migration touching the `hris` schema starts with `SET search_path TO hris, public, auth, extensions;`.
-- **Do NOT run `supabase db push`, the Supabase CLI, or any "apply this migration" step.** Writing the migration file completes the database work. Do not add reminders to apply it.
+- **Do NOT apply migrations to production.** No `supabase db push`, no Supabase dashboard, no "now run this migration" instruction in your report. Writing the migration file completes the production database work — the developer applies it directly. Do not add reminders to apply it.
+- **The LOCAL stack is different and is expected.** `npm run db:start` / `npm run db:reset` / `npx supabase status` operate on the local Docker stack and are the documented way to run `npm run test:db`. Use them freely.
 - Migration 020 already set default privileges for new tables in the `hris` schema. No `GRANT` statements are needed.
 - `ALTER TYPE ... ADD VALUE` cannot run inside a transaction block, and a newly added enum value cannot be referenced in the same transaction that adds it. The role and the tables MUST be separate migration files.
 - Server actions live in `src/lib/actions/*.ts` with `"use server"` at the top, use `createAdminClient()`, and call `revalidatePath(...)` after writes.
