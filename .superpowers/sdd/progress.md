@@ -98,6 +98,31 @@ Task 6: complete (commits c16a9e6..660c7c8, review approved + 1 fix round)
     Now verifies the row transitioned before auditing, and records oldValues.
   - Build compiles; lint at the 41 baseline; 8/8 queries schema-qualified.
 
+Task 7: complete (commits 660c7c8..a752d29, review + 1 fix round, verified)
+  - IMPORTANT DISCOVERY: CLAUDE.md says "Forms: shadcn Form + react-hook-form
+    + zod resolver", but there is NO src/components/ui/form.tsx and ZERO
+    FormField usages in the repo. The real house pattern is useForm +
+    zodResolver with plain Input/Label (see employee-form.tsx,
+    schedule-manager.tsx). The plan repeated CLAUDE.md's error; the implementer
+    correctly followed the actual codebase. CLAUDE.md should be corrected.
+  - Fix round resolved 2 real defects:
+    1. Blank numeric fields saved as 0 instead of null. In a PAYROLL module a
+       cleared daily_rate meant gross pay of zero. optionalMoney reworked to
+       z.preprocess + z.union([z.literal(""), z.coerce.number()]) -> null.
+       Union ORDER matters: z.coerce.number() parses "" as 0 successfully
+       (Number("")===0), so z.literal("") must come FIRST or it never fires.
+       Controller-verified all 10 cases: blank->null, explicit 0 preserved as 0.
+       Fixing this in the SCHEMA (not per-field setValueAs) means Task 8's CSV
+       importer inherits the correct behaviour too.
+    2. Area column sorted by raw UUID while displaying names. Now mirrors the
+       "department" column convention in employee-columns.tsx: accessor returns
+       the display name (sorting matches what is shown), filterFn reads
+       row.original.area_id (UUID filtering still works).
+  - Sidebar: added Job Orders group (HardHat + MapPin); extended the existing
+    isActive special-casing so /job-orders/areas does not dual-highlight.
+  - Build passes; lint 43 (2 errors, 41 warnings) = no new ERRORS; the +2
+    warnings are the known react-hooks/incompatible-library class.
+
 ## Coordination risk
 - A parallel session is building a COS module on branch `feat/cos-module` in
   the MAIN working directory. It has taken migrations 057/058 (no collision
