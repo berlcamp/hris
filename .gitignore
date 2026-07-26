@@ -42,3 +42,10 @@ next-env.d.ts
 
 # Claude Code local files
 .claude/
+
+# Legacy JO/COS data exports — contain PII (names, addresses, SSS numbers,
+# LandBank account numbers). Keep local; never commit.
+supabase/old_jo_data/
+
+# Superpowers build ledger (per-session scratch, not a project artifact)
+.superpowers/
