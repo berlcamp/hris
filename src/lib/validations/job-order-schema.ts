@@ -41,7 +41,9 @@ export const jobOrderEmployeeSchema = z
     area_id: z.string().uuid("Area Assignment is required"),
     sub_area: optionalText,
     daily_rate: optionalMoney,
-    working_hours: optionalMoney,
+    // A legacy shift descriptor ("7:00 PM - 7:00 AM"), not a number — see
+    // migration 061. Plain optional free text, same shape as `sub_area`.
+    working_hours: optionalText,
     date_started: z.string().optional().or(z.literal("")),
     eligibility: optionalText,
     recommended_by: optionalText,

@@ -490,7 +490,9 @@ export interface JobOrderEmployee {
   sub_area: string | null;
   daily_rate: number | null;
   previous_daily_rate: number | null;
-  working_hours: number | null;
+  // Legacy shift descriptor (e.g. "7:00 PM - 7:00 AM"), not a numeric
+  // quantity — see migration 061.
+  working_hours: string | null;
   date_started: string | null;
   eligibility: string | null;
   recommended_by: string | null;

@@ -149,7 +149,7 @@ export function JobOrderListClient({
                     area_id: editing.area_id,
                     sub_area: editing.sub_area ?? "",
                     daily_rate: editing.daily_rate,
-                    working_hours: editing.working_hours,
+                    working_hours: editing.working_hours ?? "",
                     date_started: editing.date_started ?? "",
                     eligibility: editing.eligibility ?? "",
                     recommended_by: editing.recommended_by ?? "",

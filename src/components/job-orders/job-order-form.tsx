@@ -52,7 +52,7 @@ const blankDefaults: JobOrderEmployeeValues = {
   area_id: "",
   sub_area: "",
   daily_rate: null,
-  working_hours: null,
+  working_hours: "",
   date_started: "",
   eligibility: "",
   recommended_by: "",
@@ -246,9 +246,7 @@ export function JobOrderForm({
               <Label htmlFor="working_hours">Working Hours</Label>
               <Input
                 id="working_hours"
-                type="number"
-                step="0.5"
-                min={0}
+                placeholder="e.g. 7:00 PM - 7:00 AM"
                 {...register("working_hours")}
                 aria-invalid={!!errors.working_hours}
               />

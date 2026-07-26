@@ -248,7 +248,7 @@ interface EmployeeUpsertRow {
   sub_area: string | null;
   daily_rate: number | null;
   previous_daily_rate: number | null;
-  working_hours: number | null;
+  working_hours: string | null;
   date_started: string | null;
   eligibility: string | null;
   recommended_by: string | null;
@@ -468,13 +468,10 @@ export async function importJobOrderEmployeesFromCsv(csvText: string): Promise<J
         result.warnings,
         parseMoney,
       ),
-      working_hours: warnParse(
-        rowNum,
-        "working_hours",
-        workingHoursCol !== undefined ? row[workingHoursCol] : undefined,
-        result.warnings,
-        parseMoney,
-      ),
+      // Legacy shift descriptor (e.g. "7:00 PM - 7:00 AM"), not a numeric
+      // quantity — see migration 061. Imported verbatim as trimmed text,
+      // same as sub_area/eligibility/etc.; nothing to fail to parse here.
+      working_hours: nullable(workingHoursCol !== undefined ? row[workingHoursCol] : undefined),
       date_started: warnParse(
         rowNum,
         "date_started",

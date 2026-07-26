@@ -1301,7 +1301,7 @@ export type Database = {
           sub_area: string | null
           updated_at: string
           updated_by: string | null
-          working_hours: number | null
+          working_hours: string | null
         }
         Insert: {
           area_id: string
@@ -1334,7 +1334,7 @@ export type Database = {
           sub_area?: string | null
           updated_at?: string
           updated_by?: string | null
-          working_hours?: number | null
+          working_hours?: string | null
         }
         Update: {
           area_id?: string
@@ -1367,7 +1367,7 @@ export type Database = {
           sub_area?: string | null
           updated_at?: string
           updated_by?: string | null
-          working_hours?: number | null
+          working_hours?: string | null
         }
         Relationships: [
           {

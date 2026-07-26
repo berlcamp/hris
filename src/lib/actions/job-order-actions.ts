@@ -48,7 +48,6 @@ function shape(r: RawRow): JobOrderEmployee {
     area_name: job_order_areas?.name ?? null,
     daily_rate: toNumber(rest.daily_rate),
     previous_daily_rate: toNumber(rest.previous_daily_rate),
-    working_hours: toNumber(rest.working_hours),
     sss_ss: toNumber(rest.sss_ss),
     sss_ec: toNumber(rest.sss_ec),
   };
@@ -71,7 +70,7 @@ function toRow(input: JobOrderEmployeeValues) {
     area_id: input.area_id,
     sub_area: nullable(input.sub_area),
     daily_rate: input.daily_rate ?? null,
-    working_hours: input.working_hours ?? null,
+    working_hours: nullable(input.working_hours),
     date_started: nullable(input.date_started),
     eligibility: nullable(input.eligibility),
     recommended_by: nullable(input.recommended_by),
