@@ -32,6 +32,7 @@ import {
   UserSearch,
   Timer,
   Hourglass,
+  FileSignature,
 } from "lucide-react";
 
 import {
@@ -81,6 +82,7 @@ const allRoles: UserRole[] = [
   "department_admin",
   "department_admin_and_department_head",
   "dtr_manager",
+  "cos_manager",
   "employee",
 ];
 const adminRoles: UserRole[] = ["super_admin", "hr_admin"];
@@ -130,6 +132,9 @@ const leaveAttendanceGroupRoles: UserRole[] = [
   ...leaveAttendanceRoles,
   "dtr_manager",
 ];
+// Contract of Service module. Mirrors canManageCos() in src/lib/auth-helpers.ts
+// — keep the two in sync.
+const cosRoles: UserRole[] = ["super_admin", "hr_admin", "cos_manager"];
 
 const navGroups: NavGroup[] = [
   {
@@ -217,6 +222,18 @@ const navGroups: NavGroup[] = [
       { title: "Regular Payroll", href: "/payroll", icon: CircleDollarSign, roles: adminRoles },
       { title: "COS Payroll", href: "/cos-payroll", icon: Briefcase, roles: adminRoles },
       { title: "Job Order Payroll", href: "/jo-payroll", icon: Hammer, roles: adminRoles },
+    ],
+  },
+  {
+    label: "Contract of Service",
+    roles: cosRoles,
+    items: [
+      {
+        title: "COS Employees",
+        href: "/cos/employees",
+        icon: FileSignature,
+        roles: cosRoles,
+      },
     ],
   },
   {
