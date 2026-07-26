@@ -267,6 +267,7 @@ const roleLabels: Record<UserRole, string> = {
   department_admin: "Dept Admin",
   department_admin_and_department_head: "Dept Admin + Head",
   dtr_manager: "DTR Manager",
+  jo_manager: "JO Manager",
   employee: "Employee",
 };
 

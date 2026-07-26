@@ -18,6 +18,7 @@ export type UserRole =
   | "department_admin"
   | "department_admin_and_department_head"
   | "dtr_manager"
+  | "jo_manager"
   | "employee";
 export type EmploymentType = "plantilla" | "jo" | "cos";
 export type EmployeeStatus =

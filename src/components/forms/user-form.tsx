@@ -51,6 +51,7 @@ const roleOptions = [
     label: "Department Admin + Head",
   },
   { value: "dtr_manager", label: "DTR Manager" },
+  { value: "jo_manager", label: "JO Manager" },
   { value: "employee", label: "Employee" },
 ];
 
