@@ -1230,6 +1230,155 @@ export type Database = {
           },
         ]
       }
+      job_order_areas: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          normalized_name: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          normalized_name?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          normalized_name?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      job_order_employees: {
+        Row: {
+          area_id: string
+          barangay: string | null
+          community_tax_date: string | null
+          community_tax_number: string | null
+          community_tax_place_issued: string | null
+          created_at: string
+          created_by: string | null
+          daily_rate: number | null
+          date_started: string | null
+          deleted_at: string | null
+          eligibility: string | null
+          full_name: string
+          has_atm: boolean
+          id: string
+          landbank_account_number: string | null
+          legacy_id: number | null
+          previous_daily_rate: number | null
+          purok: string | null
+          recommended_by: string | null
+          remarks: string | null
+          remarks_2: string | null
+          sex: string | null
+          sort_name: string | null
+          sss_ec: number | null
+          sss_no: string | null
+          sss_ss: number | null
+          status: string
+          sub_area: string | null
+          updated_at: string
+          updated_by: string | null
+          working_hours: number | null
+        }
+        Insert: {
+          area_id: string
+          barangay?: string | null
+          community_tax_date?: string | null
+          community_tax_number?: string | null
+          community_tax_place_issued?: string | null
+          created_at?: string
+          created_by?: string | null
+          daily_rate?: number | null
+          date_started?: string | null
+          deleted_at?: string | null
+          eligibility?: string | null
+          full_name: string
+          has_atm?: boolean
+          id?: string
+          landbank_account_number?: string | null
+          legacy_id?: number | null
+          previous_daily_rate?: number | null
+          purok?: string | null
+          recommended_by?: string | null
+          remarks?: string | null
+          remarks_2?: string | null
+          sex?: string | null
+          sort_name?: string | null
+          sss_ec?: number | null
+          sss_no?: string | null
+          sss_ss?: number | null
+          status?: string
+          sub_area?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          working_hours?: number | null
+        }
+        Update: {
+          area_id?: string
+          barangay?: string | null
+          community_tax_date?: string | null
+          community_tax_number?: string | null
+          community_tax_place_issued?: string | null
+          created_at?: string
+          created_by?: string | null
+          daily_rate?: number | null
+          date_started?: string | null
+          deleted_at?: string | null
+          eligibility?: string | null
+          full_name?: string
+          has_atm?: boolean
+          id?: string
+          landbank_account_number?: string | null
+          legacy_id?: number | null
+          previous_daily_rate?: number | null
+          purok?: string | null
+          recommended_by?: string | null
+          remarks?: string | null
+          remarks_2?: string | null
+          sex?: string | null
+          sort_name?: string | null
+          sss_ec?: number | null
+          sss_no?: string | null
+          sss_ss?: number | null
+          status?: string
+          sub_area?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          working_hours?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_order_employees_area_id_fkey"
+            columns: ["area_id"]
+            isOneToOne: false
+            referencedRelation: "job_order_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leave_applications: {
         Row: {
           commutation_requested: boolean | null
@@ -2741,6 +2890,7 @@ export type Database = {
         | "ocm_admin"
         | "dtr_manager"
         | "hr_record_manager"
+        | "jo_manager"
         | "cos_manager"
     }
     CompositeTypes: {
@@ -2951,6 +3101,7 @@ export const Constants = {
         "ocm_admin",
         "dtr_manager",
         "hr_record_manager",
+        "jo_manager",
         "cos_manager",
       ],
     },
