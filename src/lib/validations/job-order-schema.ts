@@ -12,10 +12,23 @@ const optionalText = z.string().trim().max(255).optional().or(z.literal(""));
 
 // zod v4: the v3 `invalid_type_error` option was removed — use `{ message }`.
 // `z.coerce` matches how employee-schema.ts handles numeric inputs, which
-// arrive from <Input type="number"> as strings.
-const optionalMoney = z.coerce
-  .number({ message: "Must be a number" })
-  .nonnegative("Must be zero or more")
+// arrive from <Input type="number"> as strings. Plain z.coerce.number()
+// coerces "" to 0 (Number("") === 0), which would silently save "not
+// specified" as an actual zero peso rate — unacceptable in a payroll module.
+// Mirrors the `optionalNonNegNumber` pattern in rsp-schema.ts: union of a
+// literal "" and a coerced number, transformed to null on the empty branch.
+// IMPORTANT: z.literal("") must come FIRST in the union — zod tries options
+// in order and z.coerce.number() itself would otherwise swallow "" as 0
+// before the literal branch is ever reached.
+const optionalMoney = z
+  .preprocess(
+    (val) => (typeof val === "string" && val.trim() === "" ? "" : val),
+    z.union([
+      z.literal(""),
+      z.coerce.number({ message: "Must be a number" }).nonnegative("Must be zero or more"),
+    ]),
+  )
+  .transform((v) => (v === "" ? null : v))
   .nullable()
   .optional();
 

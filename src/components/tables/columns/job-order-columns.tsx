@@ -43,7 +43,10 @@ export function jobOrderColumns(handlers: {
     },
     {
       id: "area",
-      accessorFn: (row) => row.area_id,
+      // Sort by the displayed name, not the underlying UUID (matches the
+      // "department" column convention in employee-columns.tsx). Filtering
+      // reads the raw id off row.original since area-filter options are ids.
+      accessorFn: (row) => row.area_name ?? "—",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Area" />
       ),
@@ -52,7 +55,7 @@ export function jobOrderColumns(handlers: {
           <span className="text-muted-foreground">—</span>
         ),
       filterFn: (row, id, value) => {
-        return value.includes(row.getValue(id));
+        return value.includes(row.original.area_id);
       },
     },
     {
