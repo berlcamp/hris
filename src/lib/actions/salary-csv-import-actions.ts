@@ -6,6 +6,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { NOSI_BASIS_SALARY_REASONS } from "@/lib/constants";
 import type { Database } from "@/lib/database.types";
+import {
+  normHeader,
+  colIndex,
+  parseMoney,
+  parseFlexibleCsvDate,
+} from "@/lib/csv-import-helpers";
 
 type SalaryChangeReason = Database["hris"]["Enums"]["salary_change_reason"];
 
@@ -30,25 +36,6 @@ function requireSuperAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
   return null;
 }
 
-function normHeader(h: string): string {
-  return h.trim().replace(/^\uFEFF/, "").toLowerCase().replace(/\s+/g, "_");
-}
-
-function colIndex(map: Map<string, number>, ...names: string[]): number | undefined {
-  for (const n of names) {
-    const i = map.get(n);
-    if (i !== undefined) return i;
-  }
-  return undefined;
-}
-
-function parseMoney(s: string): number | null {
-  const t = s.replace(/,/g, "").trim();
-  if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : null;
-}
-
 function parseIntStrict(s: string): number | null {
   const n = Number(String(s).trim());
   return Number.isFinite(n) && Number.isInteger(n) ? n : null;
@@ -56,31 +43,6 @@ function parseIntStrict(s: string): number | null {
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-/** Accepts YYYY-MM-DD or MM/DD/YYYY (US). Returns YYYY-MM-DD or null. */
-function parseFlexibleCsvDate(raw: string): string | null {
-  const s = raw.trim();
-  if (!s) return null;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const d = new Date(s + "T12:00:00");
-    return Number.isNaN(d.getTime()) ? null : s;
-  }
-
-  const mdy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
-  if (mdy) {
-    const month = Number(mdy[1]);
-    const day = Number(mdy[2]);
-    const year = Number(mdy[3]);
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    const d = new Date(year, month - 1, day);
-    if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day)
-      return null;
-    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  }
-
-  return null;
 }
 
 export async function importSalaryGradeMatrixFromCsv(

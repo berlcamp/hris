@@ -9,6 +9,7 @@ export const USER_ROLES = {
   HR_RECORD_MANAGER: "hr_record_manager",
   COS_MANAGER: "cos_manager",
   DEPARTMENT_HEAD: "department_head",
+  JO_MANAGER: "jo_manager",
   EMPLOYEE: "employee",
 } as const;
 

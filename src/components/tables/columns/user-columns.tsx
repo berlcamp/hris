@@ -27,6 +27,7 @@ const roleLabels: Record<string, string> = {
   department_admin_and_department_head: "Dept Admin + Head",
   dtr_manager: "DTR Manager",
   cos_manager: "COS Manager",
+  jo_manager: "JO Manager",
   employee: "Employee",
 };
 
@@ -40,6 +41,7 @@ const roleBadgeVariant: Record<string, "default" | "secondary" | "outline"> = {
   department_admin_and_department_head: "outline",
   dtr_manager: "secondary",
   cos_manager: "secondary",
+  jo_manager: "secondary",
   employee: "outline",
 };
 

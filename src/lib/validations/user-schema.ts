@@ -19,6 +19,7 @@ export const userFormSchema = z.object({
       "department_admin_and_department_head",
       "dtr_manager",
       "cos_manager",
+      "jo_manager",
       "employee",
     ],
     {

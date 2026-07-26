@@ -33,6 +33,8 @@ import {
   Timer,
   Hourglass,
   FileSignature,
+  HardHat,
+  MapPin,
 } from "lucide-react";
 
 import {
@@ -83,6 +85,7 @@ const allRoles: UserRole[] = [
   "department_admin_and_department_head",
   "dtr_manager",
   "cos_manager",
+  "jo_manager",
   "employee",
 ];
 const adminRoles: UserRole[] = ["super_admin", "hr_admin"];
@@ -135,6 +138,10 @@ const leaveAttendanceGroupRoles: UserRole[] = [
 // Contract of Service module. Mirrors canManageCos() in src/lib/auth-helpers.ts
 // — keep the two in sync.
 const cosRoles: UserRole[] = ["super_admin", "hr_admin", "cos_manager"];
+// Roles that can manage the Job Orders module: JO employees and Area
+// Assignments today; payrolls, memos and special orders join in later specs.
+// Mirrors canManageJobOrders in src/lib/auth-helpers.ts.
+const jobOrderRoles: UserRole[] = ["super_admin", "hr_admin", "jo_manager"];
 
 const navGroups: NavGroup[] = [
   {
@@ -237,6 +244,14 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "Job Orders",
+    roles: jobOrderRoles,
+    items: [
+      { title: "Job Order Employees", href: "/job-orders", icon: HardHat, roles: jobOrderRoles },
+      { title: "Area Assignments", href: "/job-orders/areas", icon: MapPin, roles: jobOrderRoles },
+    ],
+  },
+  {
     label: "Reports",
     roles: deptManagerRoles,
     items: [
@@ -266,6 +281,12 @@ const navGroups: NavGroup[] = [
         icon: Upload,
         roles: ["super_admin"],
       },
+      {
+        title: "Job Order Import",
+        href: "/admin/job-order-import",
+        icon: Upload,
+        roles: ["super_admin"],
+      },
       { title: "Work Schedules", href: "/admin/schedules", icon: CalendarClock, roles: ["super_admin", "dtr_manager"] },
       { title: "Holidays", href: "/attendance/holidays", icon: CalendarOff, roles: ["super_admin", "dtr_manager"] },
       { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin"] },
@@ -285,6 +306,7 @@ const roleLabels: Record<UserRole, string> = {
   department_admin_and_department_head: "Dept Admin + Head",
   dtr_manager: "DTR Manager",
   cos_manager: "COS Manager",
+  jo_manager: "JO Manager",
   employee: "Employee",
 };
 
@@ -348,9 +370,16 @@ export function AppSidebar() {
                     (item.href !== "/dashboard" &&
                       item.href !== "/leaves" &&
                       item.href !== "/cto" &&
+                      item.href !== "/job-orders" &&
                       pathname.startsWith(item.href)) ||
                     (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits")))) ||
-                    (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits"))));
+                    (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits")))) ||
+                    // "/job-orders/areas" is a sibling section, not a detail
+                    // page under "/job-orders" — without this it would also
+                    // highlight "Job Order Employees" while viewing "Area
+                    // Assignments", the same class of bug fixed above for
+                    // /leaves and /cto.
+                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas"))));
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
