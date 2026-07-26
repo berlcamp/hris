@@ -25,7 +25,18 @@
 - The `updated_at` trigger function already exists: `hris.update_updated_at()` (migration 006).
 - UI primitives under `src/components/ui/` are auto-generated — do not hand-edit them.
 - Tests require Node 22 (`nvm use`). `npm run test:db` requires the local stack (`colima start && npm run db:start`).
+- **Test output standard: no NEW KINDS of warning.** Node emits a
+  `MODULE_TYPELESS_PACKAGE_JSON` warning for every `.ts` file loaded under
+  `--experimental-strip-types`. This is pre-existing repo behaviour (it already
+  fires for `attendance-schedule.ts`) and is ACCEPTED — do not add `"type":
+  "module"` to package.json or rename files to `.mts` to silence it. Any other
+  warning or stray output is still a defect.
 - Run `npm run lint && npm run build` before closing any change.
+- **Lint baseline: `npm run lint` ALREADY FAILS on `main`** with 41 problems
+  (2 errors, 39 warnings) in `reports/plantilla/page.tsx`, `nosi/nosi-form.tsx`
+  and others. Verified identical on main and on this branch. The standard is
+  therefore **no NEW lint problems**, not a clean run. Do NOT fix unrelated
+  pre-existing lint errors — that is scope creep. `npm run build` MUST pass.
 
 ---
 
