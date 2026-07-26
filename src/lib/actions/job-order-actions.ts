@@ -264,6 +264,7 @@ export async function updateJobOrderEmployee(
     .from("job_order_employees")
     .select(SELECT_COLUMNS)
     .eq("id", id)
+    .is("deleted_at", null)
     .maybeSingle();
 
   // Fail closed: a discarded error here would make a query failure look
@@ -324,13 +325,42 @@ export async function deleteJobOrderEmployee(id: string) {
   if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
-  const { error } = await supabase
+
+  // Fetch the row before deletion to capture its state in the audit trail.
+  const { data: before, error: beforeError } = await supabase
+    .schema("hris")
+    .from("job_order_employees")
+    .select(SELECT_COLUMNS)
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (beforeError) {
+    return {
+      error: `Could not load the employee record: ${beforeError.message}`,
+    };
+  }
+  if (!before) return { error: "Employee not found" };
+
+  // Soft-delete: scope the update to live rows only (.is("deleted_at", null))
+  // and select the result to verify a row was actually affected.
+  const { data, error } = await supabase
     .schema("hris")
     .from("job_order_employees")
     .update({ deleted_at: new Date().toISOString(), updated_by: user!.id })
-    .eq("id", id);
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select(SELECT_COLUMNS)
+    .maybeSingle();
 
   if (error) return { error: error.message };
+
+  // PostgREST does not error when an update matches zero rows; check the
+  // result to ensure the row actually transitioned to deleted. Only then
+  // log the audit entry, so the trail records only operations that occurred.
+  if (!data) return { error: "Employee not found" };
+
+  const beforeShaped = shape(before as unknown as RawRow);
 
   await logAudit({
     userId: user!.id,
@@ -338,6 +368,7 @@ export async function deleteJobOrderEmployee(id: string) {
     action: "delete",
     tableName: "job_order_employees",
     recordId: id,
+    oldValues: { ...beforeShaped },
   });
 
   revalidatePath("/job-orders");
