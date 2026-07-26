@@ -107,15 +107,18 @@ hris.job_order_employees
   full_name                 text not null      -- authoritative; feeds printables
   sort_name                 text               -- derived surname-first ordering key
   sex                       text check (sex in ('male','female'))
-  address                   text               -- legacy `barangay`
+  purok                     text               -- legacy `purok`
+  barangay                  text               -- legacy `barangay`
   area_id                   uuid not null references hris.job_order_areas(id) on delete restrict
   sub_area                  text               -- free text, mirrors legacy
   daily_rate                numeric(10,2)
+  previous_daily_rate       numeric(10,2)      -- legacy `previous_rate`
   working_hours             numeric(4,2)
   date_started              date
   eligibility               text
   recommended_by            text
   remarks                   text
+  remarks_2                 text               -- legacy `remarks2`
   has_atm                   boolean not null default false
   landbank_account_number   text
   sss_no                    text
@@ -125,7 +128,7 @@ hris.job_order_employees
   community_tax_date        date               -- legacy `tax_date`
   community_tax_place_issued text              -- legacy `tax_issued`
   status                    text not null default 'active' check (status in ('active','inactive'))
-  legacy_id                 integer            -- legacy jos.id; import idempotency key
+  legacy_id                 bigint             -- legacy jos.id; import idempotency key
   created_at                timestamptz not null default now()
   updated_at                timestamptz not null default now()
   created_by                uuid null
@@ -144,6 +147,30 @@ hris.job_order_employees
 
 Both tables get the project's standard `updated_at` trigger, following the
 pattern in `023_payroll_tables.sql`.
+
+### Verified against the real legacy schema
+
+The mapping below was confirmed against the actual MySQL dump (`asenso`
+database, 2026-07-26), not inferred from controller code. Consequences that
+shaped the schema:
+
+- **Legacy stores dates and numbers as `char`.** `jos.date_started`,
+  `tax_date`, `rate`, `previous_rate`, `has_atm` and `working_hours` are all
+  `char`/`varchar` columns. Every one needs tolerant parsing on import;
+  unparseable values become `null` and are reported as row warnings rather than
+  failing the row. A JO with a garbled `date_started` still imports.
+- **There is no legacy `status`.** `jos` has only `deleted_at`. All imported
+  rows therefore get `status = 'active'`, and legacy soft-deletes carry across as
+  `deleted_at`. Active/Inactive becomes meaningful only for records managed in
+  the new system.
+- **`jo_areas` is `id` + `area_assigned` and nothing else** — no description, no
+  status, no timestamps. Imported areas take `description = null` and
+  `is_active = true`.
+- **`jos.sss_ss` / `sss_ec` are `int`**, comfortably held by `numeric(10,2)`.
+- **`legacy_id` is `bigint`** to match `jos.id` (`bigint unsigned`), even though
+  the table currently holds fewer than 600 rows.
+- **`jo_subareas` (`id`, `area`) is not imported.** Sub-area is a free-text
+  column on the employee, so the distinct values arrive with the employee rows.
 
 Notes:
 
@@ -199,29 +226,42 @@ upsert returning a result summary — no staged dry-run — matching
 | `fullname` | `full_name`, `sort_name` | `sort_name` derived, never overwrites `full_name` |
 | `area_assigned` | `area_id` | resolved by normalized name; auto-created Active when absent; blank → the `Unassigned` area |
 | `sub_area` | `sub_area` | verbatim |
-| `rate` | `daily_rate` | legacy column is `char` — tolerant numeric parse |
+| `rate` | `daily_rate` | `char` — tolerant numeric parse, warn on failure |
+| `previous_rate` | `previous_daily_rate` | `char` — tolerant numeric parse |
 | `gender` | `sex` | lowercased; unrecognized → null |
-| `barangay` | `address` | verbatim |
-| `has_atm` | `has_atm` | normalize `1/0/Yes/No/Y/N/true/false`; unrecognized → false |
-| `working_hours` | `working_hours` | tolerant numeric parse |
+| `purok` | `purok` | verbatim (legacy default is `''`, normalized to null) |
+| `barangay` | `barangay` | verbatim (legacy default is `''`, normalized to null) |
+| `has_atm` | `has_atm` | `char` — normalize `1/0/Yes/No/Y/N/true/false`; unrecognized → false |
+| `working_hours` | `working_hours` | `varchar` — tolerant numeric parse |
 | `account_number` | `landbank_account_number` | cleared when `has_atm` is false, to satisfy `chk_atm_account` |
-| `sss_no`, `sss_ss`, `sss_ec` | same | tolerant numeric parse on the two amounts |
-| `tax_number`, `tax_date`, `tax_issued` | `community_tax_number`, `community_tax_date`, `community_tax_place_issued` | flexible date parse |
+| `sss_no` | `sss_no` | verbatim |
+| `sss_ss`, `sss_ec` | same | legacy `int` → numeric |
+| `tax_number`, `tax_issued` | `community_tax_number`, `community_tax_place_issued` | verbatim |
+| `tax_date` | `community_tax_date` | `char` — flexible date parse, warn on failure |
 | `eligibility`, `recommended_by`, `remarks` | same | verbatim |
-| `date_started` | `date_started` | flexible date parse |
+| `remarks2` | `remarks_2` | verbatim — kept separate rather than merged into `remarks`, which would be lossy |
+| `date_started` | `date_started` | `char` — flexible date parse, warn on failure |
 | `deleted_at` | `deleted_at` | legacy soft deletes preserved |
+| *(none)* | `status` | always `'active'`; legacy has no status column |
 
 Rows are upserted in chunks of 200 on `legacy_id`, matching the
 `UPSERT_CHUNK = 200` convention in `salary-csv-import-actions.ts`.
 
-The Areas CSV maps `area_assigned` → `name`, with an optional `description`
-column; `is_active` defaults to true.
+The Areas CSV maps `jo_areas.area_assigned` → `name`. Legacy has no other
+columns, so `description` is null and `is_active` is true for every imported
+area.
+
+**Parse failures never reject a row.** A `char` column that cannot be parsed
+yields `null` in the target column plus a warning in the result summary naming
+the row, the column and the offending raw value. Only a missing or empty
+`fullname` rejects a row outright.
 
 ### Result summary
 
 The import returns and the UI renders:
 
 - rows inserted, updated, skipped
+- per-row **warnings** for unparseable `char` values (row, column, raw value)
 - per-row errors with row number and reason
 - **the list of areas auto-created during the run**, so typo'd areas can be
   found and merged
@@ -270,6 +310,10 @@ Behaviour:
   ATM. Areas list filters on status.
 - **Conditional ATM field.** The LandBank account number input appears only when
   Has ATM is Yes; switching to No clears it.
+- **Address is two inputs, one display.** `purok` and `barangay` are edited
+  separately and rendered joined (`"Purok 3, Poblacion"`, omitting either part
+  when blank) in the list column and detail view. The legacy "no address" filter
+  keys off `barangay` being null or empty, matching the legacy query.
 - **Inactive areas are not offered for new employees.** When editing an employee
   whose area has since gone inactive, that area remains present in the select so
   the record stays saveable — otherwise the form deadlocks and the employee can
@@ -332,8 +376,9 @@ In the order CLAUDE.md prescribes, most valuable first.
    - `chk_atm_account` rejects an account number when `has_atm` is false
    - legacy `deleted_at` values survive the import as soft deletes
 2. **Pure unit tests** for the row-mapping helpers — `sort_name` derivation,
-   `has_atm` normalization across `1/0/Yes/No/Y/N`, tolerant rate parsing of the
-   legacy `char` column, flexible date parsing.
+   `has_atm` normalization across `1/0/Yes/No/Y/N`, tolerant numeric parsing of
+   the legacy `char` rate columns, flexible date parsing of the `char`
+   `date_started` and `tax_date`, and the purok/barangay display join.
 3. `npm run lint && npm run build`.
 
 Both files are wired into the `test:db` and `test:dtr` npm scripts.
@@ -350,3 +395,27 @@ Both files are wired into the `test:db` and `test:dtr` npm scripts.
 - Sub-area CRUD. `sub_area` stays free text and can be promoted to a table later
   if it ever needs a status or description.
 - Area scoping for `jo_manager`.
+- **The legacy `jo_logs` table (2,509 rows of per-field change history) is not
+  migrated.** The audit trail starts fresh at go-live; `logAudit` records
+  everything from that point forward.
+
+## Findings carried into Spec 2
+
+Recorded here so the payroll design starts from verified facts:
+
+- **`jopayroll_members` has no `rate` column.** Legacy payrolls join to the live
+  `jos.rate`, so a historical payroll re-prices itself whenever an employee's
+  rate changes. This directly contradicts the requirement that a payroll
+  preserve historical values, and it means migrated payrolls cannot be
+  guaranteed to reproduce the figures originally printed. Spec 2 must decide
+  what rate to stamp onto migrated members — the current rate is the only value
+  available, so pre-migration payroll amounts are reconstructions, not records.
+- `jopayroll_members` also carries `weekends` and `holidays` (float) alongside
+  `days` and `hours`.
+- `jopayrolls` has no payroll-date and no status column; Draft/Finalized is a
+  new concept with no legacy source, so migrated payrolls need a default
+  (presumably Finalized, since they are historical).
+- `jo_memos` carries `type`, `subject`, `description`, `particulars`,
+  `memo_series` and `page_break_offset`; `jo_s_o_s` carries `description`,
+  `subject`, `particulars`, `days` and `page_break_offset`. Both have `from`/`to`
+  date ranges the original request did not mention. These land in Spec 3.
