@@ -192,6 +192,30 @@ Task 9: complete (commits 958111b, b79a106, bf2070e) — ALL 9 TASKS DONE
     upsert twice -> 1 row updated in place; 2 NULL rows coexist.
   - FULL SUITE GREEN: 33/33 unit + 18/18 real-stack = 51/51.
 
+FINAL WHOLE-BRANCH REVIEW: complete (commit 891678f) — MERGE-READY
+  CRITICAL caught: migrations 055/056 never enabled RLS. Migration 020 grants
+  broad default privileges on the hris schema (SELECT to anon, ALL to
+  authenticated), so with no RLS the tables were WIDE OPEN. Controller
+  reproduced it: an anonymous PostgREST request with only the public anon key
+  returned data from job_order_areas. Any authenticated user (even a plain
+  'employee') could hard-DELETE rows from the browser, bypassing every
+  TypeScript guard and the soft-delete convention. These people previously
+  lived in hris.employees, WHICH HAS RLS — so this was a protection DOWNGRADE
+  for the same population, on tables holding LandBank account + SSS numbers.
+  Fixed in NEW migration 060 (RLS + get_user_role policies, matching 049/050).
+  Verified after fix: relrowsecurity=true on both; anon read returns [].
+  Two real-stack tests added using an anon-key client so this cannot regress —
+  their absence is exactly why the hole survived nine task gates.
+  Also fixed: jo_manager missing from sidebar allRoles (JO Manager had no
+  Dashboard link at all); deleteJobOrderArea fabricated audit entries for
+  non-existent rows (same defect already fixed for employees in 660c7c8, not
+  carried across — only a whole-branch view catches that divergence); CSV
+  import now warns when an expected column is absent instead of silently
+  importing 578 people with a NULL daily_rate under a green summary.
+
+FINAL STATE: 33/33 unit + 20/20 real-stack = 53/53 passing. Build passes.
+Lint 43 (2 errors, 39+2 warnings) vs main's 41 — no new errors.
+
 ## Coordination risk
 - A parallel session is building a COS module on branch `feat/cos-module` in
   the MAIN working directory. It has taken migrations 057/058 (no collision
