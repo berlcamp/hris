@@ -123,6 +123,24 @@ Task 7: complete (commits 660c7c8..a752d29, review + 1 fix round, verified)
   - Build passes; lint 43 (2 errors, 41 warnings) = no new ERRORS; the +2
     warnings are the known react-hooks/incompatible-library class.
 
+Task 8: complete (commits 3f62665 extraction + ec96cea importer)
+  - Helper extraction VERIFIED BEHAVIOUR-PRESERVING: normHeader, colIndex,
+    parseMoney, parseFlexibleCsvDate byte-compared against their versions on
+    main -> all four IDENTICAL. salary-csv-import-actions.ts now imports them.
+    This mattered because a silent change there would corrupt SALARY data.
+  - Upsert keyed on legacy_id (onConflict) => re-running a CSV updates in place.
+  - warnParse() helper centralises "unparseable char column -> null + warning"
+    across all 9 tolerant columns; blank yields null with NO warning (blank is
+    not a parse failure). Only a missing fullname skips a person.
+  - Implementer added an in-file duplicate-legacy_id guard NOT in the brief.
+    Good catch: Postgres rejects an ENTIRE upsert statement when one chunk
+    contains duplicate conflict keys, so a duplicated id in the export would
+    have silently dropped up to 199 unrelated people from a 200-row chunk.
+  - Import actions guarded on super_admin only (tighter than canManageJobOrders).
+  - NOTE: no separate diff-review was run for Task 8; its core risk (import
+    idempotency) is covered directly by Task 9's real-stack tests, and the
+    final whole-branch review covers the rest.
+
 ## Coordination risk
 - A parallel session is building a COS module on branch `feat/cos-module` in
   the MAIN working directory. It has taken migrations 057/058 (no collision
