@@ -84,6 +84,20 @@ Task 5: complete (commits a6e73bc..c16a9e6, review + 1 fix round, verified)
        Now pages with .range() in 1000-row chunks via countEmployeesByArea().
   - Build compiles; lint at the 41 baseline.
 
+Task 6: complete (commits c16a9e6..660c7c8, review approved + 1 fix round)
+  - Implementer proactively applied all 3 Task 5 lesson classes (pagination,
+    error capture, interface conformance) and added an .order("id") tiebreaker
+    so .range() paging cannot drop/duplicate rows across pages.
+  - Create/update inactive-area ASYMMETRY implemented + commented: create
+    refuses an inactive area; update deliberately does NOT re-check, so an
+    employee whose area later went inactive stays editable.
+  - previous_daily_rate compares numerically (PostgREST returns numeric as
+    STRINGS, so a string-vs-number compare would report a change on every save).
+  - Fix round: deleteJobOrderEmployee was returning success + writing an audit
+    entry for non-existent ids (PostgREST does not error on a zero-row update).
+    Now verifies the row transitioned before auditing, and records oldValues.
+  - Build compiles; lint at the 41 baseline; 8/8 queries schema-qualified.
+
 ## Coordination risk
 - A parallel session is building a COS module on branch `feat/cos-module` in
   the MAIN working directory. It has taken migrations 057/058 (no collision
