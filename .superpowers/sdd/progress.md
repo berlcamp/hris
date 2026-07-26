@@ -175,6 +175,23 @@ pinning a real defect
     instead of a single upsert.
   - Lint stays at the 43-problem (2 errors, 41 warnings) baseline; build passes.
 
+Task 9: complete (commits 958111b, b79a106, bf2070e) — ALL 9 TASKS DONE
+  *** The real-stack tier earned its keep here. It caught a SEVERE defect that
+  no amount of SQL reasoning or diff review had found across 8 prior tasks: ***
+  - migration 056 created uq_job_order_employees_legacy_id as a PARTIAL index
+    (WHERE legacy_id IS NOT NULL). Postgres can only infer a partial unique
+    index for ON CONFLICT if the statement repeats the predicate, and
+    PostgREST's .upsert({onConflict:"legacy_id"}) never emits one. EVERY upsert
+    failed with 42P10. legacy_id idempotency is the foundation of the whole
+    migration strategy, so the CSV importer could not save a single row.
+  - Controller reproduced it directly against the live local DB before acting.
+  - Fixed in NEW migration 059 (not by editing 056, which may already be
+    applied in production). Predicate dropped: it was never needed, because
+    Postgres unique indexes already treat NULLs as distinct, so hand-entered
+    employees with NULL legacy_id are unaffected. Verified in a transaction:
+    upsert twice -> 1 row updated in place; 2 NULL rows coexist.
+  - FULL SUITE GREEN: 33/33 unit + 18/18 real-stack = 51/51.
+
 ## Coordination risk
 - A parallel session is building a COS module on branch `feat/cos-module` in
   the MAIN working directory. It has taken migrations 057/058 (no collision
