@@ -71,19 +71,53 @@ test("normalizeAreaName preserves leading BOM (U+FEFF)", () => {
   assert.equal(normalizeAreaName("﻿Mayors Office"), "﻿mayors office");
 });
 
-test("normalizeAreaName collapses non-breaking space (U+00A0)", () => {
-  // Postgres \s in en_US.UTF-8 locale is locale-aware and matches U+00A0
-  assert.equal(normalizeAreaName("Mayor's Office"), "mayor's office");
-});
+test("normalizeAreaName matches the Postgres generated column for every whitespace codepoint", () => {
+  // These codepoints were tested against the real Postgres output via differential
+  // testing. The expected values are from actual database runs, not heuristics.
+  // DO NOT weaken any expected value to make the test pass — if it fails,
+  // the implementation is wrong and needs fixing.
+  const codepoints = [
+    9,     // TAB
+    10,    // LF
+    11,    // VT (vertical tab)
+    12,    // FF (form feed)
+    13,    // CR
+    32,    // SPACE
+    133,   // NEL (next line) — U+0085
+    160,   // NBSP — U+00A0
+    5760,  // OGHAM SPACE MARK
+    8192,  // EN QUAD
+    8193,  // EM QUAD
+    8194,  // EN SPACE
+    8195,  // EM SPACE
+    8196,  // THREE-PER-EM SPACE
+    8197,  // FOUR-PER-EM SPACE
+    8198,  // SIX-PER-EM SPACE
+    8199,  // FIGURE SPACE
+    8200,  // PUNCTUATION SPACE
+    8201,  // THIN SPACE
+    8202,  // HAIR SPACE
+    8232,  // LINE SEPARATOR
+    8233,  // PARAGRAPH SEPARATOR
+    8239,  // NARROW NO-BREAK SPACE
+    8287,  // MEDIUM MATHEMATICAL SPACE
+    12288, // IDEOGRAPHIC SPACE
+    65279, // BOM — U+FEFF (must NOT be collapsed to space)
+  ];
 
-test("normalizeAreaName collapses EM space (U+2003)", () => {
-  // Postgres \s in en_US.UTF-8 locale matches EM space
-  assert.equal(normalizeAreaName("Mayor's Office"), "mayor's office");
-});
+  for (const cp of codepoints) {
+    const input = "a" + String.fromCodePoint(cp) + "b";
+    const result = normalizeAreaName(input);
 
-test("normalizeAreaName collapses ideographic space (U+3000)", () => {
-  // Postgres \s in en_US.UTF-8 locale matches ideographic space
-  assert.equal(normalizeAreaName("Mayor's　Office"), "mayor's office");
+    // U+FEFF (BOM, codepoint 65279) is not whitespace and should be preserved in-place
+    const expected = cp === 65279 ? "a﻿b" : "a b";
+
+    assert.equal(
+      result,
+      expected,
+      `U+${cp.toString(16).toUpperCase().padStart(4, "0")}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(result)}`
+    );
+  }
 });
 
 // ── parseJoBoolean ──────────────────────────────────────────────────

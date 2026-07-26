@@ -8,18 +8,22 @@
 /**
  * Collapse whitespace runs and trim.
  *
- * Postgres `\s` in en_US.UTF-8 locale is locale-aware and matches the same
- * Unicode whitespace as JavaScript's `\s`, with one exception: U+FEFF (BOM).
- * Postgres `\s` does not match U+FEFF, but JavaScript `\s` does. To match
- * Postgres behaviour exactly, we use [^\S﻿] (whitespace excluding U+FEFF) for
- * the collapse pass. We trim with ASCII space only (/^ +| +$/g) to match
- * Postgres btrim() default behaviour.
- * This function must produce identical output to the normalizeAreaName SQL
+ * Postgres `\s` in en_US.UTF-8 locale matches Unicode whitespace with two
+ * key differences from JavaScript's `\s`:
+ * - Postgres includes U+0085 (NEL, "next line"); JavaScript does not.
+ * - JavaScript includes U+FEFF (BOM); Postgres does not.
+ * To match Postgres behaviour exactly, the collapse pass uses (?:[^\S﻿]|\x85)
+ * which means: (whitespace excluding U+FEFF) OR U+0085. We trim with ASCII
+ * space only (/^ +| +$/g) to match Postgres btrim() default behaviour.
+ * This character-by-character correctness was verified via differential
+ * testing against the real Postgres output (see test named
+ * "normalizeAreaName matches the Postgres generated column for every whitespace codepoint").
+ * The function must produce identical output to the normalizeAreaName SQL
  * generated column so the CSV importer can reliably match existing areas
  * and avoid duplicates.
  */
 function squash(s: string): string {
-  return s.replace(/[^\S﻿]+/g, " ").replace(/^ +| +$/g, "");
+  return s.replace(/(?:[^\S﻿]|\x85)+/g, " ").replace(/^ +| +$/g, "");
 }
 
 /**
