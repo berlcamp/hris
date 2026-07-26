@@ -66,5 +66,18 @@ CREATE TRIGGER trg_cos_employees_updated_at
   BEFORE UPDATE ON hris.cos_employees
   FOR EACH ROW EXECUTE FUNCTION hris.update_updated_at();
 
-GRANT ALL    ON hris.cos_employees TO service_role;
-GRANT SELECT ON hris.cos_employees TO authenticated;
+-- ============================================================
+-- RLS — COS personnel records are PII: COS managers only. No dept-head or
+-- employee policies and no anon grants, matching 050_rsp_module.sql.
+-- ============================================================
+ALTER TABLE hris.cos_employees ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "cos_manager_all_cos_employees" ON hris.cos_employees
+  FOR ALL USING (
+    hris.get_user_role() IN ('super_admin', 'hr_admin', 'cos_manager')
+  );
+
+GRANT ALL ON hris.cos_employees TO authenticated, service_role;
+
+-- Reload PostgREST schema cache so the new table and FKs are picked up
+NOTIFY pgrst, 'reload schema';
