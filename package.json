@@ -12,7 +12,7 @@
     "db:reset": "supabase db reset",
     "db:new": "supabase migration new",
     "db:types": "supabase gen types typescript --local --schema hris > src/lib/database.types.ts",
-    "test:dtr": "node --experimental-strip-types --test supabase/tests/dtr-bucketing.test.mts",
+    "test:dtr": "node --experimental-strip-types --test supabase/tests/dtr-bucketing.test.mts supabase/tests/job-order-helpers.test.mts",
     "test:db": "node --experimental-strip-types --test supabase/tests/dtr-import.test.mts",
     "test": "npm run test:dtr && npm run test:db"
   },
