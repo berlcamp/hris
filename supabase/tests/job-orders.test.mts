@@ -43,6 +43,17 @@ const admin = createClient(status.API_URL, status.SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+// Unauthenticated client using only the public anon key — this is exactly
+// what ships in the browser bundle. Proves RLS (migration 060), not just app
+// code: migration 020 grants SELECT on every hris table to `anon`, so without
+// RLS enabled on job_order_areas / job_order_employees this client would read
+// Job Order PII (names, SSS numbers, LandBank account numbers) straight from
+// PostgREST regardless of what the Next.js server actions enforce.
+const anon = createClient(status.API_URL, status.ANON_KEY, {
+  db: { schema: "hris" },
+  auth: { autoRefreshToken: false, persistSession: false },
+});
+
 const TAG = `jotest-${Date.now()}`;
 
 // Monotonic per-run counter so every legacy_id minted in this file is unique,
@@ -308,4 +319,78 @@ test("the Unassigned seed guard is idempotent — re-running it does not duplica
     1,
     "exactly one Unassigned area must exist after re-running the seed guard",
   );
+});
+
+// Migration 056 created job_order_areas / job_order_employees without
+// enabling RLS. Migration 020 grants broad default privileges on new hris
+// tables to `authenticated` (ALL) and `anon` (SELECT), so with no RLS above
+// those grants, the anon key — which ships in the browser bundle — could read
+// every Job Order person's PII directly via PostgREST. Migration 060 enables
+// RLS and restricts both tables to super_admin / hr_admin / jo_manager. This
+// test proves the anon client is now blocked while the admin (service-role)
+// client, which every server action actually uses, still works.
+test("anon key cannot read job_order_employees; RLS restricts it to admin roles (migration 060)", async () => {
+  const area = await makeArea(`${TAG}-rls`);
+  const legacyId = freshLegacyId();
+
+  const inserted = await admin
+    .from("job_order_employees")
+    .insert({
+      legacy_id: legacyId,
+      full_name: `${TAG} RLS Probe`,
+      area_id: area.id,
+      sss_no: "01-2345678-9",
+      landbank_account_number: null,
+    })
+    .select("id")
+    .single();
+  assert.equal(inserted.error, null, `admin insert failed: ${inserted.error?.message}`);
+
+  const anonRead = await anon
+    .from("job_order_employees")
+    .select("id, full_name, sss_no")
+    .eq("id", inserted.data!.id);
+
+  assert.equal(anonRead.error, null, `anon select should not error, just return nothing: ${anonRead.error?.message}`);
+  assert.equal(
+    anonRead.data!.length,
+    0,
+    "anon (unauthenticated) client must see zero rows once RLS is enabled",
+  );
+
+  const adminRead = await admin
+    .from("job_order_employees")
+    .select("id, full_name")
+    .eq("id", inserted.data!.id);
+
+  assert.equal(adminRead.error, null, `admin select failed: ${adminRead.error?.message}`);
+  assert.equal(
+    adminRead.data!.length,
+    1,
+    "admin (service-role) client bypasses RLS and must still see the row",
+  );
+});
+
+test("anon key cannot read job_order_areas; RLS restricts it to admin roles (migration 060)", async () => {
+  const area = await makeArea(`${TAG}-rls-areas`);
+
+  const anonRead = await anon
+    .from("job_order_areas")
+    .select("id, name")
+    .eq("id", area.id);
+
+  assert.equal(anonRead.error, null, `anon select should not error, just return nothing: ${anonRead.error?.message}`);
+  assert.equal(
+    anonRead.data!.length,
+    0,
+    "anon (unauthenticated) client must see zero rows once RLS is enabled",
+  );
+
+  const adminRead = await admin
+    .from("job_order_areas")
+    .select("id, name")
+    .eq("id", area.id);
+
+  assert.equal(adminRead.error, null, `admin select failed: ${adminRead.error?.message}`);
+  assert.equal(adminRead.data!.length, 1, "admin (service-role) client bypasses RLS and must still see the row");
 });

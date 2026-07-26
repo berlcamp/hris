@@ -83,6 +83,7 @@ const allRoles: UserRole[] = [
   "department_admin",
   "department_admin_and_department_head",
   "dtr_manager",
+  "jo_manager",
   "employee",
 ];
 const adminRoles: UserRole[] = ["super_admin", "hr_admin"];

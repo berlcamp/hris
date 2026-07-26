@@ -277,13 +277,41 @@ export async function deleteJobOrderArea(id: string) {
     };
   }
 
-  const { error } = await supabase
+  // Fetch the row before deletion to capture its state in the audit trail,
+  // and so a nonexistent/already-deleted area can be reported as such rather
+  // than the soft-delete below silently no-op'ing.
+  const { data: before, error: beforeError } = await supabase
+    .schema("hris")
+    .from("job_order_areas")
+    .select("id, name, description, is_active")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (beforeError) {
+    return {
+      error: `Could not load the area record: ${beforeError.message}`,
+    };
+  }
+  if (!before) return { error: "Area not found" };
+
+  // Soft-delete: scope the update to live rows only (.is("deleted_at", null))
+  // and select the result to verify a row was actually affected. PostgREST
+  // does not error when an update matches zero rows.
+  const { data, error } = await supabase
     .schema("hris")
     .from("job_order_areas")
     .update({ deleted_at: new Date().toISOString(), updated_by: user!.id })
-    .eq("id", id);
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select("id, name, description, is_active")
+    .maybeSingle();
 
   if (error) return { error: error.message };
+
+  // Only log the audit entry once the row has actually transitioned to
+  // deleted, so the trail records only operations that occurred.
+  if (!data) return { error: "Area not found" };
 
   await logAudit({
     userId: user!.id,
@@ -291,6 +319,7 @@ export async function deleteJobOrderArea(id: string) {
     action: "delete",
     tableName: "job_order_areas",
     recordId: id,
+    oldValues: before,
   });
 
   revalidatePath("/job-orders/areas");

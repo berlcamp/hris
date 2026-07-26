@@ -358,6 +358,45 @@ export async function importJobOrderEmployeesFromCsv(csvText: string): Promise<J
   const remarks2Col = colIndex(map, "remarks2");
   const deletedAtCol = colIndex(map, "deleted_at");
 
+  // An absent optional column resolves silently to NULL/false for every row
+  // (see resolveAreaId and warnParse above) — there is no per-row signal that
+  // anything is missing, so a header mismatch (e.g. the export naming this
+  // "daily_rate" instead of "rate") would otherwise produce a clean-looking
+  // "inserted N, skipped 0, warnings 0" summary while quietly blanking that
+  // field for the entire roster. Emit one warning per expected-but-absent
+  // column up front so that failure mode is visible instead of silent. This
+  // stays non-fatal — a genuinely absent column still imports the rest.
+  const OPTIONAL_COLUMNS: { header: string; index: number | undefined; consequence: string }[] = [
+    { header: "area_assigned", index: areaCol, consequence: "every person will be filed under the \"Unassigned\" area instead of their real one" },
+    { header: "sub_area", index: subAreaCol, consequence: "sub_area will be blank for every row" },
+    { header: "rate", index: rateCol, consequence: "daily_rate will be blank for every row" },
+    { header: "previous_rate", index: prevRateCol, consequence: "previous_daily_rate will be blank for every row" },
+    { header: "gender", index: genderCol, consequence: "sex will be blank for every row" },
+    { header: "purok", index: purokCol, consequence: "purok will be blank for every row" },
+    { header: "barangay", index: barangayCol, consequence: "barangay will be blank for every row" },
+    { header: "has_atm", index: hasAtmCol, consequence: "has_atm will default to false for every row" },
+    { header: "working_hours", index: workingHoursCol, consequence: "working_hours will be blank for every row" },
+    { header: "account_number", index: accountNumberCol, consequence: "landbank_account_number will be blank for every row" },
+    { header: "sss_no", index: sssNoCol, consequence: "sss_no will be blank for every row" },
+    { header: "sss_ss", index: sssSsCol, consequence: "sss_ss will be blank for every row" },
+    { header: "sss_ec", index: sssEcCol, consequence: "sss_ec will be blank for every row" },
+    { header: "tax_number", index: taxNumberCol, consequence: "community_tax_number will be blank for every row" },
+    { header: "tax_date", index: taxDateCol, consequence: "community_tax_date will be blank for every row" },
+    { header: "tax_issued", index: taxIssuedCol, consequence: "community_tax_place_issued will be blank for every row" },
+    { header: "date_started", index: dateStartedCol, consequence: "date_started will be blank for every row" },
+    { header: "eligibility", index: eligibilityCol, consequence: "eligibility will be blank for every row" },
+    { header: "recommended_by", index: recommendedByCol, consequence: "recommended_by will be blank for every row" },
+    { header: "remarks", index: remarksCol, consequence: "remarks will be blank for every row" },
+    { header: "remarks2", index: remarks2Col, consequence: "remarks_2 will be blank for every row" },
+    { header: "deleted_at", index: deletedAtCol, consequence: "legacy soft-deletes will not carry over — all imported rows stay active" },
+  ];
+
+  for (const { header, index, consequence } of OPTIONAL_COLUMNS) {
+    if (index === undefined) {
+      result.warnings.push(`Column "${header}" not found in the CSV — ${consequence}`);
+    }
+  }
+
   const supabase = createAdminClient();
   const areaMap = await loadAreaMap(supabase);
   const seenLegacyIds = new Map<number, number>(); // legacy_id -> first row number seen
