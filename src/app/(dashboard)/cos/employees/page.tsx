@@ -83,6 +83,7 @@ export default async function CosEmployeesPage() {
           employees={employees}
           departmentOptions={departmentOptions}
           canCreate={canManageCos(user.role)}
+          canDelete={user.role === "super_admin"}
         />
       )}
     </div>

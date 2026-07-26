@@ -21,14 +21,27 @@ import { deleteCosEmployee } from "@/lib/actions/cos-employee-actions";
 interface CosEmployeeDeleteDialogProps {
   employeeId: string;
   employeeName: string;
+  /**
+   * Row-action menus open this dialog from a DropdownMenuItem, which closes
+   * on click before an AlertDialogTrigger nested inside it would ever fire.
+   * When `open`/`onOpenChange` are supplied, the caller owns its own trigger
+   * (e.g. CosEmployeeActionsCell's DropdownMenuItem) and drives visibility
+   * directly, so the built-in destructive Button trigger below is skipped.
+   * The profile page keeps using the uncontrolled default (no props passed).
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function CosEmployeeDeleteDialog({
   employeeId,
   employeeName,
+  open,
+  onOpenChange,
 }: CosEmployeeDeleteDialogProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const controlled = open !== undefined;
 
   const onConfirm = async () => {
     setLoading(true);
@@ -46,11 +59,13 @@ export function CosEmployeeDeleteDialog({
   };
 
   return (
-    <AlertDialog>
-      <AlertDialogTrigger render={<Button variant="destructive" size="sm" />}>
-        <Trash2 className="h-4 w-4" />
-        Delete
-      </AlertDialogTrigger>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      {!controlled && (
+        <AlertDialogTrigger render={<Button variant="destructive" size="sm" />}>
+          <Trash2 className="h-4 w-4" />
+          Delete
+        </AlertDialogTrigger>
+      )}
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete {employeeName}?</AlertDialogTitle>

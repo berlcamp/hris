@@ -4,6 +4,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
+import { CosEmployeeActionsCell } from "./cos-employee-actions-cell";
 import type { CosEmployeeWithDepartment } from "@/lib/actions/cos-employee-actions";
 import {
   COS_EMPLOYEE_STATUS_LABELS,
@@ -11,7 +12,12 @@ import {
   formatCosEmployeeName,
 } from "@/lib/cos-constants";
 
-export const cosEmployeeColumns: ColumnDef<CosEmployeeWithDepartment>[] = [
+export function cosEmployeeColumns({
+  canDelete,
+}: {
+  canDelete: boolean;
+}): ColumnDef<CosEmployeeWithDepartment>[] {
+  return [
   {
     accessorKey: "cos_no",
     header: ({ column }) => (
@@ -70,4 +76,11 @@ export const cosEmployeeColumns: ColumnDef<CosEmployeeWithDepartment>[] = [
     filterFn: (row, id, value: string[]) =>
       value.includes(row.getValue(id) as string),
   },
-];
+  {
+    id: "actions",
+    cell: ({ row }) => (
+      <CosEmployeeActionsCell employee={row.original} canDelete={canDelete} />
+    ),
+  },
+  ];
+}

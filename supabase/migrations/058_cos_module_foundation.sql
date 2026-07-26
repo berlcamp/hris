@@ -69,6 +69,26 @@ CREATE TRIGGER trg_cos_employees_updated_at
 -- ============================================================
 -- RLS — COS personnel records are PII: COS managers only. No dept-head or
 -- employee policies and no anon grants, matching 050_rsp_module.sql.
+--
+-- Grants intentionally diverge from 049_cto_module.sql / 050_rsp_module.sql,
+-- which GRANT ALL to `authenticated`. The policy below is FOR ALL USING
+-- (no WITH CHECK), so its USING clause alone would also authorise writes if
+-- `authenticated` held them — meaning any cos_manager/hr_admin could issue
+-- DELETE/UPDATE straight to PostgREST with the anon key, bypassing the
+-- soft-delete rule (deleted_at, never a hard delete), the super_admin-only
+-- delete gate, and logAudit, all of which live only in the server actions in
+-- cos-employee-actions.ts. Restricting `authenticated` to SELECT closes that
+-- hole: every write must go through the server actions, which use the
+-- service-role admin client. Do NOT "fix" this back to GRANT ALL — it is
+-- deliberate.
+--
+-- The REVOKE below is required, not decorative: migration 020 installed
+-- `ALTER DEFAULT PRIVILEGES IN SCHEMA hris GRANT ALL ON TABLES TO
+-- authenticated`, which auto-grants ALL to `authenticated` the instant
+-- CREATE TABLE runs above — before any GRANT statement later in this file
+-- is even reached. A bare `GRANT SELECT ON ... TO authenticated` on its own
+-- would be additive on top of that pre-existing ALL and would do nothing to
+-- narrow it, so the ALL grant must be revoked first.
 -- ============================================================
 ALTER TABLE hris.cos_employees ENABLE ROW LEVEL SECURITY;
 
@@ -77,7 +97,9 @@ CREATE POLICY "cos_manager_all_cos_employees" ON hris.cos_employees
     hris.get_user_role() IN ('super_admin', 'hr_admin', 'cos_manager')
   );
 
-GRANT ALL ON hris.cos_employees TO authenticated, service_role;
+REVOKE ALL ON hris.cos_employees FROM authenticated;
+GRANT SELECT ON hris.cos_employees TO authenticated;
+GRANT ALL    ON hris.cos_employees TO service_role;
 
 -- Reload PostgREST schema cache so the new table and FKs are picked up
 NOTIFY pgrst, 'reload schema';

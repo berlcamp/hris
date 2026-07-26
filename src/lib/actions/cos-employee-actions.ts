@@ -214,5 +214,6 @@ export async function deleteCosEmployee(id: string) {
   });
 
   revalidatePath("/cos/employees");
+  revalidatePath(`/cos/employees/${id}`);
   return { success: true as const };
 }

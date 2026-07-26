@@ -16,16 +16,18 @@ interface CosEmployeeListClientProps {
   /** Department names, matching the "department" column's accessor value. */
   departmentOptions: { label: string; value: string }[];
   canCreate: boolean;
+  canDelete: boolean;
 }
 
 export function CosEmployeeListClient({
   employees,
   departmentOptions,
   canCreate,
+  canDelete,
 }: CosEmployeeListClientProps) {
   return (
     <DataTable
-      columns={cosEmployeeColumns}
+      columns={cosEmployeeColumns({ canDelete })}
       data={employees}
       searchableColumns={[{ id: "name", title: "name or COS no." }]}
       filterableColumns={[

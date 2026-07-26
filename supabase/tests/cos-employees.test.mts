@@ -170,7 +170,17 @@ test("the department join returns name and code", async () => {
     .select("id, cos_no, departments(name, code)")
     .is("deleted_at", null)
     .eq("cos_no", `${PREFIX}011`)
-    .single();
+    .single()
+    // Without a generated Database type, supabase-js can't tell this is a
+    // to-one embed (FK on cos_employees, not on departments) and infers
+    // `departments` as an array. Runtime returns a single object — this
+    // just corrects the static type to match, it doesn't change what's
+    // asserted below.
+    .returns<{
+      id: string;
+      cos_no: string;
+      departments: { name: string; code: string } | null;
+    }>();
 
   assert.equal(error, null);
   assert.equal(data.departments?.code, "OCM");

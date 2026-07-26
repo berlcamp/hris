@@ -234,7 +234,7 @@ export async function deleteDepartment(id: string) {
   const supabase = createAdminClient();
 
   // Block deletion while anything still references the department.
-  const [home, detailed, profiles] = await Promise.all([
+  const [home, detailed, profiles, cosLive, cosTotal] = await Promise.all([
     supabase
       .schema("hris")
       .from("employees")
@@ -248,6 +248,26 @@ export async function deleteDepartment(id: string) {
     supabase
       .schema("hris")
       .from("user_profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("department_id", id),
+    // hris.cos_employees.department_id is ON DELETE RESTRICT (migration 058),
+    // so a live COS employee here blocks the delete just like the checks
+    // above. Deliberately not routed through the COS module's own baseQuery()
+    // (which filters deleted_at IS NULL) — count() here.
+    supabase
+      .schema("hris")
+      .from("cos_employees")
+      .select("id", { count: "exact", head: true })
+      .eq("department_id", id)
+      .is("deleted_at", null),
+    // The FK itself does NOT honour deleted_at, so a soft-deleted COS employee
+    // still blocks the DELETE at the database level even though no UI shows
+    // it as "belonging" to this department anymore. Count all referencing
+    // rows (live + archived) so the message can tell the admin the delete
+    // will still fail even after clearing the live ones.
+    supabase
+      .schema("hris")
+      .from("cos_employees")
       .select("id", { count: "exact", head: true })
       .eq("department_id", id),
   ]);
@@ -264,6 +284,12 @@ export async function deleteDepartment(id: string) {
     return {
       error: `Cannot delete: ${profiles.count} user account(s) are assigned to this department.`,
     };
+  if ((cosTotal.count ?? 0) > 0) {
+    const archived = (cosTotal.count ?? 0) - (cosLive.count ?? 0);
+    return {
+      error: `Cannot delete: ${cosTotal.count} COS employee(s) reference this department (${archived} archived).`,
+    };
+  }
 
   const { error } = await supabase
     .schema("hris")
