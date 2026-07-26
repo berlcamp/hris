@@ -160,6 +160,10 @@ export function CosEmployeeForm({
             <Label>Sex</Label>
             <Select
               value={watchSex ?? NONE}
+              items={[
+                { value: NONE, label: "Not specified" },
+                ...COS_SEXES.map((s) => ({ value: s, label: COS_SEX_LABELS[s] })),
+              ]}
               onValueChange={(v) =>
                 setValue("sex", v === NONE ? null : (v as (typeof COS_SEXES)[number]), {
                   shouldValidate: true,
@@ -215,6 +219,10 @@ export function CosEmployeeForm({
             <Label>Office / Department</Label>
             <Select
               value={watchDepartment ?? NONE}
+              items={[
+                { value: NONE, label: "Unassigned" },
+                ...departments.map((d) => ({ value: d.id, label: d.name })),
+              ]}
               onValueChange={(v) =>
                 setValue("department_id", v === NONE ? null : v, {
                   shouldValidate: true,
@@ -262,6 +270,10 @@ export function CosEmployeeForm({
             <Label>Status</Label>
             <Select
               value={watchStatus}
+              items={COS_EMPLOYEE_STATUSES.map((s) => ({
+                value: s,
+                label: COS_EMPLOYEE_STATUS_LABELS[s],
+              }))}
               onValueChange={(v) =>
                 setValue("status", v as (typeof COS_EMPLOYEE_STATUSES)[number], {
                   shouldValidate: true,
