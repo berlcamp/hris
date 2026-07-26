@@ -141,6 +141,40 @@ Task 8: complete (commits 3f62665 extraction + ec96cea importer)
     idempotency) is covered directly by Task 9's real-stack tests, and the
     final whole-branch review covers the rest.
 
+Task 9: complete (commit 958111b), 16/18 new tests pass — 2 fail ON PURPOSE,
+pinning a real defect
+  - Ran all 9 brief tests + 3 review-round additions (whitespace-codepoint
+    differential test against the real DB, duplicate-legacy_id-in-one-batch,
+    Unassigned-seed-guard re-run idempotency) against the real stack
+    (migrations through 056 applied via `db:reset`).
+  - SEVERE FINDING, CONFIRMED, NOT FIXED (out of scope — no migration/app
+    edits allowed): `job_order_employees.legacy_id`'s only unique index is
+    PARTIAL (`WHERE legacy_id IS NOT NULL`, migration 056). PostgREST's
+    `on_conflict` cannot target a partial index (no way to pass the required
+    predicate), so EVERY `.upsert(..., {onConflict:"legacy_id"})` call fails
+    with Postgres 42P10, regardless of duplicates. Verified 3 ways: supabase-js
+    admin client, raw curl straight to PostgREST (bypassing the JS client
+    entirely), and reading job-order-csv-import-actions.ts:479 to confirm it
+    uses the identical call shape. Consequence: Task 8's CSV importer cannot
+    currently save a single row against the real stack — every chunk's error
+    is caught and every row in it is reported skipped (not silent; visible in
+    result.errors, but non-functional). This is exactly the risk Task 8's own
+    note flagged as deferred to Task 9 ("its core risk (import idempotency) is
+    covered directly by Task 9's real-stack tests") — and it turned out not
+    to hold.
+  - Two tests are committed FAILING on purpose to pin this: the brief's
+    "upsert on legacy_id is idempotent" test, and the new
+    duplicate-legacy_id-in-one-batch test (which was written expecting
+    Postgres cardinality-violation 21000, but actually gets 42P10 first — a
+    more fundamental defect masks the one the review round was trying to pin;
+    the mismatch itself is documented as the finding, not smoothed over).
+  - Fix needs a decision by whoever picks this up: either replace the partial
+    unique index with a non-partial unique constraint (and find another way
+    to allow multiple NULL legacy_id rows for manually-created employees), or
+    change the importer to do a manual existence-check + separate insert/update
+    instead of a single upsert.
+  - Lint stays at the 43-problem (2 errors, 41 warnings) baseline; build passes.
+
 ## Coordination risk
 - A parallel session is building a COS module on branch `feat/cos-module` in
   the MAIN working directory. It has taken migrations 057/058 (no collision
