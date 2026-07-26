@@ -467,6 +467,16 @@ export interface JoPayrollMember {
   updated_at: string;
 }
 
+export interface JobOrderArea {
+  id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  employee_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ============================================================
 // RSP (Recruitment, Selection, Placement)
 // Status/nature unions live in src/lib/rsp-constants.ts
