@@ -507,6 +507,14 @@ export async function importJobOrderEmployeesFromCsv(csvText: string): Promise<J
     batch.map((b) => b.legacy_id),
   );
 
+  const tally = (row: (typeof batch)[number]) => {
+    if (existingLegacyIds.has(row.legacy_id)) {
+      result.updated++;
+    } else {
+      result.inserted++;
+    }
+  };
+
   for (let i = 0; i < batch.length; i += UPSERT_CHUNK) {
     const chunk = batch.slice(i, i + UPSERT_CHUNK);
     const { error } = await supabase
@@ -514,20 +522,31 @@ export async function importJobOrderEmployeesFromCsv(csvText: string): Promise<J
       .from("job_order_employees")
       .upsert(chunk, { onConflict: "legacy_id", ignoreDuplicates: false });
 
-    if (error) {
-      result.errors.push(
-        `Failed to save ${chunk.length} row(s) (legacy id ${chunk[0].legacy_id}–${chunk[chunk.length - 1].legacy_id}): ${error.message}`,
-      );
-      result.skipped += chunk.length;
+    if (!error) {
+      for (const row of chunk) tally(row);
       continue;
     }
 
+    // Postgres aborts the ENTIRE statement on one bad value, so a single
+    // unparseable cell would otherwise cost up to UPSERT_CHUNK - 1 innocent
+    // people. (A real import lost 377 of 577 to ~7 bad cells this way.)
+    // Retry the failed chunk row by row: good rows still land, and every
+    // failure names the person instead of an opaque legacy-id range.
+    // Only the failure path pays the per-row round trips.
     for (const row of chunk) {
-      if (existingLegacyIds.has(row.legacy_id)) {
-        result.updated++;
-      } else {
-        result.inserted++;
+      const { error: rowError } = await supabase
+        .schema("hris")
+        .from("job_order_employees")
+        .upsert(row, { onConflict: "legacy_id", ignoreDuplicates: false });
+
+      if (rowError) {
+        result.errors.push(
+          `"${row.full_name}" (legacy id ${row.legacy_id}) could not be saved: ${rowError.message}`,
+        );
+        result.skipped++;
+        continue;
       }
+      tally(row);
     }
   }
 

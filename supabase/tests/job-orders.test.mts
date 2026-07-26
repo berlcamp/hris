@@ -394,3 +394,86 @@ test("anon key cannot read job_order_areas; RLS restricts it to admin roles (mig
   assert.equal(adminRead.error, null, `admin select failed: ${adminRead.error?.message}`);
   assert.equal(adminRead.data!.length, 1, "admin (service-role) client bypasses RLS and must still see the row");
 });
+
+// The importer upserts in chunks of 200. Postgres aborts the WHOLE statement
+// when one row is bad, so a single unparseable cell used to cost up to 199
+// innocent people — a real import lost 377 of 577 that way. The importer now
+// retries a failed chunk row by row. These two tests pin both halves of that
+// claim: that a batch really does fail wholesale, and that per-row retry
+// isolates only the offender.
+test("one bad row aborts an entire batch upsert", async () => {
+  const area = await makeArea(`${TAG}-batchfail`);
+  // Every row must carry the SAME keys: PostgREST builds a multi-row insert
+  // from the union of keys, so a row omitting has_atm would be sent an
+  // explicit NULL and fail 23502 (not-null) before the CHECK could fire.
+  // The importer is safe here — it builds every row from one object literal
+  // with all 30 columns always set.
+  const base = (n: number, extra: Record<string, unknown> = {}) => ({
+    full_name: `${TAG} batch ${n}`,
+    area_id: area.id,
+    legacy_id: Number(String(Date.now()).slice(-8) + String(n)),
+    has_atm: false,
+    landbank_account_number: null as string | null,
+    ...extra,
+  });
+
+  // The middle row violates chk_job_order_atm_account (account without an ATM).
+  const rows = [
+    base(1),
+    base(2, { landbank_account_number: "1234567890" }),
+    base(3),
+  ];
+
+  const { error } = await admin
+    .from("job_order_employees")
+    .upsert(rows, { onConflict: "legacy_id", ignoreDuplicates: false });
+
+  assert.ok(error, "expected the batch to be rejected");
+  assert.equal(error!.code, "23514", "expected the CHECK constraint violation");
+
+  const { data } = await admin
+    .from("job_order_employees")
+    .select("legacy_id")
+    .in("legacy_id", rows.map((r) => r.legacy_id));
+
+  assert.equal(
+    data!.length,
+    0,
+    "the two GOOD rows must also be absent — this is the wholesale-abort behaviour the retry exists to work around",
+  );
+});
+
+test("per-row retry saves the good rows and isolates the bad one", async () => {
+  const area = await makeArea(`${TAG}-rowretry`);
+  const base = (n: number, extra: Record<string, unknown> = {}) => ({
+    full_name: `${TAG} retry ${n}`,
+    area_id: area.id,
+    legacy_id: Number(String(Date.now()).slice(-8) + String(n)),
+    has_atm: false,
+    landbank_account_number: null as string | null,
+    ...extra,
+  });
+  const rows = [
+    base(4),
+    base(5, { landbank_account_number: "1234567890" }),
+    base(6),
+  ];
+
+  // Mirrors the importer's fallback path.
+  const failures: number[] = [];
+  for (const row of rows) {
+    const { error } = await admin
+      .from("job_order_employees")
+      .upsert(row, { onConflict: "legacy_id", ignoreDuplicates: false });
+    if (error) failures.push(row.legacy_id);
+  }
+
+  assert.deepEqual(failures, [rows[1].legacy_id], "only the constraint-violating row should fail");
+
+  const { data } = await admin
+    .from("job_order_employees")
+    .select("legacy_id")
+    .in("legacy_id", rows.map((r) => r.legacy_id));
+
+  assert.equal(data!.length, 2, "both good rows must have landed despite their neighbour failing");
+});
