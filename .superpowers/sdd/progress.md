@@ -46,6 +46,20 @@ Task 3: complete (commits bc9cfb5..a6e73bc, reviewed by controller directly)
   - NOTE: the Task 3 implementer returned an incoherent final message; the work
     was verified from the diff and a real build instead of from its report.
 
+Task 4: complete (commit 1314635, verified by controller with runtime checks)
+  - Ran 11 behaviour checks against the real schema: both ATM refine directions,
+    blank-vs-absent account, coercion of numeric strings, negative rate, bad
+    uuid, empty name. ALL PASS. Build passes; lint stays at the 41 baseline.
+
+  GOTCHA discovered (affects later tasks): zod v4 `.uuid()` is STRICT RFC 9562 —
+  it validates the version AND variant nibbles. Placeholder UUIDs of the form
+  `11111111-1111-1111-1111-111111111111` or this repo's existing seed style
+  `00000000-0000-0000-0000-0000000000e1` are REJECTED. Real ids from
+  `gen_random_uuid()` are v4-compliant so production is unaffected, but any
+  hand-written UUID fixture that passes through `jobOrderEmployeeSchema` will
+  fail validation. Task 9 inserts via PostgREST (bypasses zod) so it is safe;
+  Task 7's form and Tasks 5/6's actions DO run zod.
+
 ## Coordination risk
 - A parallel session is building a COS module on branch `feat/cos-module` in
   the MAIN working directory. It has taken migrations 057/058 (no collision
