@@ -1,4 +1,7 @@
+import Link from "next/link";
+import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CosEmployeeListClient } from "@/components/cos/cos-employee-list-client";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
@@ -65,15 +68,23 @@ export default async function CosEmployeesPage() {
               The registry starts empty. Use “Add COS Employee” to encode the
               first record.
             </p>
+            {canManageCos(user.role) ? (
+              <Link href="/cos/employees/new" className="mt-4 inline-block">
+                <Button size="sm">
+                  <Plus className="h-4 w-4" />
+                  Add COS Employee
+                </Button>
+              </Link>
+            ) : null}
           </CardContent>
         </Card>
-      ) : null}
-
-      <CosEmployeeListClient
-        employees={employees}
-        departmentOptions={departmentOptions}
-        canCreate={canManageCos(user.role)}
-      />
+      ) : (
+        <CosEmployeeListClient
+          employees={employees}
+          departmentOptions={departmentOptions}
+          canCreate={canManageCos(user.role)}
+        />
+      )}
     </div>
   );
 }
