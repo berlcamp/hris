@@ -477,6 +477,38 @@ export interface JobOrderArea {
   updated_at: string;
 }
 
+export interface JobOrderEmployee {
+  id: string;
+  full_name: string;
+  sort_name: string | null;
+  sex: "male" | "female" | null;
+  purok: string | null;
+  barangay: string | null;
+  area_id: string;
+  area_name: string | null;
+  sub_area: string | null;
+  daily_rate: number | null;
+  previous_daily_rate: number | null;
+  working_hours: number | null;
+  date_started: string | null;
+  eligibility: string | null;
+  recommended_by: string | null;
+  remarks: string | null;
+  remarks_2: string | null;
+  has_atm: boolean;
+  landbank_account_number: string | null;
+  sss_no: string | null;
+  sss_ss: number | null;
+  sss_ec: number | null;
+  community_tax_number: string | null;
+  community_tax_date: string | null;
+  community_tax_place_issued: string | null;
+  status: "active" | "inactive";
+  legacy_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ============================================================
 // RSP (Recruitment, Selection, Placement)
 // Status/nature unions live in src/lib/rsp-constants.ts
