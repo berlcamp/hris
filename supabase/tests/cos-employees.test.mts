@@ -139,3 +139,47 @@ test("advances updated_at on UPDATE", async () => {
     "updated_at should advance",
   );
 });
+
+test("a soft-deleted row is invisible to a deleted_at IS NULL read", async () => {
+  const { data: created } = await admin
+    .from("cos_employees")
+    .insert(newEmployee(`${PREFIX}010`))
+    .select()
+    .single();
+
+  await admin
+    .from("cos_employees")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", created.id);
+
+  const { data: live } = await admin
+    .from("cos_employees")
+    .select("id")
+    .is("deleted_at", null)
+    .eq("id", created.id)
+    .maybeSingle();
+
+  assert.equal(live, null);
+});
+
+test("the department join returns name and code", async () => {
+  await admin.from("cos_employees").insert(newEmployee(`${PREFIX}011`));
+
+  const { data, error } = await admin
+    .from("cos_employees")
+    .select("id, cos_no, departments(name, code)")
+    .is("deleted_at", null)
+    .eq("cos_no", `${PREFIX}011`)
+    .single();
+
+  assert.equal(error, null);
+  assert.equal(data.departments?.code, "OCM");
+});
+
+test("hard-deleting a referenced department is blocked", async () => {
+  await admin.from("cos_employees").insert(newEmployee(`${PREFIX}012`));
+
+  const { error } = await admin.from("departments").delete().eq("id", DEPT);
+
+  assert.equal(error?.code, FK_VIOLATION);
+});
