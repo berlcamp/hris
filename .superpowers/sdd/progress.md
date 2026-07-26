@@ -22,6 +22,14 @@ Worktree: scratchpad/jo-worktree
 Task 1: complete (commits 4fdd2b5..bbf4127, review clean)
 
 ## Minor findings (for final review triage)
+- T5-minor: `optionalMoney` coerces blank input to 0, not null, so "not
+  entered" is indistinguishable from "entered as zero" for daily_rate /
+  working_hours / sss_ss / sss_ec. Matches existing convention in
+  cos-payroll-schema.ts, jo-payroll-schema.ts, payroll-schema.ts — but
+  rsp-schema.ts:24 uses a safer z.union([...z.literal("")]) that preserves the
+  distinction. Consider for final review.
+- T5-minor: duplicated 23505 ternary in create+update; revalidatePath
+  asymmetry (delete revalidates only /job-orders/areas).
 - T2: implementer reports twice contained non-verbatim transcripts (one had
   "CloudJS" where Node emits "CommonJS"). Controller now verifies test output
   first-hand rather than trusting reports. Watch for this in later tasks.
@@ -59,6 +67,22 @@ Task 4: complete (commit 1314635, verified by controller with runtime checks)
   hand-written UUID fixture that passes through `jobOrderEmployeeSchema` will
   fail validation. Task 9 inserts via PostgREST (bypasses zod) so it is safe;
   Task 7's form and Tasks 5/6's actions DO run zod.
+
+Task 5: complete (commits a6e73bc..c16a9e6, review + 1 fix round, verified)
+  - Review found 3 Important bugs, ALL originating in the plan's own example
+    code (plan-mandated). Fixed because they contradicted plan INTENT, not a
+    deliberate design choice:
+    1. deleteJobOrderArea guard FAILED OPEN — `{ count }` destructured without
+       `error`, so a failed count query soft-deleted an area that may still
+       have employees. ON DELETE RESTRICT cannot fire on a soft delete, so the
+       DB would not have caught it. Now fails closed on error AND on null count.
+    2. updateJobOrderArea returned a value missing `employee_count`, violating
+       its declared JobOrderArea return type. Now queries the real live count.
+    3. getJobOrderAreas counted employees with ONE unpaginated select; PostgREST
+       `max_rows = 1000` (supabase/config.toml) truncates silently. Legacy
+       roster is ~578 and growing — this WOULD have silently undercounted.
+       Now pages with .range() in 1000-row chunks via countEmployeesByArea().
+  - Build compiles; lint at the 41 baseline.
 
 ## Coordination risk
 - A parallel session is building a COS module on branch `feat/cos-module` in
