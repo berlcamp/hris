@@ -71,9 +71,19 @@ test("normalizeAreaName preserves leading BOM (U+FEFF)", () => {
   assert.equal(normalizeAreaName("﻿Mayors Office"), "﻿mayors office");
 });
 
-test("normalizeAreaName does NOT collapse non-breaking space (U+00A0)", () => {
-  // Postgres POSIX \s does not match U+00A0, so it is not collapsed
-  assert.equal(normalizeAreaName("Mayor's Office"), "mayor's office");
+test("normalizeAreaName collapses non-breaking space (U+00A0)", () => {
+  // Postgres \s in en_US.UTF-8 locale is locale-aware and matches U+00A0
+  assert.equal(normalizeAreaName("Mayor's Office"), "mayor's office");
+});
+
+test("normalizeAreaName collapses EM space (U+2003)", () => {
+  // Postgres \s in en_US.UTF-8 locale matches EM space
+  assert.equal(normalizeAreaName("Mayor's Office"), "mayor's office");
+});
+
+test("normalizeAreaName collapses ideographic space (U+3000)", () => {
+  // Postgres \s in en_US.UTF-8 locale matches ideographic space
+  assert.equal(normalizeAreaName("Mayor's　Office"), "mayor's office");
 });
 
 // ── parseJoBoolean ──────────────────────────────────────────────────
