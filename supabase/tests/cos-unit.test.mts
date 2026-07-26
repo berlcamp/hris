@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { canManageCos } from "../../src/lib/auth-helpers.ts";
 import { formatCosEmployeeName } from "../../src/lib/cos-constants.ts";
+import { cosEmployeeFormSchema } from "../../src/lib/validations/cos-employee-schema.ts";
 
 test("canManageCos admits the three COS roles", () => {
   assert.equal(canManageCos("super_admin"), true);
@@ -65,4 +66,87 @@ test("formatCosEmployeeName treats whitespace-only parts as absent", () => {
     }),
     "Lim, Ana",
   );
+});
+
+function minimalPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    cos_no: "COS-001",
+    first_name: "Juan",
+    last_name: "Dela Cruz",
+    ...overrides,
+  };
+}
+
+test("cosEmployeeFormSchema normalises a blank department_id to null", () => {
+  const result = cosEmployeeFormSchema.safeParse(
+    minimalPayload({ department_id: "" }),
+  );
+
+  assert.equal(result.success, true);
+  if (result.success) {
+    assert.equal(result.data.department_id, null);
+  }
+});
+
+test("cosEmployeeFormSchema normalises a blank sex to null", () => {
+  const result = cosEmployeeFormSchema.safeParse(minimalPayload({ sex: "" }));
+
+  assert.equal(result.success, true);
+  if (result.success) {
+    assert.equal(result.data.sex, null);
+  }
+});
+
+test("cosEmployeeFormSchema still rejects a non-UUID department_id", () => {
+  const result = cosEmployeeFormSchema.safeParse(
+    minimalPayload({ department_id: "not-a-uuid" }),
+  );
+
+  assert.equal(result.success, false);
+  if (!result.success) {
+    assert.equal(result.error.issues[0]?.message, "Select a department");
+  }
+});
+
+test("cosEmployeeFormSchema still rejects an out-of-range sex", () => {
+  const result = cosEmployeeFormSchema.safeParse(
+    minimalPayload({ sex: "unknown" }),
+  );
+
+  assert.equal(result.success, false);
+});
+
+test("cosEmployeeFormSchema normalises a whitespace-only optional text field to null", () => {
+  const result = cosEmployeeFormSchema.safeParse(
+    minimalPayload({ middle_name: "   " }),
+  );
+
+  assert.equal(result.success, true);
+  if (result.success) {
+    assert.equal(result.data.middle_name, null);
+  }
+});
+
+test("cosEmployeeFormSchema normalises a blank email to null and rejects an invalid one", () => {
+  const blank = cosEmployeeFormSchema.safeParse(
+    minimalPayload({ email: "" }),
+  );
+  assert.equal(blank.success, true);
+  if (blank.success) {
+    assert.equal(blank.data.email, null);
+  }
+
+  const invalid = cosEmployeeFormSchema.safeParse(
+    minimalPayload({ email: "nope" }),
+  );
+  assert.equal(invalid.success, false);
+});
+
+test("cosEmployeeFormSchema parses a minimal payload and defaults status to active", () => {
+  const result = cosEmployeeFormSchema.safeParse(minimalPayload());
+
+  assert.equal(result.success, true);
+  if (result.success) {
+    assert.equal(result.data.status, "active");
+  }
 });

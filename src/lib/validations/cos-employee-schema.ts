@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { COS_EMPLOYEE_STATUSES, COS_SEXES } from "@/lib/cos-constants";
+// Relative import (not the "@/" alias): the Node test runner
+// (`node --experimental-strip-types`) loads this module directly for
+// supabase/tests/cos-unit.test.mts and cannot resolve the "@/" path alias,
+// which only Next.js's bundler understands.
+import { COS_EMPLOYEE_STATUSES, COS_SEXES } from "../cos-constants.ts";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -25,7 +29,11 @@ export const cosEmployeeFormSchema = z.object({
   last_name: z.string().trim().min(1, "Last name is required"),
   suffix: optionalText,
 
-  sex: z.enum(COS_SEXES).nullable().optional(),
+  sex: z
+    .enum(COS_SEXES)
+    .nullable()
+    .optional()
+    .or(z.literal("").transform(() => null)),
   birth_date: optionalIsoDate,
   address: optionalText,
   contact_number: optionalText,
@@ -37,7 +45,12 @@ export const cosEmployeeFormSchema = z.object({
     .optional()
     .or(z.literal("").transform(() => null)),
 
-  department_id: z.string().uuid("Select a department").nullable().optional(),
+  department_id: z
+    .string()
+    .uuid("Select a department")
+    .nullable()
+    .optional()
+    .or(z.literal("").transform(() => null)),
   position_title: optionalText,
   eligibility: optionalText,
   recommended_by: optionalText,
