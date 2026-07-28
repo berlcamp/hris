@@ -15,6 +15,11 @@ import {
   resolveMergeFields,
   type MergeContext,
 } from "../../src/lib/cos-merge-fields.ts";
+import {
+  contractDocToBlocks,
+  EMPTY_CONTRACT_DOC,
+  type TiptapNode,
+} from "../../src/lib/cos-contract-doc.ts";
 
 test("a terminated contract reads as terminated regardless of dates", () => {
   const result = deriveCosContractStatus(
@@ -147,4 +152,136 @@ test("an unknown token renders as empty, never as the raw token", () => {
 
 test("text with no tokens is returned unchanged", () => {
   assert.equal(resolveMergeFields("Plain clause text.", CTX), "Plain clause text.");
+});
+
+test("a paragraph becomes one block with one plain run", () => {
+  const doc: TiptapNode = {
+    type: "doc",
+    content: [
+      { type: "paragraph", content: [{ type: "text", text: "Hello." }] },
+    ],
+  };
+  assert.deepEqual(contractDocToBlocks(doc, CTX), [
+    {
+      kind: "paragraph",
+      marker: null,
+      runs: [{ text: "Hello.", bold: false, italic: false, underline: false }],
+    },
+  ]);
+});
+
+test("marks become run flags", () => {
+  const doc: TiptapNode = {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Plain " },
+          { type: "text", text: "bold", marks: [{ type: "bold" }] },
+          { type: "text", text: "both", marks: [{ type: "italic" }, { type: "underline" }] },
+        ],
+      },
+    ],
+  };
+  const [block] = contractDocToBlocks(doc, CTX);
+  assert.deepEqual(block.runs, [
+    { text: "Plain ", bold: false, italic: false, underline: false },
+    { text: "bold", bold: true, italic: false, underline: false },
+    { text: "both", bold: false, italic: true, underline: true },
+  ]);
+});
+
+test("merge fields resolve inside runs", () => {
+  const doc: TiptapNode = {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "Hired: {{employee_name}}" }],
+      },
+    ],
+  };
+  const [block] = contractDocToBlocks(doc, CTX);
+  assert.equal(block.runs[0].text, "Hired: Dela Cruz, Juan Santos");
+});
+
+test("a bullet list yields one block per item with a bullet marker", () => {
+  const doc: TiptapNode = {
+    type: "doc",
+    content: [
+      {
+        type: "bulletList",
+        content: [
+          {
+            type: "listItem",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "First" }] },
+            ],
+          },
+          {
+            type: "listItem",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "Second" }] },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const blocks = contractDocToBlocks(doc, CTX);
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[0].kind, "listItem");
+  assert.equal(blocks[0].marker, "•");
+  assert.equal(blocks[1].marker, "•");
+  assert.equal(blocks[1].runs[0].text, "Second");
+});
+
+test("an ordered list numbers its items from one", () => {
+  const doc: TiptapNode = {
+    type: "doc",
+    content: [
+      {
+        type: "orderedList",
+        content: [
+          {
+            type: "listItem",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "A" }] },
+            ],
+          },
+          {
+            type: "listItem",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "B" }] },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const blocks = contractDocToBlocks(doc, CTX);
+  assert.equal(blocks[0].marker, "1.");
+  assert.equal(blocks[1].marker, "2.");
+});
+
+test("an unknown node type is dropped, not thrown on", () => {
+  const doc: TiptapNode = {
+    type: "doc",
+    content: [
+      { type: "horizontalRule" },
+      { type: "paragraph", content: [{ type: "text", text: "Survives." }] },
+    ],
+  };
+  const blocks = contractDocToBlocks(doc, CTX);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].runs[0].text, "Survives.");
+});
+
+test("the empty document yields no blocks", () => {
+  assert.deepEqual(contractDocToBlocks(EMPTY_CONTRACT_DOC, CTX), []);
+});
+
+test("a malformed body yields no blocks instead of throwing", () => {
+  assert.deepEqual(contractDocToBlocks({ type: "doc" }, CTX), []);
 });
