@@ -10,6 +10,7 @@ import {
   deriveCosContractStatus,
   toIsoDateString,
 } from "../../src/lib/cos-constants.ts";
+import { formatAmountInWords } from "../../src/lib/cos-number-to-words.ts";
 
 test("a terminated contract reads as terminated regardless of dates", () => {
   const result = deriveCosContractStatus(
@@ -48,4 +49,29 @@ test("toIsoDateString uses local date parts, not UTC", () => {
   // timezone east of UTC, which is exactly the class of bug migration 035 fixed.
   const d = new Date(2026, 6, 28, 23, 30, 0);
   assert.equal(toIsoDateString(d), "2026-07-28");
+});
+
+test("formatAmountInWords handles the boundaries", () => {
+  assert.equal(formatAmountInWords(0), "ZERO");
+  assert.equal(formatAmountInWords(1), "ONE");
+  assert.equal(formatAmountInWords(19), "NINETEEN");
+  assert.equal(formatAmountInWords(20), "TWENTY");
+  assert.equal(formatAmountInWords(21), "TWENTY ONE");
+  assert.equal(formatAmountInWords(100), "ONE HUNDRED");
+  assert.equal(formatAmountInWords(999), "NINE HUNDRED NINETY NINE");
+  assert.equal(formatAmountInWords(1000), "ONE THOUSAND");
+  assert.equal(formatAmountInWords(24000), "TWENTY FOUR THOUSAND");
+  assert.equal(formatAmountInWords(1000000), "ONE MILLION");
+});
+
+test("formatAmountInWords appends centavos as a fraction", () => {
+  assert.equal(formatAmountInWords(24000.5), "TWENTY FOUR THOUSAND & 50/100");
+  assert.equal(formatAmountInWords(1.25), "ONE & 25/100");
+});
+
+test("formatAmountInWords returns empty for a billion and above", () => {
+  // Matches the adm-v26 original, which returns "" past 999,999,999. A COS
+  // monthly rate can never reach this, and silently inventing a format would
+  // be worse than an obvious blank.
+  assert.equal(formatAmountInWords(1_000_000_000), "");
 });
