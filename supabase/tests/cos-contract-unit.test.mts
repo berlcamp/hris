@@ -11,6 +11,10 @@ import {
   toIsoDateString,
 } from "../../src/lib/cos-constants.ts";
 import { formatAmountInWords } from "../../src/lib/cos-number-to-words.ts";
+import {
+  resolveMergeFields,
+  type MergeContext,
+} from "../../src/lib/cos-merge-fields.ts";
 
 test("a terminated contract reads as terminated regardless of dates", () => {
   const result = deriveCosContractStatus(
@@ -74,4 +78,73 @@ test("formatAmountInWords returns empty for a billion and above", () => {
   // monthly rate can never reach this, and silently inventing a format would
   // be worse than an obvious blank.
   assert.equal(formatAmountInWords(1_000_000_000), "");
+});
+
+const CTX: MergeContext = {
+  employee: {
+    first_name: "Juan",
+    middle_name: "Santos",
+    last_name: "Dela Cruz",
+    suffix: null,
+    cos_no: "COS-2026001",
+    address: "Bayugan City",
+    departmentName: "City Mayor's Office",
+  },
+  contract: {
+    position_title: "Accounting Aide",
+    monthly_rate: 24000,
+    period_start: "2026-01-01",
+    period_end: "2026-06-30",
+    scope_of_work: "Bookkeeping support",
+    signatory_name: "Mayor Reyes",
+    signatory_position: "City Mayor",
+    witness_name: "Ana Cruz",
+    witness_position: "HR Officer",
+  },
+  today: "2026-07-28",
+};
+
+test("resolveMergeFields substitutes identity tokens", () => {
+  assert.equal(
+    resolveMergeFields("This agreement with {{employee_name}}.", CTX),
+    "This agreement with Dela Cruz, Juan Santos.",
+  );
+  assert.equal(resolveMergeFields("{{cos_no}}", CTX), "COS-2026001");
+  assert.equal(resolveMergeFields("{{department}}", CTX), "City Mayor's Office");
+});
+
+test("resolveMergeFields formats dates and money", () => {
+  assert.equal(resolveMergeFields("{{period_start}}", CTX), "January 1, 2026");
+  assert.equal(resolveMergeFields("{{period_end}}", CTX), "June 30, 2026");
+  assert.equal(resolveMergeFields("{{monthly_rate}}", CTX), "PHP 24,000.00");
+  assert.equal(
+    resolveMergeFields("{{monthly_rate_words}}", CTX),
+    "TWENTY FOUR THOUSAND",
+  );
+  assert.equal(resolveMergeFields("{{today}}", CTX), "July 28, 2026");
+});
+
+test("resolveMergeFields replaces every occurrence, not just the first", () => {
+  assert.equal(
+    resolveMergeFields("{{cos_no}} and {{cos_no}}", CTX),
+    "COS-2026001 and COS-2026001",
+  );
+});
+
+test("a null value renders as empty, never as the raw token", () => {
+  const ctx: MergeContext = {
+    ...CTX,
+    contract: { ...CTX.contract, monthly_rate: null, witness_name: null },
+  };
+  assert.equal(resolveMergeFields("[{{monthly_rate}}]", ctx), "[]");
+  assert.equal(resolveMergeFields("[{{monthly_rate_words}}]", ctx), "[]");
+  assert.equal(resolveMergeFields("[{{witness_name}}]", ctx), "[]");
+});
+
+test("an unknown token renders as empty, never as the raw token", () => {
+  assert.equal(resolveMergeFields("[{{not_a_field}}]", CTX), "[]");
+});
+
+test("text with no tokens is returned unchanged", () => {
+  assert.equal(resolveMergeFields("Plain clause text.", CTX), "Plain clause text.");
 });
