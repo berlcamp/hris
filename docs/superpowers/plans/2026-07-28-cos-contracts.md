@@ -1888,27 +1888,356 @@ export async function deleteCosContractTemplate(id: string) {
 
 - [ ] **Step 2: Build the template form**
 
-Create `src/components/cos/cos-template-form.tsx`, modelled on `src/components/cos/cos-employee-form.tsx` (read it for the `useForm` + `setValue` + toast + router pattern). It renders: `name` (Input), `description` (Textarea), `is_active` (Switch), and `<CosRichTextEditor>` bound to `body` via `setValue("body", doc, { shouldValidate: true })`. On submit it calls `createCosContractTemplate` or `updateCosContractTemplate`, maps a returned `field === "name"` to `setError("name", ...)`, toasts on failure, and `router.push("/cos/templates")` on success.
+Create `src/components/cos/cos-template-form.tsx`.
 
-Default `body` for a new template is `EMPTY_CONTRACT_DOC` from `@/lib/cos-contract-doc`.
+Note the `Select` API in this codebase (`@base-ui/react` variant): it takes **both** an `items` prop and `SelectItem` children. Both must be supplied — see `cos-employee-form.tsx:287-309`.
+
+```typescript
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { CosRichTextEditor } from "@/components/cos/cos-rich-text-editor";
+import {
+  createCosContractTemplate,
+  updateCosContractTemplate,
+  type CosContractTemplate,
+} from "@/lib/actions/cos-contract-template-actions";
+import {
+  cosContractTemplateFormSchema,
+  type CosContractTemplateFormValues,
+} from "@/lib/validations/cos-contract-schema";
+import { EMPTY_CONTRACT_DOC, type TiptapNode } from "@/lib/cos-contract-doc";
+
+interface CosTemplateFormProps {
+  mode: "create" | "edit";
+  template?: CosContractTemplate;
+}
+
+export function CosTemplateForm({ mode, template }: CosTemplateFormProps) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    setError,
+    formState: { errors },
+  } = useForm<CosContractTemplateFormValues>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: zodResolver(cosContractTemplateFormSchema) as any,
+    defaultValues: {
+      name: template?.name ?? "",
+      description: template?.description ?? null,
+      is_active: template?.is_active ?? true,
+      body: template?.body ?? EMPTY_CONTRACT_DOC,
+    },
+  });
+
+  const watchBody = watch("body") as TiptapNode;
+  const watchActive = watch("is_active");
+
+  const onSubmit = async (values: CosContractTemplateFormValues) => {
+    setLoading(true);
+    const result =
+      mode === "create"
+        ? await createCosContractTemplate(values)
+        : await updateCosContractTemplate(template!.id, values);
+    setLoading(false);
+
+    if ("error" in result) {
+      // A duplicate name is a field problem, not a page-level failure.
+      if ("field" in result && result.field === "name") {
+        setError("name", { message: result.error });
+      }
+      toast.error(result.error);
+      return;
+    }
+
+    toast.success(mode === "create" ? "Template created" : "Template updated");
+    router.push("/cos/templates");
+    router.refresh();
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Template Details</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <div className="grid gap-2">
+            <Label htmlFor="name">Template Name</Label>
+            <Input id="name" {...register("name")} />
+            {errors.name && (
+              <p className="text-sm text-destructive">{errors.name.message}</p>
+            )}
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="description">Description</Label>
+            <Textarea id="description" rows={2} {...register("description")} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="is_active"
+              checked={watchActive}
+              onCheckedChange={(checked) =>
+                setValue("is_active", checked, { shouldValidate: true })
+              }
+            />
+            <Label htmlFor="is_active">Active</Label>
+            <p className="text-sm text-muted-foreground">
+              Inactive templates stay available to contracts already created
+              from them, but drop out of the picker.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Contract Body</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CosRichTextEditor
+            value={watchBody}
+            onChange={(doc) =>
+              setValue("body", doc, { shouldValidate: true })
+            }
+          />
+        </CardContent>
+      </Card>
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={loading}>
+          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {mode === "create" ? "Create Template" : "Save Changes"}
+        </Button>
+        <Button type="button" variant="outline" onClick={() => router.back()}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+```
 
 - [ ] **Step 3: Build the list column defs**
 
-Create `src/components/tables/columns/cos-template-columns.tsx`, modelled on `cos-employee-columns.tsx`: a `name` column linking to `/cos/templates/${id}/edit`, a `description` column falling back to `"—"`, an `is_active` `Badge` column (`Active` / `Inactive`) with a `filterFn` comparing against the accessor value, and an actions cell offering Edit plus Delete when `canDelete`.
+Create `src/components/tables/columns/cos-template-columns.tsx`:
+
+```typescript
+"use client";
+
+import { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
+import type { CosContractTemplate } from "@/lib/actions/cos-contract-template-actions";
+
+export function cosTemplateColumns(): ColumnDef<CosContractTemplate>[] {
+  return [
+    {
+      accessorKey: "name",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Template" />
+      ),
+      cell: ({ row }) => (
+        <Link
+          href={`/cos/templates/${row.original.id}/edit`}
+          className="font-medium text-primary hover:underline"
+        >
+          {row.original.name}
+        </Link>
+      ),
+    },
+    {
+      id: "description",
+      accessorFn: (row) => row.description ?? "—",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Description" />
+      ),
+    },
+    {
+      id: "status",
+      // The faceted filter compares against the accessor value, so the filter
+      // options must be these exact strings.
+      accessorFn: (row) => (row.is_active ? "Active" : "Inactive"),
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Status" />
+      ),
+      cell: ({ row }) => (
+        <Badge variant={row.original.is_active ? "default" : "secondary"}>
+          {row.original.is_active ? "Active" : "Inactive"}
+        </Badge>
+      ),
+      filterFn: (row, id, value: string[]) =>
+        value.includes(row.getValue(id) as string),
+    },
+  ];
+}
+```
 
 - [ ] **Step 4: Build the list client and the three pages**
 
-`src/components/cos/cos-template-list-client.tsx` composes `<DataTable>` exactly as `cos-employee-list-client.tsx` does — searchable on `name`, filterable on status, with a "New Template" toolbar button when `canCreate`.
-
-Each page is a server component opening with:
+Create `src/components/cos/cos-template-list-client.tsx`:
 
 ```typescript
-const user = await getCurrentUser();
-if (!user) redirect("/login");
-if (!canManageCosTemplates(user.role)) redirect("/dashboard");
+"use client";
+
+import Link from "next/link";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DataTable } from "@/components/tables/data-table";
+import { cosTemplateColumns } from "@/components/tables/columns/cos-template-columns";
+import type { CosContractTemplate } from "@/lib/actions/cos-contract-template-actions";
+
+interface CosTemplateListClientProps {
+  templates: CosContractTemplate[];
+  canCreate: boolean;
+}
+
+export function CosTemplateListClient({
+  templates,
+  canCreate,
+}: CosTemplateListClientProps) {
+  return (
+    <DataTable
+      columns={cosTemplateColumns()}
+      data={templates}
+      searchableColumns={[{ id: "name", title: "template name" }]}
+      filterableColumns={[
+        {
+          id: "status",
+          title: "Status",
+          options: [
+            { label: "Active", value: "Active" },
+            { label: "Inactive", value: "Inactive" },
+          ],
+        },
+      ]}
+      toolbar={
+        canCreate ? (
+          <Link href="/cos/templates/new">
+            <Button size="sm">
+              <Plus className="h-4 w-4" />
+              New Template
+            </Button>
+          </Link>
+        ) : null
+      }
+    />
+  );
+}
 ```
 
-The list page (`/cos/templates`) additionally passes `canCreate={canManageCosTemplates(user.role)}` and `canDelete={user.role === "super_admin"}`. The `[id]/edit` page awaits `params` before destructuring and calls `notFound()` when `getCosContractTemplate` returns null.
+Create `src/app/(dashboard)/cos/templates/page.tsx`:
+
+```typescript
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageCosTemplates } from "@/lib/auth-helpers";
+import { getCosContractTemplates } from "@/lib/actions/cos-contract-template-actions";
+import { CosTemplateListClient } from "@/components/cos/cos-template-list-client";
+
+export default async function CosTemplatesPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (!canManageCosTemplates(user.role)) redirect("/dashboard");
+
+  const templates = await getCosContractTemplates();
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Contract Templates
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Reusable contract boilerplate. Creating a contract copies the template
+          body, so editing a template never changes a contract already issued.
+        </p>
+      </div>
+      <CosTemplateListClient
+        templates={templates}
+        canCreate={canManageCosTemplates(user.role)}
+      />
+    </div>
+  );
+}
+```
+
+Create `src/app/(dashboard)/cos/templates/new/page.tsx`:
+
+```typescript
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageCosTemplates } from "@/lib/auth-helpers";
+import { CosTemplateForm } from "@/components/cos/cos-template-form";
+
+export default async function NewCosTemplatePage() {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (!canManageCosTemplates(user.role)) redirect("/dashboard");
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-2xl font-bold tracking-tight">New Contract Template</h1>
+      <CosTemplateForm mode="create" />
+    </div>
+  );
+}
+```
+
+Create `src/app/(dashboard)/cos/templates/[id]/edit/page.tsx`:
+
+```typescript
+import { notFound, redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { canManageCosTemplates } from "@/lib/auth-helpers";
+import { getCosContractTemplate } from "@/lib/actions/cos-contract-template-actions";
+import { CosTemplateForm } from "@/components/cos/cos-template-form";
+
+export default async function EditCosTemplatePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  // Params are async in Next 16 — await before destructuring.
+  const { id } = await params;
+
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  if (!canManageCosTemplates(user.role)) redirect("/dashboard");
+
+  const template = await getCosContractTemplate(id);
+  if (!template) notFound();
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-2xl font-bold tracking-tight">Edit Template</h1>
+      <CosTemplateForm mode="edit" template={template} />
+    </div>
+  );
+}
+```
 
 - [ ] **Step 5: Verify**
 
@@ -2487,18 +2816,496 @@ export function CosContractPdf({
 
 - [ ] **Step 2: Build the print button**
 
-Create `src/components/cos/cos-contract-pdf-button.tsx`, modelled on `src/components/nosa/nosa-pdf-button.tsx`. It is a `"use client"` component that builds the `MergeContext` from the contract and its joined employee, calls `await pdf(<CosContractPdf … />).toBlob()`, then opens the blob via `URL.createObjectURL`. `today` comes from `toIsoDateString(new Date())`.
+Create `src/components/cos/cos-contract-pdf-button.tsx`:
+
+```typescript
+"use client";
+
+import { useState } from "react";
+import { Printer, Loader2 } from "lucide-react";
+import { pdf } from "@react-pdf/renderer";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { CosContractPdf } from "@/components/pdf/cos-contract-pdf";
+import type { CosContractWithEmployee } from "@/lib/actions/cos-contract-actions";
+import type { MergeContext } from "@/lib/cos-merge-fields";
+import { formatCosEmployeeName, toIsoDateString } from "@/lib/cos-constants";
+
+interface CosContractPdfButtonProps {
+  contract: CosContractWithEmployee;
+}
+
+export function CosContractPdfButton({ contract }: CosContractPdfButtonProps) {
+  const [generating, setGenerating] = useState(false);
+  const employee = contract.cos_employees;
+
+  const handleGenerate = async () => {
+    if (!employee) {
+      toast.error("This contract has no employee record attached");
+      return;
+    }
+    setGenerating(true);
+    try {
+      // Flattens the PostgREST join into the shape cos-merge-fields expects.
+      // departmentName is the one rename: the join nests it under departments.
+      const mergeContext: MergeContext = {
+        employee: {
+          first_name: employee.first_name,
+          middle_name: employee.middle_name,
+          last_name: employee.last_name,
+          suffix: employee.suffix,
+          cos_no: employee.cos_no,
+          address: employee.address,
+          departmentName: employee.departments?.name ?? null,
+        },
+        contract: {
+          position_title: contract.position_title,
+          monthly_rate: contract.monthly_rate,
+          period_start: contract.period_start,
+          period_end: contract.period_end,
+          scope_of_work: contract.scope_of_work,
+          signatory_name: contract.signatory_name,
+          signatory_position: contract.signatory_position,
+          witness_name: contract.witness_name,
+          witness_position: contract.witness_position,
+        },
+        today: toIsoDateString(new Date()),
+      };
+
+      const blob = await pdf(
+        <CosContractPdf
+          body={contract.body}
+          mergeContext={mergeContext}
+          employeeName={formatCosEmployeeName(employee)}
+        />,
+      ).toBlob();
+
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      // Revoking immediately would race the new tab's load in some browsers.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not generate the contract PDF");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <Button variant="outline" size="sm" onClick={handleGenerate} disabled={generating}>
+      {generating ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <Printer className="h-4 w-4" />
+      )}
+      Print Contract
+    </Button>
+  );
+}
+```
 
 - [ ] **Step 3: Build the contract form**
 
-Create `src/components/cos/cos-contract-form.tsx`, modelled on `cos-employee-form.tsx`. Three `Card` sections — Employee & Period, Terms, Signatories — plus the editor for Contract Body.
+Create `src/components/cos/cos-contract-form.tsx`:
 
-Behaviours the form must have:
-- The employee `Select` lists only `status === "active"` employees and is **disabled** in `edit` and `renew` modes.
-- Choosing a template calls `getCosContractTemplate(id)` and loads its `body` into the editor. If the editor already holds a non-empty document, confirm via `AlertDialog` before replacing it.
-- `position_title` and `monthly_rate` prefill from the selected employee, and stay editable.
-- A `mode` prop of `"create" | "edit" | "renew"` picks the action: `createCosContract`, `updateCosContract(id, …)`, or `renewCosContract(sourceId, …)`.
-- A returned `field` maps to `setError(field, { message })`; every failure also toasts.
+```typescript
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { CosRichTextEditor } from "@/components/cos/cos-rich-text-editor";
+import {
+  createCosContract,
+  updateCosContract,
+  renewCosContract,
+  type CosContractWithEmployee,
+} from "@/lib/actions/cos-contract-actions";
+import { getCosContractTemplate } from "@/lib/actions/cos-contract-template-actions";
+import {
+  cosContractFormSchema,
+  type CosContractFormValues,
+} from "@/lib/validations/cos-contract-schema";
+import { EMPTY_CONTRACT_DOC, type TiptapNode } from "@/lib/cos-contract-doc";
+import { formatCosEmployeeName } from "@/lib/cos-constants";
+
+const NONE = "none";
+
+export interface ContractFormEmployee {
+  id: string;
+  cos_no: string;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  suffix: string | null;
+  position_title: string | null;
+  monthly_rate: number | null;
+}
+
+interface CosContractFormProps {
+  mode: "create" | "edit" | "renew";
+  /** Active employees only — an inactive one cannot receive a new contract. */
+  employees: ContractFormEmployee[];
+  templates: { id: string; name: string }[];
+  /** The row being edited (edit) or renewed (renew). */
+  contract?: CosContractWithEmployee;
+  /** Prefill for create/duplicate. Ignored in edit and renew. */
+  defaults?: Partial<CosContractFormValues>;
+}
+
+function isEmptyDoc(doc: TiptapNode): boolean {
+  return !doc.content || doc.content.length === 0;
+}
+
+export function CosContractForm({
+  mode,
+  employees,
+  templates,
+  contract,
+  defaults,
+}: CosContractFormProps) {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  // Holds a template whose body would overwrite existing work, pending confirm.
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    setError,
+    formState: { errors },
+  } = useForm<CosContractFormValues>({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resolver: zodResolver(cosContractFormSchema) as any,
+    defaultValues: {
+      cos_employee_id:
+        contract?.cos_employee_id ?? defaults?.cos_employee_id ?? "",
+      // Period is never prefilled on renew or duplicate: reusing the source
+      // period would be rejected by the exclusion constraint every time.
+      period_start: mode === "edit" ? contract!.period_start : "",
+      period_end: mode === "edit" ? contract!.period_end : "",
+      monthly_rate: contract?.monthly_rate ?? defaults?.monthly_rate ?? null,
+      position_title:
+        contract?.position_title ?? defaults?.position_title ?? null,
+      scope_of_work: contract?.scope_of_work ?? defaults?.scope_of_work ?? null,
+      signatory_name:
+        contract?.signatory_name ?? defaults?.signatory_name ?? null,
+      signatory_position:
+        contract?.signatory_position ?? defaults?.signatory_position ?? null,
+      witness_name: contract?.witness_name ?? defaults?.witness_name ?? null,
+      witness_position:
+        contract?.witness_position ?? defaults?.witness_position ?? null,
+      template_id: contract?.template_id ?? defaults?.template_id ?? null,
+      body: contract?.body ?? defaults?.body ?? EMPTY_CONTRACT_DOC,
+    },
+  });
+
+  const watchEmployee = watch("cos_employee_id");
+  const watchTemplate = watch("template_id");
+  const watchBody = watch("body") as TiptapNode;
+
+  const employeeLocked = mode !== "create";
+
+  /** Prefills position and rate from the registry; both stay editable. */
+  const onEmployeeChange = (id: string) => {
+    setValue("cos_employee_id", id, { shouldValidate: true });
+    const emp = employees.find((e) => e.id === id);
+    if (!emp) return;
+    setValue("position_title", emp.position_title, { shouldValidate: true });
+    setValue("monthly_rate", emp.monthly_rate, { shouldValidate: true });
+  };
+
+  const applyTemplate = async (id: string) => {
+    setValue("template_id", id, { shouldValidate: true });
+    const template = await getCosContractTemplate(id);
+    if (!template) {
+      toast.error("That template could not be loaded");
+      return;
+    }
+    setValue("body", template.body, { shouldValidate: true });
+  };
+
+  const onTemplateChange = (value: string) => {
+    if (value === NONE) {
+      setValue("template_id", null, { shouldValidate: true });
+      return;
+    }
+    // Replacing a body the user has already written is destructive — confirm.
+    if (!isEmptyDoc(watchBody)) {
+      setPendingTemplateId(value);
+      return;
+    }
+    void applyTemplate(value);
+  };
+
+  const onSubmit = async (values: CosContractFormValues) => {
+    setLoading(true);
+    const result =
+      mode === "create"
+        ? await createCosContract(values)
+        : mode === "renew"
+          ? await renewCosContract(contract!.id, values)
+          : await updateCosContract(contract!.id, values);
+    setLoading(false);
+
+    if ("error" in result) {
+      if ("field" in result && result.field) {
+        setError(result.field as keyof CosContractFormValues, {
+          message: result.error,
+        });
+      }
+      toast.error(result.error);
+      return;
+    }
+
+    toast.success(
+      mode === "renew"
+        ? "Contract renewed"
+        : mode === "create"
+          ? "Contract created"
+          : "Contract updated",
+    );
+    router.push(`/cos/contracts/${result.data.id}`);
+    router.refresh();
+  };
+
+  return (
+    <>
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Employee &amp; Period</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2 sm:col-span-2">
+              <Label>COS Employee</Label>
+              <Select
+                value={watchEmployee || NONE}
+                disabled={employeeLocked}
+                items={[
+                  { value: NONE, label: "Select an employee" },
+                  ...employees.map((e) => ({
+                    value: e.id,
+                    label: `${formatCosEmployeeName(e)} (${e.cos_no})`,
+                  })),
+                ]}
+                onValueChange={(v) => v !== NONE && onEmployeeChange(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {formatCosEmployeeName(e)} ({e.cos_no})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {employeeLocked && (
+                <p className="text-sm text-muted-foreground">
+                  The employee is fixed once a contract exists.
+                </p>
+              )}
+              {errors.cos_employee_id && (
+                <p className="text-sm text-destructive">
+                  {errors.cos_employee_id.message}
+                </p>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="period_start">Start Date</Label>
+              <Input id="period_start" type="date" {...register("period_start")} />
+              {errors.period_start && (
+                <p className="text-sm text-destructive">
+                  {errors.period_start.message}
+                </p>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="period_end">End Date</Label>
+              <Input id="period_end" type="date" {...register("period_end")} />
+              {errors.period_end && (
+                <p className="text-sm text-destructive">
+                  {errors.period_end.message}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Terms</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="position_title">Position</Label>
+              <Input id="position_title" {...register("position_title")} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="monthly_rate">Monthly Rate</Label>
+              <Input
+                id="monthly_rate"
+                type="number"
+                step="0.01"
+                min="0"
+                {...register("monthly_rate")}
+              />
+              {errors.monthly_rate && (
+                <p className="text-sm text-destructive">
+                  {errors.monthly_rate.message}
+                </p>
+              )}
+            </div>
+            <div className="grid gap-2 sm:col-span-2">
+              <Label htmlFor="scope_of_work">Scope of Work</Label>
+              <Textarea id="scope_of_work" rows={3} {...register("scope_of_work")} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Signatories</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="signatory_name">Signatory Name</Label>
+              <Input id="signatory_name" {...register("signatory_name")} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="signatory_position">Signatory Position</Label>
+              <Input id="signatory_position" {...register("signatory_position")} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="witness_name">Witness Name</Label>
+              <Input id="witness_name" {...register("witness_name")} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="witness_position">Witness Position</Label>
+              <Input id="witness_position" {...register("witness_position")} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Contract Body</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-2 sm:max-w-sm">
+              <Label>Start from a template</Label>
+              <Select
+                value={watchTemplate ?? NONE}
+                items={[
+                  { value: NONE, label: "No template" },
+                  ...templates.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+                onValueChange={onTemplateChange}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="No template" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>No template</SelectItem>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                The template body is copied here. Editing the template later
+                will not change this contract.
+              </p>
+            </div>
+            <CosRichTextEditor
+              value={watchBody}
+              onChange={(doc) => setValue("body", doc, { shouldValidate: true })}
+            />
+          </CardContent>
+        </Card>
+
+        <div className="flex gap-2">
+          <Button type="submit" disabled={loading}>
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {mode === "renew"
+              ? "Create Renewal"
+              : mode === "create"
+                ? "Create Contract"
+                : "Save Changes"}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => router.back()}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+
+      <AlertDialog
+        open={pendingTemplateId !== null}
+        onOpenChange={(open) => !open && setPendingTemplateId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Replace the contract body?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This contract already has a body. Loading this template will
+              discard what is currently written.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep what I have</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const id = pendingTemplateId;
+                setPendingTemplateId(null);
+                if (id) void applyTemplate(id);
+              }}
+            >
+              Replace it
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+```
 
 **Query-parameter contract for `/cos/contracts/new`** — the page reads these and passes the resulting defaults into the form. Both are optional; the plain `/cos/contracts/new` route prefills nothing.
 
@@ -2536,7 +3343,126 @@ The status column's `accessorFn` must return the **derived** status so the facet
 }
 ```
 
-The five pages follow the COS-1 guard opening (`getCurrentUser` → `canManageCos` → `redirect`). The detail page shows the terms, the resolved status badge, the print button, and Renew / Terminate / Edit actions; Renew is hidden when the contract is terminated or already has a successor.
+Full columns file — `src/components/tables/columns/cos-contract-columns.tsx`:
+
+```typescript
+"use client";
+
+import { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
+import { format } from "date-fns";
+import { Badge } from "@/components/ui/badge";
+import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
+import type { CosContractWithEmployee } from "@/lib/actions/cos-contract-actions";
+import {
+  COS_CONTRACT_STATUS_LABELS,
+  COS_CONTRACT_STATUS_VARIANT,
+  deriveCosContractStatus,
+  formatCosEmployeeName,
+} from "@/lib/cos-constants";
+
+/** "Jan 1, 2026" without constructing a Date from a bare ISO string. */
+function formatDay(iso: string): string {
+  return format(new Date(`${iso}T00:00:00`), "MMM d, yyyy");
+}
+
+export function cosContractColumns(): ColumnDef<CosContractWithEmployee>[] {
+  return [
+    {
+      id: "employee",
+      accessorFn: (row) =>
+        row.cos_employees
+          ? `${formatCosEmployeeName(row.cos_employees)} ${row.cos_employees.cos_no}`
+          : "—",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Employee" />
+      ),
+      cell: ({ row }) => (
+        <Link
+          href={`/cos/contracts/${row.original.id}`}
+          className="font-medium text-primary hover:underline"
+        >
+          {row.original.cos_employees
+            ? formatCosEmployeeName(row.original.cos_employees)
+            : "—"}
+        </Link>
+      ),
+    },
+    {
+      id: "department",
+      accessorFn: (row) => row.cos_employees?.departments?.name ?? "—",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Department" />
+      ),
+      filterFn: (row, id, value: string[]) =>
+        value.includes(row.getValue(id) as string),
+    },
+    {
+      id: "period",
+      accessorFn: (row) => row.period_start,
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Period" />
+      ),
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap">
+          {formatDay(row.original.period_start)} –{" "}
+          {formatDay(row.original.period_end)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "monthly_rate",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Monthly Rate" />
+      ),
+      cell: ({ row }) => (
+        <span className="tabular-nums">
+          {row.original.monthly_rate === null
+            ? "—"
+            : row.original.monthly_rate.toLocaleString("en-PH", {
+                style: "currency",
+                currency: "PHP",
+                minimumFractionDigits: 2,
+              })}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      accessorFn: (row) => deriveCosContractStatus(row),
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Status" />
+      ),
+      cell: ({ row }) => {
+        const derived = deriveCosContractStatus(row.original);
+        return (
+          <Badge variant={COS_CONTRACT_STATUS_VARIANT[derived]}>
+            {COS_CONTRACT_STATUS_LABELS[derived]}
+          </Badge>
+        );
+      },
+      filterFn: (row, id, value: string[]) =>
+        value.includes(row.getValue(id) as string),
+    },
+  ];
+}
+```
+
+`src/components/cos/cos-contract-list-client.tsx` mirrors `cos-template-list-client.tsx` exactly, with `searchableColumns={[{ id: "employee", title: "employee name or COS no." }]}`, a department filter built from the distinct department names passed in as `departmentOptions`, a status filter over `["active", "expired", "terminated"]` labelled from `COS_CONTRACT_STATUS_LABELS`, and a "New Contract" toolbar button linking to `/cos/contracts/new` when `canCreate`.
+
+The five pages all open with the COS-1 guard:
+
+```typescript
+const user = await getCurrentUser();
+if (!user) redirect("/login");
+if (!canManageCos(user.role)) redirect("/dashboard");
+```
+
+- **`/cos/contracts/page.tsx`** — `await getCosContracts()`, derive `departmentOptions` from the results, render `<CosContractListClient>` with `canCreate={canManageCos(user.role)}`.
+- **`/cos/contracts/loading.tsx`** — copy `src/app/(dashboard)/cos/employees/loading.tsx` verbatim.
+- **`/cos/contracts/new/page.tsx`** — awaits `searchParams`, reads the three params documented in Step 3, loads active employees and active templates, and when `renew` or `duplicate` is present loads that contract and passes it as `contract` (renew) or maps it into `defaults` (duplicate). `renew` wins if both are present.
+- **`/cos/contracts/[id]/page.tsx`** — awaits `params`, `getCosContract(id)`, `notFound()` when null. Renders the terms, the derived status badge, `<CosContractPdfButton>`, and Edit / Renew / Terminate actions. **Renew is rendered only when** the contract is neither terminated nor already succeeded — check for a successor with `getContractsForEmployee(contract.cos_employee_id).some(c => c.renewed_from_id === contract.id)`. Terminate opens a dialog collecting `terminated_on` and `termination_reason`, submitting to `terminateCosContract`.
+- **`/cos/contracts/[id]/edit/page.tsx`** — awaits `params`, loads the contract plus active employees and templates, renders `<CosContractForm mode="edit" …>`.
 
 - [ ] **Step 5: Verify**
 
@@ -2567,18 +3493,143 @@ git commit -m "feat(cos): add contract UI and PDF printing"
 
 - [ ] **Step 1: Build the timeline**
 
-Create `src/components/cos/cos-contract-timeline.tsx`. It takes `contracts: CosContractWithEmployee[]` (oldest-first) and `employeeIsActive: boolean`.
-
-Ordering: build a map from `renewed_from_id` to successor, start from each contract with no `renewed_from_id`, and walk the chain. Contracts are rendered chain by chain, successors indented one step under their predecessor. Any contract not reachable from a root — which the `UNIQUE (renewed_from_id)` constraint should make impossible — is appended at the end rather than dropped, so a data anomaly is visible instead of silent.
-
-Each row shows period, monthly rate, the derived status badge, and View / Print / Renew / Duplicate links. Renew is omitted when the contract is terminated or already has a successor.
-
-The empty state keeps COS-1's copy so an employee with no contracts reads the same as before:
+Create `src/components/cos/cos-contract-timeline.tsx`:
 
 ```typescript
-<p className="text-sm text-muted-foreground">
-  No contracts recorded for this employee yet.
-</p>
+import Link from "next/link";
+import { format } from "date-fns";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import type { CosContractWithEmployee } from "@/lib/actions/cos-contract-actions";
+import {
+  COS_CONTRACT_STATUS_LABELS,
+  COS_CONTRACT_STATUS_VARIANT,
+  deriveCosContractStatus,
+} from "@/lib/cos-constants";
+
+function formatDay(iso: string): string {
+  return format(new Date(`${iso}T00:00:00`), "MMM d, yyyy");
+}
+
+/**
+ * Orders contracts as renewal chains: each root (no renewed_from_id) followed
+ * by its successors, each indented one step deeper.
+ *
+ * Any contract not reachable from a root is appended at depth 0 rather than
+ * dropped. UNIQUE (renewed_from_id) plus ON DELETE RESTRICT should make an
+ * orphan impossible, so if one appears it is a data anomaly — showing it is
+ * how anyone finds out.
+ */
+function toChains(
+  contracts: CosContractWithEmployee[],
+): { contract: CosContractWithEmployee; depth: number }[] {
+  const successorOf = new Map<string, CosContractWithEmployee>();
+  for (const c of contracts) {
+    if (c.renewed_from_id) successorOf.set(c.renewed_from_id, c);
+  }
+
+  const rows: { contract: CosContractWithEmployee; depth: number }[] = [];
+  const seen = new Set<string>();
+
+  for (const root of contracts.filter((c) => !c.renewed_from_id)) {
+    let current: CosContractWithEmployee | undefined = root;
+    let depth = 0;
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      rows.push({ contract: current, depth });
+      current = successorOf.get(current.id);
+      depth += 1;
+    }
+  }
+
+  for (const c of contracts) {
+    if (!seen.has(c.id)) rows.push({ contract: c, depth: 0 });
+  }
+
+  return rows;
+}
+
+interface CosContractTimelineProps {
+  /** Oldest-first, as returned by getContractsForEmployee. */
+  contracts: CosContractWithEmployee[];
+}
+
+export function CosContractTimeline({ contracts }: CosContractTimelineProps) {
+  if (contracts.length === 0) {
+    return (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        No contracts recorded for this employee yet.
+      </p>
+    );
+  }
+
+  const rows = toChains(contracts);
+  const hasSuccessor = new Set(
+    contracts.map((c) => c.renewed_from_id).filter((id): id is string => !!id),
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      {rows.map(({ contract, depth }) => {
+        const derived = deriveCosContractStatus(contract);
+        const canRenew = derived !== "terminated" && !hasSuccessor.has(contract.id);
+
+        return (
+          <div
+            key={contract.id}
+            className="flex flex-wrap items-center gap-3 rounded-md border p-3"
+            style={{ marginLeft: `${depth * 24}px` }}
+          >
+            <div className="flex-1 min-w-[220px]">
+              <p className="text-sm font-medium">
+                {formatDay(contract.period_start)} – {formatDay(contract.period_end)}
+                {contract.renewed_from_id ? (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    (renewal)
+                  </span>
+                ) : null}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {contract.position_title ?? "—"}
+                {contract.monthly_rate !== null
+                  ? ` · ${contract.monthly_rate.toLocaleString("en-PH", {
+                      style: "currency",
+                      currency: "PHP",
+                      minimumFractionDigits: 2,
+                    })}`
+                  : ""}
+              </p>
+            </div>
+
+            <Badge variant={COS_CONTRACT_STATUS_VARIANT[derived]}>
+              {COS_CONTRACT_STATUS_LABELS[derived]}
+            </Badge>
+
+            <div className="flex gap-2">
+              <Link href={`/cos/contracts/${contract.id}`}>
+                <Button variant="outline" size="sm">
+                  View
+                </Button>
+              </Link>
+              {canRenew ? (
+                <Link href={`/cos/contracts/new?renew=${contract.id}`}>
+                  <Button variant="outline" size="sm">
+                    Renew
+                  </Button>
+                </Link>
+              ) : null}
+              <Link href={`/cos/contracts/new?duplicate=${contract.id}`}>
+                <Button variant="outline" size="sm">
+                  Duplicate
+                </Button>
+              </Link>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 ```
 
 - [ ] **Step 2: Replace the placeholder**
@@ -2626,10 +3677,7 @@ with:
           )}
         </CardHeader>
         <CardContent>
-          <CosContractTimeline
-            contracts={contracts}
-            employeeIsActive={employee.status === "active"}
-          />
+          <CosContractTimeline contracts={contracts} />
         </CardContent>
       </Card>
 ```
