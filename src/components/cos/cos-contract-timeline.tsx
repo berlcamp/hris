@@ -3,6 +3,7 @@ import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CosContractWithEmployee } from "@/lib/actions/cos-contract-actions";
+import { toChains } from "@/lib/cos-contract-chains";
 import {
   COS_CONTRACT_STATUS_LABELS,
   COS_CONTRACT_STATUS_VARIANT,
@@ -11,44 +12,6 @@ import {
 
 function formatDay(iso: string): string {
   return format(new Date(`${iso}T00:00:00`), "MMM d, yyyy");
-}
-
-/**
- * Orders contracts as renewal chains: each root (no renewed_from_id) followed
- * by its successors, each indented one step deeper.
- *
- * Any contract not reachable from a root is appended at depth 0 rather than
- * dropped. UNIQUE (renewed_from_id) plus ON DELETE RESTRICT should make an
- * orphan impossible, so if one appears it is a data anomaly — showing it is
- * how anyone finds out.
- */
-function toChains(
-  contracts: CosContractWithEmployee[],
-): { contract: CosContractWithEmployee; depth: number }[] {
-  const successorOf = new Map<string, CosContractWithEmployee>();
-  for (const c of contracts) {
-    if (c.renewed_from_id) successorOf.set(c.renewed_from_id, c);
-  }
-
-  const rows: { contract: CosContractWithEmployee; depth: number }[] = [];
-  const seen = new Set<string>();
-
-  for (const root of contracts.filter((c) => !c.renewed_from_id)) {
-    let current: CosContractWithEmployee | undefined = root;
-    let depth = 0;
-    while (current && !seen.has(current.id)) {
-      seen.add(current.id);
-      rows.push({ contract: current, depth });
-      current = successorOf.get(current.id);
-      depth += 1;
-    }
-  }
-
-  for (const c of contracts) {
-    if (!seen.has(c.id)) rows.push({ contract: c, depth: 0 });
-  }
-
-  return rows;
 }
 
 interface CosContractTimelineProps {
