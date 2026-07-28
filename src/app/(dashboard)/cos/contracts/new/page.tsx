@@ -67,6 +67,14 @@ export default async function NewCosContractPage({
   if (renew) {
     const source = await getCosContract(renew);
     if (!source) notFound();
+    // A terminated contract can never be renewed — see the `source.status
+    // === "terminated"` guard in renewCosContract (cos-contract-actions.ts),
+    // which is the actual authority. The Renew link on [id]/page.tsx and the
+    // timeline are already hidden once a contract reads as terminated, so
+    // this only matters for a stale link or a typed-in `?renew=<id>` URL;
+    // failing here (not just at submit) avoids showing a form for an action
+    // that can never succeed.
+    if (source.status === "terminated") notFound();
     mode = "renew";
     contract = source;
     // The employee is locked in renew mode (see cos-contract-form.tsx,

@@ -110,10 +110,19 @@ const TOKEN_PATTERN = /\{\{\s*([a-z_]+)\s*\}\}/g;
  * Replaces every {{token}} in `text`. An unknown token or a null value becomes
  * an empty string — a printed contract must never show raw {{...}} to a
  * signatory.
+ *
+ * `Object.hasOwn` (not `values[token] ?? ""`) is deliberate: `values[token]`
+ * reads through the prototype chain, so a token like `{{constructor}}` or
+ * `{{__proto__}}` — both of which match the `[a-z_]+` token pattern — would
+ * resolve to `Object.prototype.constructor`/`.__proto__` instead of falling
+ * through to the empty-string default, printing
+ * "function Object() { [native code] }" or "[object Object]" into a legal
+ * document. `Object.hasOwn` only reports true for the plain data keys
+ * `buildValues` actually assigns, so any such token still renders empty.
  */
 export function resolveMergeFields(text: string, ctx: MergeContext): string {
   const values = buildValues(ctx);
   return text.replace(TOKEN_PATTERN, (_match, token: string) =>
-    values[token] ?? "",
+    Object.hasOwn(values, token) ? values[token] : "",
   );
 }

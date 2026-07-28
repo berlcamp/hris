@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { ListItem } from "@tiptap/extension-list";
@@ -30,23 +31,68 @@ import { cn } from "@/lib/utils";
 //     can no longer contain a bulletList/orderedList child, so even a paste
 //     of pre-nested HTML is rejected by the schema instead of round-tripping
 //     into a doc the converter will silently truncate.
-//   - Tab/Shift-Tab are turned into no-ops instead of sinkListItem/
-//     liftListItem. This is required in addition to the schema change: those
-//     commands build a ReplaceAroundStep directly (see
+//   - Tab/Shift-Tab are overridden to a no-op (return false) instead of
+//     sinkListItem/liftListItem. This is required in addition to the schema
+//     change: those commands build a ReplaceAroundStep directly (see
 //     node_modules/prosemirror-schema-list) without first checking whether
 //     the result fits the schema, so leaving them wired up would throw at
-//     the now-disallowed nesting rather than fail quietly. Swallowing the
-//     key also avoids Tab shifting focus out of the editor.
+//     the now-disallowed nesting rather than fail quietly.
+//     Returning `false` (not `true`) is deliberate: ProseMirror's keymap
+//     calls preventDefault() only when a handler returns true, so `true`
+//     here would swallow Tab/Shift-Tab entirely and trap keyboard focus
+//     inside the editor with no way out but the mouse (WCAG 2.1.2). `false`
+//     marks the key unhandled and lets it fall through to the browser's
+//     normal focus movement. @tiptap/extension-list's ListKeymap only binds
+//     Delete/Mod-Delete/Backspace/Mod-Backspace, so nothing else in this
+//     extension set claims Tab — falling through is safe.
 const NoNestListItem = ListItem.extend({
   content: "paragraph+",
   addKeyboardShortcuts() {
     return {
       ...this.parent?.(),
-      Tab: () => true,
-      "Shift-Tab": () => true,
+      Tab: () => false,
+      "Shift-Tab": () => false,
     };
   },
 });
+
+/**
+ * Structural equality for Tiptap/ProseMirror JSON, used by the content-sync
+ * effect below to decide whether an incoming `value` prop actually differs
+ * from what the editor already holds. Deliberately NOT `JSON.stringify(a) ===
+ * JSON.stringify(b)`: key order in the two sides can differ (one comes from
+ * `editor.getJSON()`, schema-driven; the other from a template/form value
+ * built by plain object literals), which would make a stringify comparison
+ * report "different" for genuinely identical documents and defeat the guard.
+ * Comparing field-by-field (marks compared as a set, attrs compared by key
+ * regardless of insertion order) is insensitive to that.
+ */
+function nodesEqual(a: TiptapNode, b: TiptapNode): boolean {
+  if (a === b) return true;
+  if (a.type !== b.type || a.text !== b.text) return false;
+
+  const aMarks = a.marks ?? [];
+  const bMarks = b.marks ?? [];
+  if (aMarks.length !== bMarks.length) return false;
+  const aMarkTypes = aMarks.map((m) => m.type).sort();
+  const bMarkTypes = bMarks.map((m) => m.type).sort();
+  if (aMarkTypes.some((t, i) => t !== bMarkTypes[i])) return false;
+
+  const aAttrs = a.attrs ?? {};
+  const bAttrs = b.attrs ?? {};
+  const aKeys = Object.keys(aAttrs);
+  const bKeys = Object.keys(bAttrs);
+  if (aKeys.length !== bKeys.length) return false;
+  if (aKeys.some((k) => !Object.is(aAttrs[k], bAttrs[k]))) return false;
+
+  const aContent = a.content ?? [];
+  const bContent = b.content ?? [];
+  if (aContent.length !== bContent.length) return false;
+  for (let i = 0; i < aContent.length; i++) {
+    if (!nodesEqual(aContent[i], bContent[i])) return false;
+  }
+  return true;
+}
 
 interface CosRichTextEditorProps {
   value: TiptapNode;
@@ -113,6 +159,30 @@ export function CosRichTextEditor({ value, onChange }: CosRichTextEditorProps) {
       },
     },
   });
+
+  // useEditor is called with the default deps ([]), so after the first
+  // render it only ever calls editor.setOptions(...) on rerender (see
+  // EditorInstanceManager.onRender in @tiptap/react) — that merges options
+  // and updates the view's state, but it never re-parses `content` into a
+  // new document. The ProseMirror doc is built once, at construction, so the
+  // `value` prop is otherwise write-once: picking a template after mount
+  // (applyTemplate in cos-contract-form.tsx) updates form state but the
+  // visible editor stays on whatever it started with. This effect pushes an
+  // external `value` change into the live editor explicitly.
+  //
+  // The equality guard is essential, not an optimisation: every keystroke
+  // fires onUpdate -> onChange -> a new `value` reference from the parent's
+  // re-render. Without the guard this effect would call setContent on every
+  // keystroke, which rebuilds the ProseMirror doc and blows away the user's
+  // cursor position and undo history mid-typing. nodesEqual (above) compares
+  // structurally rather than by reference or by JSON.stringify, so a `value`
+  // that is a *new but equivalent* object (the common case while typing)
+  // correctly counts as "no change" and setContent is skipped.
+  useEffect(() => {
+    if (!editor) return;
+    if (nodesEqual(editor.getJSON() as TiptapNode, value)) return;
+    editor.commands.setContent(value, { emitUpdate: false });
+  }, [editor, value]);
 
   if (!editor) return null;
 

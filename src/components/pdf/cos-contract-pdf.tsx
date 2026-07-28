@@ -7,6 +7,7 @@ import {
 } from "@react-pdf/renderer";
 import {
   contractDocToBlocks,
+  runTextStyle,
   type ContractBlock,
   type TiptapNode,
 } from "@/lib/cos-contract-doc";
@@ -37,19 +38,18 @@ const styles = StyleSheet.create({
  * breaking engine treats an embedded "\n" as a forced break point (see
  * @react-pdf/textkit's linebreaker, which searches the string for '\n').
  * No special-casing is needed — the run just needs to reach that string.
+ *
+ * Style comes from runTextStyle() in cos-contract-doc.ts, not inlined here —
+ * see that function's comment for why fontFamily must stay "Times-Roman"
+ * (never "Times-Bold") with weight driving bold instead. Sharing the one
+ * function lets a render smoke test exercise the exact production logic
+ * under `node --experimental-strip-types`, which cannot parse this file's JSX.
  */
 function Runs({ block }: { block: ContractBlock }) {
   return (
     <>
       {block.runs.map((run, i) => (
-        <Text
-          key={i}
-          style={{
-            fontFamily: run.bold ? "Times-Bold" : "Times-Roman",
-            fontStyle: run.italic ? "italic" : "normal",
-            textDecoration: run.underline ? "underline" : "none",
-          }}
-        >
+        <Text key={i} style={runTextStyle(run)}>
           {run.text}
         </Text>
       ))}

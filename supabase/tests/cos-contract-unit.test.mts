@@ -3,9 +3,20 @@
 // Imports are RELATIVE with a .ts extension: the Node test runner
 // (`node --experimental-strip-types`) cannot resolve the "@/" path alias,
 // which only Next.js's bundler understands.
+//
+// The PDF render smoke tests near the bottom of this file DO pull in React
+// and @react-pdf/renderer — that stays consistent with "no DOM" (react-pdf's
+// renderToBuffer runs entirely server-side on pdfkit, no browser/jsdom
+// involved) but is real rendering, not a plain data assertion: it is the
+// only way to actually catch a font-resolution throw like C1, which a
+// contractDocToBlocks()-only test cannot see. Built with React.createElement
+// rather than JSX because `node --experimental-strip-types` strips TypeScript
+// syntax only — it does not transform JSX, so this file cannot use it.
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import React from "react";
+import { Document, Page, Text, renderToBuffer } from "@react-pdf/renderer";
 import {
   deriveCosContractStatus,
   toIsoDateString,
@@ -17,7 +28,9 @@ import {
 } from "../../src/lib/cos-merge-fields.ts";
 import {
   contractDocToBlocks,
+  runTextStyle,
   EMPTY_CONTRACT_DOC,
+  type ContractRun,
   type TiptapNode,
 } from "../../src/lib/cos-contract-doc.ts";
 import { toChains } from "../../src/lib/cos-contract-chains.ts";
@@ -150,6 +163,22 @@ test("a null value renders as empty, never as the raw token", () => {
 
 test("an unknown token renders as empty, never as the raw token", () => {
   assert.equal(resolveMergeFields("[{{not_a_field}}]", CTX), "[]");
+});
+
+test("a prototype-chain token renders as empty, not the inherited property", () => {
+  // Regression for a prototype-pollution bug: `values[token] ?? ""` read
+  // through Object.prototype, so "{{constructor}}" resolved to
+  // Object.prototype.constructor (rendering "function Object() { [native
+  // code] }") and "{{__proto__}}" resolved to Object.prototype itself
+  // (rendering "[object Object]") — both into a printed legal document. Both
+  // tokens match the [a-z_]+ token pattern (mixed-case prototype members like
+  // hasOwnProperty/toString/isPrototypeOf don't — the pattern is lowercase
+  // only — so they were never reachable and aren't tested here). The fix
+  // uses Object.hasOwn so only buildValues' own keys resolve; anything else,
+  // including these, falls through to the empty-string default like any
+  // other unknown token.
+  assert.equal(resolveMergeFields("[{{constructor}}]", CTX), "[]");
+  assert.equal(resolveMergeFields("[{{__proto__}}]", CTX), "[]");
 });
 
 test("text with no tokens is returned unchanged", () => {
@@ -344,8 +373,20 @@ test("an unknown node type is dropped, not thrown on", () => {
   assert.equal(blocks[0].runs[0].text, "Survives.");
 });
 
-test("the empty document yields no blocks", () => {
-  assert.deepEqual(contractDocToBlocks(EMPTY_CONTRACT_DOC, CTX), []);
+test("the empty document yields one empty paragraph block", () => {
+  // EMPTY_CONTRACT_DOC is { type: "doc", content: [{ type: "paragraph" }] },
+  // not { type: "doc", content: [] } — the ProseMirror `doc` node's content
+  // spec is `block+` (one-or-more), so the all-empty shape fails schema
+  // validation (Node.check() throws "Invalid content for node doc: <>") even
+  // though Tiptap doesn't enforce it at runtime by default. The converter is
+  // deliberately NOT special-cased to skip a runless paragraph: a paragraph
+  // node with no children is a real, general shape (a user-authored blank
+  // line for spacing produces exactly this), and dropping it here would
+  // silently swallow that blank line from the print too — the file's own
+  // "drop only what's unrecognised" rule stops at node type, not run count.
+  assert.deepEqual(contractDocToBlocks(EMPTY_CONTRACT_DOC, CTX), [
+    { kind: "paragraph", marker: null, runs: [] },
+  ]);
 });
 
 test("a malformed body yields no blocks instead of throwing", () => {
@@ -464,3 +505,45 @@ test("toChains: the same contract object appearing twice in the input is a no-op
     ["b", 1],
   ]);
 });
+
+// ── PDF render smoke test (C1 regression) ───────────────────────────────────
+//
+// Reproduces, at the react-pdf/font level, the exact bug an HR user hit: a
+// run that is both bold and italic threw "Could not resolve font for
+// Times-Bold, fontWeight 400, fontStyle italic" inside pdf(...).toBlob(),
+// which cos-contract-pdf-button.tsx's catch swallowed into an opaque "Could
+// not generate the contract PDF" toast. contractDocToBlocks() alone cannot
+// catch this class of bug — it only produces plain data, never touching
+// @react-pdf/font's resolver — so this exercises a real render through
+// renderToBuffer for all four mark combinations a toolbar can actually
+// produce (the toolbar's Bold and Italic buttons are independent toggles,
+// so a user combining both is an ordinary interaction, not an edge case).
+function renderRun(run: ContractRun) {
+  return React.createElement(
+    Document,
+    null,
+    React.createElement(
+      Page,
+      { size: "A4" },
+      React.createElement(Text, { style: runTextStyle(run) }, run.text || "x"),
+    ),
+  );
+}
+
+const MARK_COMBINATIONS: { name: string; run: ContractRun }[] = [
+  { name: "plain", run: { text: "Plain text.", bold: false, italic: false, underline: false } },
+  { name: "bold", run: { text: "Bold text.", bold: true, italic: false, underline: false } },
+  { name: "italic", run: { text: "Italic text.", bold: false, italic: true, underline: false } },
+  {
+    name: "bold+italic",
+    run: { text: "Bold and italic text.", bold: true, italic: true, underline: false },
+  },
+];
+
+for (const { name, run } of MARK_COMBINATIONS) {
+  test(`PDF render: a ${name} run produces a non-empty PDF buffer`, async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const buffer = await renderToBuffer(renderRun(run) as any);
+    assert.ok(buffer.length > 0);
+  });
+}

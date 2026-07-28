@@ -40,8 +40,57 @@ export interface ContractBlock {
   runs: ContractRun[];
 }
 
-/** What an empty body stores. The column is NOT NULL — never write SQL null. */
-export const EMPTY_CONTRACT_DOC: TiptapNode = { type: "doc", content: [] };
+/**
+ * react-pdf style for one run's bold/italic/underline flags. Pulled out of
+ * src/components/pdf/cos-contract-pdf.tsx (the only consumer) so this exact
+ * logic can be exercised by a render smoke test under
+ * `node --experimental-strip-types`, which cannot parse that file's JSX.
+ *
+ * fontFamily is always "Times-Roman", never "Times-Bold": @react-pdf/font
+ * registers "Times-Roman" as a full four-member family (Roman/Bold/Italic/
+ * BoldItalic) selected via fontWeight/fontStyle, but "Times-Bold" is a
+ * separate backwards-compat family registered with fontStyle "normal" ONLY
+ * (@react-pdf/font/lib/index.browser.js). A run that is both bold and
+ * italic previously asked FontFamily.resolve() for
+ * {fontFamily:"Times-Bold", fontStyle:"italic"}, which does not exist in
+ * that family and THROWS instead of falling back — verified live: plain/
+ * italic/bold each resolved, bold+italic threw "Could not resolve font for
+ * Times-Bold, fontWeight 400, fontStyle italic". Driving weight/style
+ * against the "Times-Roman" family resolves all four combinations,
+ * including bold+italic -> Times-BoldItalic.
+ */
+export function runTextStyle(run: ContractRun): {
+  fontFamily: "Times-Roman";
+  fontWeight: 400 | 700;
+  fontStyle: "italic" | "normal";
+  textDecoration: "underline" | "none";
+} {
+  return {
+    fontFamily: "Times-Roman",
+    fontWeight: run.bold ? 700 : 400,
+    fontStyle: run.italic ? "italic" : "normal",
+    textDecoration: run.underline ? "underline" : "none",
+  };
+}
+
+/**
+ * What an empty body stores. The column is NOT NULL — never write SQL null.
+ *
+ * Must contain at least one block node: the ProseMirror `doc` node's content
+ * spec is `block+` (one-or-more), so `{ type: "doc", content: [] }` fails
+ * schema validation — `doc.type.checkContent()` (called via
+ * `enableContentCheck`, and unconditionally by `Node.check()`) throws
+ * "Invalid content for node doc: <>". Tiptap only tolerates the empty array
+ * because `enableContentCheck` defaults to false and nothing here calls
+ * `.check()` — but this value is also written straight to the NOT NULL
+ * `body` column for every template-less contract, i.e. it lives in the
+ * database, not just in memory, so it needs to be a schema-valid doc on its
+ * own terms rather than merely one Tiptap happens not to reject today.
+ */
+export const EMPTY_CONTRACT_DOC: TiptapNode = {
+  type: "doc",
+  content: [{ type: "paragraph" }],
+};
 
 /**
  * Bridges `TiptapNode` (this module's `type: string`, deliberately widened so

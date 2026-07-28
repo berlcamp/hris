@@ -273,6 +273,16 @@ export async function renewCosContract(
   const source = await getCosContract(sourceId);
   if (!source) return { error: "Contract to renew not found" };
 
+  // The UI hides the Renew action once a contract reads as terminated (see
+  // canRenew on cos/contracts/[id]/page.tsx and cos-contract-timeline.tsx),
+  // but that is UX only — nothing previously stopped a direct POST via a
+  // stale link or a typed `/cos/contracts/new?renew=<terminated-id>` URL from
+  // succeeding, letting a contract terminated for cause acquire a renewal in
+  // its chain. This is the actual authority.
+  if (source.status === "terminated") {
+    return { error: "A terminated contract cannot be renewed" };
+  }
+
   const inactive = await assertEmployeeActive(source.cos_employee_id);
   if (inactive) return inactive;
 

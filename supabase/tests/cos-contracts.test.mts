@@ -33,7 +33,12 @@ const FK_VIOLATION = "23503";
 const EXCLUSION_VIOLATION = "23P01";
 
 const PREFIX = "TEST-CONTRACT-";
-const EMPTY_DOC = { type: "doc", content: [] };
+// Matches src/lib/cos-contract-doc.ts's EMPTY_CONTRACT_DOC: the ProseMirror
+// `doc` node's content spec is `block+`, so `{ content: [] }` is not actually
+// a valid doc (Node.check() throws on it) even though nothing in these DB
+// tests enforces that schema — kept in sync so this fixture doesn't drift
+// back into asserting a shape the real app no longer writes.
+const EMPTY_DOC = { type: "doc", content: [{ type: "paragraph" }] };
 
 /** Creates a throwaway COS employee and returns its id. */
 async function makeEmployee(suffix: string): Promise<string> {
