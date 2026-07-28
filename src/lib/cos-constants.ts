@@ -57,6 +57,9 @@ export type CosContractStatus = (typeof COS_CONTRACT_STATUSES)[number];
  */
 export type CosContractDerivedStatus = "active" | "expired" | "terminated";
 
+export const COS_CONTRACT_DERIVED_STATUSES: readonly CosContractDerivedStatus[] =
+  ["active", "expired", "terminated"] as const;
+
 export const COS_CONTRACT_STATUS_LABELS: Record<
   CosContractDerivedStatus,
   string

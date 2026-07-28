@@ -69,11 +69,26 @@ function baseQuery() {
     .is("deleted_at", null);
 }
 
-async function requireCosManager() {
+interface AuthOk {
+  user: { id: string; email: string };
+}
+
+/**
+ * Explicit return type is required, not decorative: without it, TypeScript
+ * infers the union from these three bare-object return statements and
+ * synthesizes an `error?: undefined` onto the success branch so the shapes
+ * line up structurally. That makes `"error" in auth` in every caller below
+ * ambiguous for the `in` operator (an optional property can't be proven
+ * absent), so the narrowing silently fails to exclude `AuthOk` from the
+ * error branch — verified with `tsc` against a minimal repro of this exact
+ * pattern. Annotating the return type here (mirroring `AuthOk` in
+ * cos-employee-actions.ts) keeps the union "clean" so `in` narrows correctly.
+ */
+async function requireCosManager(): Promise<AuthOk | { error: string }> {
   const user = await getCurrentUser();
-  if (!user) return { error: "Unauthorized" as const };
-  if (!canManageCos(user.role)) return { error: "Insufficient permissions" as const };
-  return { user };
+  if (!user) return { error: "Unauthorized" };
+  if (!canManageCos(user.role)) return { error: "Insufficient permissions" };
+  return { user: { id: user.id, email: user.email } };
 }
 
 /**

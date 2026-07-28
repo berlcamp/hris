@@ -40,6 +40,22 @@ export interface ContractBlock {
 /** What an empty body stores. The column is NOT NULL — never write SQL null. */
 export const EMPTY_CONTRACT_DOC: TiptapNode = { type: "doc", content: [] };
 
+/**
+ * Bridges `TiptapNode` (this module's `type: string`, deliberately widened so
+ * `contractDocToBlocks` can accept and drop unrecognised node types without a
+ * compile-time fight) into a form's `body` field, whose zod schema narrows
+ * `type` to the literal `"doc"` (see `tiptapDoc` in cos-contract-schema.ts).
+ * The two types describe the same runtime value — the editor is the only
+ * author of `body` at runtime — so this is a type-level view mismatch, not an
+ * unsafe runtime cast. Centralised here so every call site (the contract
+ * form's defaultValues, its template-apply handler, its editor onChange, and
+ * the template form's equivalents) goes through one named assertion instead
+ * of scattering ad-hoc `as CosContractFormValues["body"]` casts.
+ */
+export function asFormBody<T>(doc: TiptapNode): T {
+  return doc as unknown as T;
+}
+
 const BULLET = "•";
 
 function hasMark(node: TiptapNode, mark: string): boolean {

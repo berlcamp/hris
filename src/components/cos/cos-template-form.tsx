@@ -27,7 +27,11 @@ import {
   cosContractTemplateFormSchema,
   type CosContractTemplateFormValues,
 } from "@/lib/validations/cos-contract-schema";
-import { EMPTY_CONTRACT_DOC, type TiptapNode } from "@/lib/cos-contract-doc";
+import {
+  asFormBody,
+  EMPTY_CONTRACT_DOC,
+  type TiptapNode,
+} from "@/lib/cos-contract-doc";
 
 interface CosTemplateFormProps {
   mode: "create" | "edit";
@@ -52,11 +56,9 @@ export function CosTemplateForm({ mode, template }: CosTemplateFormProps) {
       name: template?.name ?? "",
       description: template?.description ?? null,
       is_active: template?.is_active ?? true,
-      // TiptapNode types `type` as `string`; the zod schema narrows it to the
-      // literal "doc" (see tiptapDoc in cos-contract-schema.ts). The editor is
-      // the only author of this value at runtime, so the mismatch is a type
-      // artifact of the schema's `.passthrough()`, not a real one.
-      body: (template?.body ?? EMPTY_CONTRACT_DOC) as CosContractTemplateFormValues["body"],
+      body: asFormBody<CosContractTemplateFormValues["body"]>(
+        template?.body ?? EMPTY_CONTRACT_DOC,
+      ),
     },
   });
 
@@ -130,7 +132,7 @@ export function CosTemplateForm({ mode, template }: CosTemplateFormProps) {
             onChange={(doc) =>
               setValue(
                 "body",
-                doc as CosContractTemplateFormValues["body"],
+                asFormBody<CosContractTemplateFormValues["body"]>(doc),
                 { shouldValidate: true },
               )
             }
