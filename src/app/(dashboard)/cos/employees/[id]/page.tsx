@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { format } from "date-fns";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,9 +11,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { CosEmployeeDeleteDialog } from "@/components/cos/cos-employee-delete-dialog";
+import { CosContractTimeline } from "@/components/cos/cos-contract-timeline";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { canManageCos } from "@/lib/auth-helpers";
 import { getCosEmployee } from "@/lib/actions/cos-employee-actions";
+import { getContractsForEmployee } from "@/lib/actions/cos-contract-actions";
 import {
   COS_EMPLOYEE_STATUS_LABELS,
   COS_EMPLOYEE_STATUS_VARIANT,
@@ -51,7 +53,10 @@ export default async function CosEmployeeProfilePage({
   if (!user) redirect("/login");
   if (!canManageCos(user.role)) redirect("/dashboard");
 
-  const employee = await getCosEmployee(id);
+  const [employee, contracts] = await Promise.all([
+    getCosEmployee(id),
+    getContractsForEmployee(id),
+  ]);
   if (!employee) notFound();
 
   const name = formatCosEmployeeName(employee);
@@ -144,17 +149,27 @@ export default async function CosEmployeeProfilePage({
         </Card>
       </div>
 
-      {/* COS-3 replaces this card's body with the contract timeline. The
-          heading and its position on the page are fixed here so that lands as
-          a drop-in. */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Contract History</CardTitle>
+          {employee.status === "active" ? (
+            <Link href={`/cos/contracts/new?employee=${employee.id}`}>
+              <Button size="sm">
+                <Plus className="h-4 w-4" />
+                New Contract
+              </Button>
+            </Link>
+          ) : (
+            // COS-1's rule, surfaced rather than hidden: an inactive employee
+            // cannot receive a new contract.
+            <Button size="sm" disabled title="Inactive employees cannot receive new contracts">
+              <Plus className="h-4 w-4" />
+              New Contract
+            </Button>
+          )}
         </CardHeader>
-        <CardContent className="py-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            Contract management arrives with the Contracts module.
-          </p>
+        <CardContent>
+          <CosContractTimeline contracts={contracts} />
         </CardContent>
       </Card>
     </div>

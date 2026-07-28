@@ -35,6 +35,7 @@ import {
   FileSignature,
   HardHat,
   MapPin,
+  LayoutTemplate,
 } from "lucide-react";
 
 import {
@@ -138,6 +139,10 @@ const leaveAttendanceGroupRoles: UserRole[] = [
 // Contract of Service module. Mirrors canManageCos() in src/lib/auth-helpers.ts
 // — keep the two in sync.
 const cosRoles: UserRole[] = ["super_admin", "hr_admin", "cos_manager"];
+// Templates are the narrower privilege — see canManageCosTemplates in
+// src/lib/auth-helpers.ts. A cos_manager uses templates but cannot rewrite the
+// legal boilerplate.
+const cosTemplateRoles: UserRole[] = ["super_admin", "hr_admin"];
 // Roles that can manage the Job Orders module: JO employees and Area
 // Assignments today; payrolls, memos and special orders join in later specs.
 // Mirrors canManageJobOrders in src/lib/auth-helpers.ts.
@@ -240,6 +245,18 @@ const navGroups: NavGroup[] = [
         href: "/cos/employees",
         icon: FileSignature,
         roles: cosRoles,
+      },
+      {
+        title: "Contracts",
+        href: "/cos/contracts",
+        icon: FileText,
+        roles: cosRoles,
+      },
+      {
+        title: "Contract Templates",
+        href: "/cos/templates",
+        icon: LayoutTemplate,
+        roles: cosTemplateRoles,
       },
     ],
   },
