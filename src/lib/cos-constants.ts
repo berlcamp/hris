@@ -44,3 +44,60 @@ export function formatCosEmployeeName(e: CosEmployeeNameParts): string {
     .join(" ");
   return given ? `${e.last_name.trim()}, ${given}` : e.last_name.trim();
 }
+
+// ── Contracts (COS-3) ────────────────────────────────────────────────────
+// Mirrors the CHECK constraint in
+// supabase/migrations/063_cos_contracts_module.sql — keep in sync.
+export const COS_CONTRACT_STATUSES = ["active", "terminated"] as const;
+export type CosContractStatus = (typeof COS_CONTRACT_STATUSES)[number];
+
+/**
+ * What the UI shows. "expired" is NOT a stored status — a stored one would
+ * need a cron to stay truthful and would drift the moment that job failed.
+ */
+export type CosContractDerivedStatus = "active" | "expired" | "terminated";
+
+export const COS_CONTRACT_STATUS_LABELS: Record<
+  CosContractDerivedStatus,
+  string
+> = {
+  active: "Active",
+  expired: "Expired",
+  terminated: "Terminated",
+};
+
+export const COS_CONTRACT_STATUS_VARIANT: Record<
+  CosContractDerivedStatus,
+  "default" | "secondary" | "destructive"
+> = {
+  active: "default",
+  expired: "secondary",
+  terminated: "destructive",
+};
+
+/**
+ * Local-calendar YYYY-MM-DD. Deliberately NOT toISOString(), which converts to
+ * UTC and rolls the date over for evening times in Asia/Manila — the bug class
+ * migration 035 exists to fix.
+ */
+export function toIsoDateString(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * The single source of truth for a contract's displayed state. List, detail
+ * and timeline all call this so they cannot disagree.
+ *
+ * Dates are compared as YYYY-MM-DD strings, which sort lexicographically in
+ * calendar order — no Date arithmetic, no timezone exposure.
+ */
+export function deriveCosContractStatus(
+  contract: { status: CosContractStatus; period_end: string },
+  today: string = toIsoDateString(new Date()),
+): CosContractDerivedStatus {
+  if (contract.status === "terminated") return "terminated";
+  return contract.period_end < today ? "expired" : "active";
+}
