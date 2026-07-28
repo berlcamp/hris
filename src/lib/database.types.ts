@@ -199,6 +199,171 @@ export type Database = {
           },
         ]
       }
+      cos_contract_templates: {
+        Row: {
+          body: Json
+          created_at: string | null
+          created_by: string | null
+          deleted_at: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          body: Json
+          created_at?: string | null
+          created_by?: string | null
+          deleted_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          body?: Json
+          created_at?: string | null
+          created_by?: string | null
+          deleted_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cos_contract_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cos_contract_templates_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cos_contracts: {
+        Row: {
+          body: Json
+          cos_employee_id: string
+          created_at: string | null
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          monthly_rate: number | null
+          period_end: string
+          period_start: string
+          position_title: string | null
+          renewed_from_id: string | null
+          scope_of_work: string | null
+          signatory_name: string | null
+          signatory_position: string | null
+          status: string
+          template_id: string | null
+          terminated_on: string | null
+          termination_reason: string | null
+          updated_at: string | null
+          updated_by: string | null
+          witness_name: string | null
+          witness_position: string | null
+        }
+        Insert: {
+          body: Json
+          cos_employee_id: string
+          created_at?: string | null
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          monthly_rate?: number | null
+          period_end: string
+          period_start: string
+          position_title?: string | null
+          renewed_from_id?: string | null
+          scope_of_work?: string | null
+          signatory_name?: string | null
+          signatory_position?: string | null
+          status?: string
+          template_id?: string | null
+          terminated_on?: string | null
+          termination_reason?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+          witness_name?: string | null
+          witness_position?: string | null
+        }
+        Update: {
+          body?: Json
+          cos_employee_id?: string
+          created_at?: string | null
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          monthly_rate?: number | null
+          period_end?: string
+          period_start?: string
+          position_title?: string | null
+          renewed_from_id?: string | null
+          scope_of_work?: string | null
+          signatory_name?: string | null
+          signatory_position?: string | null
+          status?: string
+          template_id?: string | null
+          terminated_on?: string | null
+          termination_reason?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+          witness_name?: string | null
+          witness_position?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cos_contracts_cos_employee_id_fkey"
+            columns: ["cos_employee_id"]
+            isOneToOne: false
+            referencedRelation: "cos_employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cos_contracts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cos_contracts_renewed_from_id_fkey"
+            columns: ["renewed_from_id"]
+            isOneToOne: true
+            referencedRelation: "cos_contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cos_contracts_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "cos_contract_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cos_contracts_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cos_employee_payroll: {
         Row: {
           absent_without_pay: number | null
