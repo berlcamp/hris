@@ -93,6 +93,29 @@ export const EMPTY_CONTRACT_DOC: TiptapNode = {
 };
 
 /**
+ * True when a body holds nothing the user would mind losing.
+ *
+ * Lives here, next to EMPTY_CONTRACT_DOC, because the two must agree: this
+ * predicate MUST return true for EMPTY_CONTRACT_DOC itself. When that pairing
+ * was split across files it silently broke — EMPTY_CONTRACT_DOC gained its
+ * mandatory `paragraph` child (see above) while the caller still tested
+ * `content.length === 0`, so every brand-new contract looked non-empty and
+ * picking a template popped a "this will discard what you have written"
+ * warning over a blank form. Keep them together.
+ *
+ * Emptiness is judged by RUNS, not by block count: a doc of empty paragraphs
+ * is what you get from a fresh editor or a few stray Enters. Anything else —
+ * a list, or a paragraph with text — is deliberate authoring and counts as
+ * content, even if the text is only whitespace.
+ */
+export function isContractDocEmpty(doc: TiptapNode): boolean {
+  if (!doc.content || doc.content.length === 0) return true;
+  return doc.content.every(
+    (node) => node.type === "paragraph" && !node.content?.length,
+  );
+}
+
+/**
  * Bridges `TiptapNode` (this module's `type: string`, deliberately widened so
  * `contractDocToBlocks` can accept and drop unrecognised node types without a
  * compile-time fight) into a form's `body` field, whose zod schema narrows

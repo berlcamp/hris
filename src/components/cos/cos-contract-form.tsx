@@ -48,6 +48,7 @@ import {
 import {
   asFormBody,
   EMPTY_CONTRACT_DOC,
+  isContractDocEmpty,
   type TiptapNode,
 } from "@/lib/cos-contract-doc";
 import { formatCosEmployeeName } from "@/lib/cos-constants";
@@ -74,10 +75,6 @@ interface CosContractFormProps {
   contract?: CosContractWithEmployee;
   /** Prefill for create/duplicate. Ignored in edit and renew. */
   defaults?: Partial<CosContractFormValues>;
-}
-
-function isEmptyDoc(doc: TiptapNode): boolean {
-  return !doc.content || doc.content.length === 0;
 }
 
 export function CosContractForm({
@@ -167,7 +164,10 @@ export function CosContractForm({
       return;
     }
     // Replacing a body the user has already written is destructive — confirm.
-    if (!isEmptyDoc(watchBody)) {
+    // isContractDocEmpty lives beside EMPTY_CONTRACT_DOC on purpose: a local
+    // copy of this test drifted from that constant once already and warned
+    // about discarding work on every blank new contract.
+    if (!isContractDocEmpty(watchBody)) {
       setPendingTemplateId(value);
       return;
     }

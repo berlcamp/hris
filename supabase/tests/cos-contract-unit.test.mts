@@ -28,6 +28,7 @@ import {
 } from "../../src/lib/cos-merge-fields.ts";
 import {
   contractDocToBlocks,
+  isContractDocEmpty,
   runTextStyle,
   EMPTY_CONTRACT_DOC,
   type ContractRun,
@@ -547,3 +548,72 @@ for (const { name, run } of MARK_COMBINATIONS) {
     assert.ok(buffer.length > 0);
   });
 }
+
+// ── isContractDocEmpty ───────────────────────────────────────────────────
+// The pairing test below is the one that matters: EMPTY_CONTRACT_DOC gained a
+// mandatory `paragraph` child (the doc node's content spec is `block+`) while
+// a caller still tested `content.length === 0`. The two silently disagreed, so
+// every brand-new contract looked non-empty and picking a template warned the
+// user it would "discard what is currently written" over a blank form.
+
+test("isContractDocEmpty agrees with EMPTY_CONTRACT_DOC", () => {
+  // If this ever fails, the constant and the predicate have drifted apart.
+  assert.equal(isContractDocEmpty(EMPTY_CONTRACT_DOC), true);
+});
+
+test("isContractDocEmpty treats a doc with no content as empty", () => {
+  assert.equal(isContractDocEmpty({ type: "doc" }), true);
+  assert.equal(isContractDocEmpty({ type: "doc", content: [] }), true);
+});
+
+test("isContractDocEmpty treats stray empty paragraphs as empty", () => {
+  // A few unwanted Enters in a fresh editor is not authored content.
+  assert.equal(
+    isContractDocEmpty({
+      type: "doc",
+      content: [{ type: "paragraph" }, { type: "paragraph" }],
+    }),
+    true,
+  );
+});
+
+test("isContractDocEmpty treats a paragraph with text as non-empty", () => {
+  assert.equal(
+    isContractDocEmpty({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Clause 1." }] },
+      ],
+    }),
+    false,
+  );
+});
+
+test("isContractDocEmpty treats a list as non-empty even when its item is blank", () => {
+  // Creating a list is deliberate structure; the user would mind losing it.
+  assert.equal(
+    isContractDocEmpty({
+      type: "doc",
+      content: [
+        {
+          type: "bulletList",
+          content: [{ type: "listItem", content: [{ type: "paragraph" }] }],
+        },
+      ],
+    }),
+    false,
+  );
+});
+
+test("isContractDocEmpty treats a trailing empty paragraph after text as non-empty", () => {
+  assert.equal(
+    isContractDocEmpty({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Clause 1." }] },
+        { type: "paragraph" },
+      ],
+    }),
+    false,
+  );
+});
