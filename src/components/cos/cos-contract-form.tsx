@@ -122,12 +122,13 @@ export function CosContractForm({
         contract?.witness_position ?? defaults?.witness_position ?? null,
       template_id: contract?.template_id ?? defaults?.template_id ?? null,
       // contract?.body / EMPTY_CONTRACT_DOC are TiptapNode (type: string);
-      // defaults?.body is already form-typed (type: "doc" literal). asFormBody
-      // bridges the TiptapNode arms to the form's narrower type — see its
-      // doc comment in cos-contract-doc.ts.
-      body: asFormBody<CosContractFormValues["body"]>(
-        contract?.body ?? defaults?.body ?? EMPTY_CONTRACT_DOC,
-      ),
+      // defaults?.body is already form-typed (ContractBody, "doc" literal) —
+      // asFormBody only bridges the TiptapNode arms. `contract` and `defaults`
+      // are never both populated (defaults is "Ignored in edit and renew",
+      // the only modes that set `contract` — see the prop doc comment above),
+      // so reordering the fallback to keep the two typed arms apart doesn't
+      // change behavior.
+      body: defaults?.body ?? asFormBody(contract?.body ?? EMPTY_CONTRACT_DOC),
     },
   });
 
@@ -153,7 +154,7 @@ export function CosContractForm({
       toast.error("That template could not be loaded");
       return;
     }
-    setValue("body", asFormBody<CosContractFormValues["body"]>(template.body), {
+    setValue("body", asFormBody(template.body), {
       shouldValidate: true,
     });
   };
@@ -363,11 +364,7 @@ export function CosContractForm({
             <CosRichTextEditor
               value={watchBody}
               onChange={(doc) =>
-                setValue(
-                  "body",
-                  asFormBody<CosContractFormValues["body"]>(doc),
-                  { shouldValidate: true },
-                )
+                setValue("body", asFormBody(doc), { shouldValidate: true })
               }
             />
           </CardContent>

@@ -14,6 +14,9 @@
 // styling, so it gets an explicit substitute instead of being dropped.
 
 import { resolveMergeFields, type MergeContext } from "./cos-merge-fields.ts";
+// Type-only: erased entirely by `node --experimental-strip-types`, so this
+// adds no runtime dependency for supabase/tests/cos-contract-unit.test.mts.
+import type { ContractBody } from "./validations/cos-contract-schema.ts";
 
 export interface TiptapNode {
   type: string;
@@ -44,16 +47,20 @@ export const EMPTY_CONTRACT_DOC: TiptapNode = { type: "doc", content: [] };
  * Bridges `TiptapNode` (this module's `type: string`, deliberately widened so
  * `contractDocToBlocks` can accept and drop unrecognised node types without a
  * compile-time fight) into a form's `body` field, whose zod schema narrows
- * `type` to the literal `"doc"` (see `tiptapDoc` in cos-contract-schema.ts).
- * The two types describe the same runtime value — the editor is the only
- * author of `body` at runtime — so this is a type-level view mismatch, not an
- * unsafe runtime cast. Centralised here so every call site (the contract
+ * `type` to the literal `"doc"` (see the shared `tiptapDoc` const in
+ * cos-contract-schema.ts, reused by both cosContractFormSchema.body and
+ * cosContractTemplateFormSchema.body — one schema, one type, not two that
+ * merely look alike). The two types describe the same runtime value — the
+ * editor is the only author of `body` at runtime — so this is a type-level
+ * view mismatch, not an unsafe runtime cast. Not generic: both forms' `body`
+ * field is provably the same `ContractBody`, so there is nothing for a type
+ * parameter to vary over. Centralised here so every call site (the contract
  * form's defaultValues, its template-apply handler, its editor onChange, and
  * the template form's equivalents) goes through one named assertion instead
  * of scattering ad-hoc `as CosContractFormValues["body"]` casts.
  */
-export function asFormBody<T>(doc: TiptapNode): T {
-  return doc as unknown as T;
+export function asFormBody(doc: TiptapNode): ContractBody {
+  return doc as ContractBody;
 }
 
 const BULLET = "•";

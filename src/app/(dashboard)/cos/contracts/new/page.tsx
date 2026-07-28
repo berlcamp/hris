@@ -69,6 +69,29 @@ export default async function NewCosContractPage({
     if (!source) notFound();
     mode = "renew";
     contract = source;
+    // The employee is locked in renew mode (see cos-contract-form.tsx,
+    // `employeeLocked`), but `employees` above is filtered to active-only.
+    // The Renew link on [id]/page.tsx is hidden once the employee has gone
+    // inactive, but that is a UX gate, not the authority — someone can still
+    // reach this URL directly (a stale link, a typed-in id). Without this,
+    // the locked Select would have a value matching nothing in its own
+    // `items` and render blank with no indication of who the renewal is for.
+    // Same fallback as [id]/edit/page.tsx.
+    if (
+      !employees.some((e) => e.id === source.cos_employee_id) &&
+      source.cos_employees
+    ) {
+      employees.push({
+        id: source.cos_employees.id,
+        cos_no: source.cos_employees.cos_no,
+        first_name: source.cos_employees.first_name,
+        middle_name: source.cos_employees.middle_name,
+        last_name: source.cos_employees.last_name,
+        suffix: source.cos_employees.suffix,
+        position_title: source.position_title,
+        monthly_rate: source.monthly_rate,
+      });
+    }
   } else if (duplicate) {
     const source = await getCosContract(duplicate);
     if (!source) notFound();
@@ -87,7 +110,7 @@ export default async function NewCosContractPage({
       witness_position: source.witness_position,
       // source.body is TiptapNode; defaults.body must be the form's
       // narrower "doc"-literal type — see asFormBody in cos-contract-doc.ts.
-      body: asFormBody<CosContractFormValues["body"]>(source.body),
+      body: asFormBody(source.body),
     };
   } else if (employeeParam) {
     defaults = { cos_employee_id: employeeParam };

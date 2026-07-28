@@ -79,7 +79,16 @@ export default async function CosContractDetailPage({
     ? employeeContracts.find((c) => c.id === contract.renewed_from_id)
     : undefined;
 
-  const canRenew = contract.status !== "terminated" && !hasSuccessor;
+  // Hidden (not just disabled) once the employee has gone inactive: renewing
+  // always fails server-side (assertEmployeeActive in cos-contract-actions.ts
+  // — the actual authority, unchanged by this check), so offering the link
+  // would just walk the user to a dead end. The renew page itself still
+  // defends against a stale/typed-in link independently of this gate — see
+  // the fallback in cos/contracts/new/page.tsx's `renew` branch.
+  const canRenew =
+    contract.status !== "terminated" &&
+    !hasSuccessor &&
+    employee?.status === "active";
 
   return (
     <div className="flex flex-col gap-6">

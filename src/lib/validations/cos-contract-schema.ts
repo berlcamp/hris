@@ -32,6 +32,13 @@ const tiptapDoc = z
   .object({ type: z.literal("doc") })
   .passthrough();
 
+// Both cosContractFormSchema.body and cosContractTemplateFormSchema.body
+// reuse this exact `tiptapDoc` const (see lines below), so this is the one
+// true "form body" type shared by every COS form — not two independent types
+// that happen to look alike. asFormBody() in cos-contract-doc.ts casts a
+// TiptapNode into this type at every form call site.
+export type ContractBody = z.infer<typeof tiptapDoc>;
+
 export const cosContractFormSchema = z
   .object({
     cos_employee_id: z.string().uuid("Select a COS employee"),

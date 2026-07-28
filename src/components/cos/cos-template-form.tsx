@@ -56,9 +56,7 @@ export function CosTemplateForm({ mode, template }: CosTemplateFormProps) {
       name: template?.name ?? "",
       description: template?.description ?? null,
       is_active: template?.is_active ?? true,
-      body: asFormBody<CosContractTemplateFormValues["body"]>(
-        template?.body ?? EMPTY_CONTRACT_DOC,
-      ),
+      body: asFormBody(template?.body ?? EMPTY_CONTRACT_DOC),
     },
   });
 
@@ -130,11 +128,7 @@ export function CosTemplateForm({ mode, template }: CosTemplateFormProps) {
           <CosRichTextEditor
             value={watchBody}
             onChange={(doc) =>
-              setValue(
-                "body",
-                asFormBody<CosContractTemplateFormValues["body"]>(doc),
-                { shouldValidate: true },
-              )
+              setValue("body", asFormBody(doc), { shouldValidate: true })
             }
           />
         </CardContent>
