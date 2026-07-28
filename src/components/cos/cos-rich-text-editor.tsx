@@ -73,6 +73,33 @@ export function CosRichTextEditor({ value, onChange }: CosRichTextEditorProps) {
         // Replaced by NoNestListItem below so nested lists cannot be
         // authored — see the comment on that extension.
         listItem: false,
+        // code/strike/link are marks the converter (hasMark in
+        // cos-contract-doc.ts) does not recognise — bold/italic/underline
+        // only. Left enabled, StarterKit still binds keyboard shortcuts for
+        // all three (Mod-e, Mod-Shift-s, and autolink/linkOnPaste for URLs)
+        // with no toolbar exposure, so a user could apply strikethrough to
+        // void a clause, see it in the editor, and have it silently vanish
+        // from the printed contract. Disabled outright, matching how
+        // heading/codeBlock/blockquote/horizontalRule are already off.
+        code: false,
+        strike: false,
+        link: false,
+        // hardBreak (Mod-Enter / Shift-Enter) inserts a node toRuns() used to
+        // skip with no substitute separator, silently running the text
+        // before and after it together on print — the same failure shape as
+        // the nested-list bug, for line breaks instead of list structure.
+        // Disabled here so the keybinding cannot author one; toRuns() also
+        // now handles a hardBreak defensively (emits an explicit "\n" run)
+        // for any body that reaches the converter from outside this editor.
+        hardBreak: false,
+        // StarterKit 3.29.1 bundles its own Underline and enables it unless
+        // told otherwise, which would register the "underline" extension
+        // name twice alongside the explicit import below (Tiptap warns
+        // "Duplicate extension names found" at runtime). Keep the explicit
+        // @tiptap/extension-underline import — it is one of the four
+        // packages this module's brief required installing — and disable
+        // StarterKit's copy instead of removing the import.
+        underline: false,
       }),
       NoNestListItem,
       Underline,

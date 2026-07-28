@@ -8,7 +8,10 @@
 // The supported vocabulary is exactly what the editor's toolbar can author:
 // paragraphs, bold/italic/underline, bulleted and numbered lists. Anything else
 // is DROPPED rather than thrown on, so a document authored before a toolbar
-// change still prints instead of failing at the worst possible moment.
+// change still prints instead of failing at the worst possible moment. The one
+// deliberate exception is hardBreak (see toRuns): dropping it outright would
+// silently run the surrounding text together rather than merely losing
+// styling, so it gets an explicit substitute instead of being dropped.
 
 import { resolveMergeFields, type MergeContext } from "./cos-merge-fields.ts";
 
@@ -47,6 +50,20 @@ function hasMark(node: TiptapNode, mark: string): boolean {
 function toRuns(node: TiptapNode, ctx: MergeContext): ContractRun[] {
   const runs: ContractRun[] = [];
   for (const child of node.content ?? []) {
+    if (child.type === "hardBreak") {
+      // A manual line break (Mod-Enter/Shift-Enter) inside a paragraph. The
+      // editor (cos-rich-text-editor.tsx) disables the keybinding that
+      // creates one, but this stays defensive for any body that reaches the
+      // converter from outside that editor: silently skipping the node like
+      // an unrecognised type would run the text before and after it
+      // together (e.g. "Position: ClerkDepartment: HR") with no signal that
+      // a clause boundary was lost — worse than dropped styling, because
+      // dropped styling never changes what the words say. Emitting an
+      // explicit "\n" run keeps the boundary for whatever renders
+      // ContractRun into the PDF.
+      runs.push({ text: "\n", bold: false, italic: false, underline: false });
+      continue;
+    }
     if (child.type !== "text" || typeof child.text !== "string") continue;
     runs.push({
       text: resolveMergeFields(child.text, ctx),

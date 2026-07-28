@@ -265,6 +265,70 @@ test("an ordered list numbers its items from one", () => {
   assert.equal(blocks[1].marker, "2.");
 });
 
+test("a hardBreak inside a paragraph emits an explicit newline run instead of silently concatenating adjacent text", () => {
+  const doc: TiptapNode = {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "Position: Clerk" },
+          { type: "hardBreak" },
+          { type: "text", text: "Department: HR" },
+        ],
+      },
+    ],
+  };
+  const [block] = contractDocToBlocks(doc, CTX);
+  assert.deepEqual(block.runs, [
+    { text: "Position: Clerk", bold: false, italic: false, underline: false },
+    { text: "\n", bold: false, italic: false, underline: false },
+    { text: "Department: HR", bold: false, italic: false, underline: false },
+  ]);
+  // The regression this guards against: concatenating the runs' text (as a
+  // naive renderer would for one line) must still show the clause boundary
+  // rather than silently running the two halves together.
+  const joined = block.runs.map((r) => r.text).join("");
+  assert.ok(joined.includes("Clerk\nDepartment"));
+  assert.ok(!joined.includes("ClerkDepartment"));
+});
+
+test("strike/code/link marks are dropped but the underlying text survives", () => {
+  // The editor disables all three (see cos-rich-text-editor.tsx) because the
+  // converter only recognises bold/italic/underline. This locks in that a
+  // mark it doesn't recognise degrades to plain text rather than losing the
+  // text itself — unlike hardBreak, losing styling never changes what a
+  // signatory reads.
+  const doc: TiptapNode = {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "voided", marks: [{ type: "strike" }] },
+          { type: "text", text: "inline", marks: [{ type: "code" }] },
+          {
+            type: "text",
+            text: "https://example.gov.ph",
+            marks: [{ type: "link" }],
+          },
+        ],
+      },
+    ],
+  };
+  const [block] = contractDocToBlocks(doc, CTX);
+  assert.deepEqual(block.runs, [
+    { text: "voided", bold: false, italic: false, underline: false },
+    { text: "inline", bold: false, italic: false, underline: false },
+    {
+      text: "https://example.gov.ph",
+      bold: false,
+      italic: false,
+      underline: false,
+    },
+  ]);
+});
+
 test("an unknown node type is dropped, not thrown on", () => {
   const doc: TiptapNode = {
     type: "doc",
