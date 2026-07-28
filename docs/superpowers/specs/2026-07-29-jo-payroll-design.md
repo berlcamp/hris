@@ -441,7 +441,9 @@ In CLAUDE.md's stated order of value.
 - `chk_job_order_payroll_period` rejects `period_end < period_start`, which is
   what forces the importer to pre-validate legacy payroll 11
 
-**2. Pure unit** — `src/lib/job-order-payroll-helpers.test.ts`:
+**2. Pure unit** — `supabase/tests/job-order-payroll-helpers.test.mts` (the
+project keeps pure unit tests alongside the real-stack ones, run via
+`--experimental-strip-types`, not under `src/`):
 
 - weekday count: `2022-07-01 … 2022-07-15 → 11`, pinned against the real legacy
   value; plus month-boundary, year-boundary, single weekday, single weekend day,
