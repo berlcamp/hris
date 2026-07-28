@@ -2682,7 +2682,16 @@ Run:
 npm run lint && npm run build && npm test
 ```
 
-Expected: compiles; still exactly 4 pre-existing lint errors; all four test suites pass with `# fail 0` — the COS contract suites now contribute 12 real-stack tests and 20 unit tests.
+Expected: compiles; still exactly 4 pre-existing lint errors; all four test suites pass with `# fail 0`.
+
+Per-suite counts, as a regression check that nothing was silently dropped:
+
+| Suite | Before COS-3 | After |
+|---|---|---|
+| `test:dtr` | 62 | 62 |
+| `test:cos` | 13 | 35 (13 + 5 Task 2 + 3 Task 3 + 6 Task 4 + 8 Task 5) |
+| `test:db` | 22 | 22 |
+| `test:cos-db` | 10 | 22 (10 + 12 Task 1) |
 
 - [ ] **Step 5: Regenerate types and confirm no drift**
 
