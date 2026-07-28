@@ -30,6 +30,7 @@ export interface CosEmployeeWithDepartment {
   email: string | null;
   department_id: string | null;
   position_title: string | null;
+  monthly_rate: number | null;
   eligibility: string | null;
   recommended_by: string | null;
   remarks: string | null;

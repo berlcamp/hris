@@ -64,6 +64,23 @@ export function cosEmployeeColumns({
     ),
   },
   {
+    accessorKey: "monthly_rate",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Monthly Rate" />
+    ),
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        {row.original.monthly_rate === null
+          ? "—"
+          : row.original.monthly_rate.toLocaleString("en-PH", {
+              style: "currency",
+              currency: "PHP",
+              minimumFractionDigits: 2,
+            })}
+      </span>
+    ),
+  },
+  {
     accessorKey: "status",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Status" />

@@ -274,7 +274,9 @@ export type Database = {
           first_name: string
           id: string
           last_name: string
+          legacy_id: number | null
           middle_name: string | null
+          monthly_rate: number | null
           position_title: string | null
           recommended_by: string | null
           remarks: string | null
@@ -298,7 +300,9 @@ export type Database = {
           first_name: string
           id?: string
           last_name: string
+          legacy_id?: number | null
           middle_name?: string | null
+          monthly_rate?: number | null
           position_title?: string | null
           recommended_by?: string | null
           remarks?: string | null
@@ -322,7 +326,9 @@ export type Database = {
           first_name?: string
           id?: string
           last_name?: string
+          legacy_id?: number | null
           middle_name?: string | null
+          monthly_rate?: number | null
           position_title?: string | null
           recommended_by?: string | null
           remarks?: string | null

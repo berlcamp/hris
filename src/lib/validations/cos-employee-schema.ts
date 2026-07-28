@@ -52,6 +52,16 @@ export const cosEmployeeFormSchema = z.object({
     .optional()
     .or(z.literal("").transform(() => null)),
   position_title: optionalText,
+  // Number inputs hand back "" when cleared and a string otherwise, so coerce
+  // rather than z.number(). Negative rates are always a typo.
+  monthly_rate: z
+    .union([z.string(), z.number()])
+    .transform((v) => (typeof v === "string" && v.trim() === "" ? null : Number(v)))
+    .refine((v) => v === null || (Number.isFinite(v) && v >= 0), {
+      message: "Enter a valid monthly rate",
+    })
+    .nullable()
+    .optional(),
   eligibility: optionalText,
   recommended_by: optionalText,
   remarks: optionalText,

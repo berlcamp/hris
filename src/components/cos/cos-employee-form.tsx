@@ -78,6 +78,7 @@ export function CosEmployeeForm({
       email: employee?.email ?? null,
       department_id: employee?.department_id ?? null,
       position_title: employee?.position_title ?? null,
+      monthly_rate: employee?.monthly_rate ?? null,
       eligibility: employee?.eligibility ?? null,
       recommended_by: employee?.recommended_by ?? null,
       remarks: employee?.remarks ?? null,
@@ -245,6 +246,21 @@ export function CosEmployeeForm({
           <div className="grid gap-2">
             <Label htmlFor="position_title">Position</Label>
             <Input id="position_title" {...register("position_title")} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="monthly_rate">Monthly Rate</Label>
+            <Input
+              id="monthly_rate"
+              type="number"
+              step="0.01"
+              min="0"
+              {...register("monthly_rate")}
+            />
+            {errors.monthly_rate ? (
+              <p className="text-sm text-destructive">
+                {errors.monthly_rate.message}
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-2">
             <Label htmlFor="eligibility">Eligibility</Label>

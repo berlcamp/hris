@@ -21,6 +21,14 @@ import {
   formatCosEmployeeName,
 } from "@/lib/cos-constants";
 
+function formatPHP(n: number): string {
+  return n.toLocaleString("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+  });
+}
+
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="grid gap-1">
@@ -119,6 +127,14 @@ export default async function CosEmployeeProfilePage({
               value={employee.departments?.name ?? null}
             />
             <Field label="Position" value={employee.position_title} />
+            <Field
+              label="Monthly Rate"
+              value={
+                employee.monthly_rate === null
+                  ? null
+                  : formatPHP(employee.monthly_rate)
+              }
+            />
             <Field label="Eligibility" value={employee.eligibility} />
             <Field label="Recommended By" value={employee.recommended_by} />
             <div className="sm:col-span-2">
