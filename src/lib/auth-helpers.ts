@@ -204,3 +204,20 @@ const COS_MANAGER_ROLES: readonly UserRole[] = [
 export function canManageCos(role: UserRole | null | undefined): boolean {
   return !!role && COS_MANAGER_ROLES.includes(role);
 }
+
+// Roles that may create and edit contract TEMPLATES — the reusable legal
+// boilerplate. Narrower than canManageCos on purpose: COS-1's requested
+// permission list separated "Manage Templates" / "Edit Templates" from "Create
+// Contracts", so a cos_manager USES templates when drafting a contract but
+// cannot rewrite the boilerplate. Mirrors canManageSalaryGrades, where
+// hr_record_manager reaches the page but cannot edit the table.
+const COS_TEMPLATE_EDITOR_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "hr_admin",
+] as const;
+
+export function canManageCosTemplates(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && COS_TEMPLATE_EDITOR_ROLES.includes(role);
+}
