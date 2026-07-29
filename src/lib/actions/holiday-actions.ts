@@ -38,6 +38,37 @@ export async function getHolidays(): Promise<HolidayRow[]> {
   return (data ?? []) as HolidayRow[];
 }
 
+export interface HolidayInRange {
+  date: string;
+  name: string;
+  type: HolidayType;
+}
+
+/**
+ * Holidays inside an inclusive date range, advisory only — the Job Order
+ * payroll `days` field is a plain weekday count (see `countWeekdays`) and
+ * never auto-deducts these. Read, same as `getHolidays()` above: no auth
+ * check here either, since this file's convention is to gate writes with
+ * `requireManager` and leave reads open to any authenticated caller (the
+ * page/route that renders the consuming UI already applies its own
+ * role guard).
+ */
+export async function getHolidaysInRange(
+  startIso: string,
+  endIso: string,
+): Promise<HolidayInRange[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("holidays")
+    .select("date, name, type")
+    .gte("date", startIso)
+    .lte("date", endIso)
+    .order("date");
+  if (error) throw error;
+  return (data ?? []) as HolidayInRange[];
+}
+
 export async function createHoliday(
   input: HolidayFormValues,
 ): Promise<{ data?: HolidayRow; error?: string }> {
