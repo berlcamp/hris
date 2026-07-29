@@ -24,6 +24,7 @@ import {
   computeJoOvertimeGross,
   groupMembersByRate,
 } from "@/lib/job-order-payroll-helpers";
+import type { JobOrderPayrollPrintRow } from "@/lib/job-order-payroll-helpers";
 
 // Hard-coded LGU Ozamiz City signatory block — matches the printed Daily Wages
 // Payroll template the accounting office uses. If these names ever change, the
@@ -41,21 +42,8 @@ const DAILY_WAGES_SIGNATORIES = {
 // Shared types
 // ---------------------------------------------------------------------------
 
-/** Flattened member-with-employee row used by every payroll PDF. */
-export interface JoPayrollPrintRow {
-  fullname: string;
-  area_assigned: string | null;
-  rate: number | null;
-  days: number | null;
-  hours: number | null;
-  sss_no: string | null;
-  sss_ss: number | null;
-  sss_ec: number | null;
-  account_number: string | null;
-  tax_number: string | null;
-  tax_date: string | null;
-  tax_issued: string | null;
-}
+/** @deprecated alias kept so the ten generator signatures below stay untouched. */
+export type JoPayrollPrintRow = JobOrderPayrollPrintRow;
 
 export interface GenerateJoPayrollPrintParams {
   rows: JoPayrollPrintRow[];
