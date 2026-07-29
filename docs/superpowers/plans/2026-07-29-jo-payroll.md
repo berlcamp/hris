@@ -2701,6 +2701,19 @@ test("upserting the same payroll legacy_id twice updates in place", async () => 
 // 9. A SOFT-DELETED JO is still resolvable by legacy_id — the 5,893-row path
 //    the importer depends on.
 // 10. status CHECK rejects a value outside draft/finalized.
+// 11. The `areas` label re-syncs after a membership change (requested by
+//     Task 4's implementer: it is denormalized AND one of three columns the
+//     list search matches, so drift is invisible until search misses).
+// 12. A forced chunk failure degrades gracefully — promoted from Task 9's
+//     review. The importer upserts in chunks of 500 and reports a batch-level
+//     warning on failure, but cannot isolate the offending row within its
+//     chunk, so one bad row can drop up to 499 valid neighbours behind a single
+//     warning line. Today's export does not trigger it (0 blank created_at,
+//     0 duplicate (jopayroll_id, jo_id) pairs — both verified against the raw
+//     CSVs). Deliberately poison one row in a chunk, e.g. a duplicate
+//     (payroll_id, job_order_employee_id) pair violating
+//     uq_job_order_payroll_members, and assert the run reports the failure and
+//     continues rather than aborting the whole import.
 ```
 
 Write each of the commented cases out in full, following the style of cases 1–2. For case 7, insert a JO, add it to a payroll, `delete()` the JO, then assert the member row still exists with its `full_name` and `daily_rate` unchanged and `job_order_employee_id === null`.
