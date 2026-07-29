@@ -141,17 +141,28 @@ export function JobOrderPayrollCreateDialog({
 
   const onSubmit = async (data: JobOrderPayrollCreateValues) => {
     setLoading(true);
-    const result = await createJobOrderPayroll(data);
-    setLoading(false);
+    try {
+      const result = await createJobOrderPayroll(data);
 
-    if ("error" in result && result.error) {
-      toast.error(result.error);
-      return;
+      if ("error" in result && result.error) {
+        toast.error(result.error);
+        return;
+      }
+
+      toast.success("Payroll created.");
+      onOpenChange(false);
+      router.push(`/job-orders/payroll/${result.data!.id}`);
+    } catch {
+      // createJobOrderPayroll can throw (e.g. loadJobOrdersForSnapshot's
+      // `if (error) throw error;` on a Supabase read failure) instead of
+      // returning `{ error }`. Without this, `loading` would never reset —
+      // the dialog is gated shut while loading (see `onOpenChange` above and
+      // the Cancel button below), so an unhandled rejection here traps the
+      // user in an unclosable modal with no explanation.
+      toast.error("Something went wrong creating the payroll. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-    toast.success("Payroll created.");
-    onOpenChange(false);
-    router.push(`/job-orders/payroll/${result.data!.id}`);
   };
 
   return (

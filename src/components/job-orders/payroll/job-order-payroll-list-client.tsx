@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   flexRender,
@@ -73,6 +73,23 @@ export function JobOrderPayrollListClient({
   const [status, setStatus] = useState(sp.get("status") ?? "all");
   const [from, setFrom] = useState(sp.get("from") ?? "");
   const [to, setTo] = useState(sp.get("to") ?? "");
+
+  // App Router does not remount this component on a same-route router.push,
+  // so pressing Back/Forward updates `payrolls`/`totalCount`/`page` (fresh
+  // server-component props) but NOT this local state — without this effect
+  // the filter controls would keep showing the values from before the
+  // navigation while the table underneath shows different rows. `updateUrl`
+  // remains the only writer of the URL; this only ever reads from it.
+  const spQ = sp.get("q") ?? "";
+  const spStatus = sp.get("status") ?? "all";
+  const spFrom = sp.get("from") ?? "";
+  const spTo = sp.get("to") ?? "";
+  useEffect(() => {
+    setSearch(spQ);
+    setStatus(spStatus);
+    setFrom(spFrom);
+    setTo(spTo);
+  }, [spQ, spStatus, spFrom, spTo]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<JobOrderPayroll | null>(
