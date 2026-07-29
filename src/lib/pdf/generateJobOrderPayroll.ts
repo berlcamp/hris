@@ -216,9 +216,21 @@ function printHTMLContent(htmlContent: string): void {
 // library is used elsewhere under src/components/pdf/ but not here. The
 // watermark below is the HTML/CSS equivalent of the brief's react-pdf
 // <Text style={{position:"absolute", transform:"rotate(-30deg)"}}> snippet:
-// same visual result (centered, rotated, translucent grey "DRAFT"), same
-// "renders behind the content" placement (first in paint order beneath the
-// table), just expressed in the DOM this file actually builds.
+// same visual result (centered, rotated, translucent grey "DRAFT"), just
+// expressed in the DOM this file actually builds.
+//
+// Getting it BEHIND the table is not a matter of DOM order the way it is in
+// react-pdf's sequential-canvas model. In real CSS, a positioned descendant
+// with z-index: auto or >= 0 paints above non-positioned in-flow siblings
+// regardless of where it sits in the markup — so being "first child" alone
+// would still paint on top of the table, not behind it. `z-index: -1` is
+// what actually pushes it below: per the CSS painting order, a negative
+// z-index descendant paints above its stacking-context root's own
+// background/border but below that root's non-positioned in-flow content
+// (here, the table). `.draft-watermark`'s stacking-context root is the
+// nearest positioned ancestor (`body`, or `.summary-page` for the paginated
+// generators), and neither sets a background-color, so there is nothing
+// opaque for the watermark to sink beneath.
 const WATERMARK_STYLES = `
   .draft-watermark {
     position: absolute;
@@ -231,14 +243,16 @@ const WATERMARK_STYLES = `
     transform: rotate(-30deg);
     opacity: 0.5;
     pointer-events: none;
-    z-index: 1000;
+    z-index: -1;
   }
 `;
 
 /**
  * Rendered first inside the printed page's container (`<body>` for
- * single-page documents, `.summary-page` for the paginated ones) so it
- * paints behind the table content. Returns "" (not rendered) when not draft.
+ * single-page documents, `.summary-page` for the paginated ones). DOM order
+ * doesn't matter for stacking here — `.draft-watermark`'s negative z-index
+ * (see WATERMARK_STYLES above) is what actually keeps it behind the table.
+ * Returns "" (not rendered) when not draft.
  */
 function renderDraftWatermark(draft: boolean | undefined): string {
   if (!draft) return "";
