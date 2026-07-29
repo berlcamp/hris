@@ -392,7 +392,10 @@ test("snapshot copies every field the printables need", () => {
 });
 
 test("snapshot never carries working_hours, which is a shift descriptor", () => {
-  const snap = toPayrollMemberSnapshot(jo()) as Record<string, unknown>;
+  // Routed through `unknown`: JobOrderPayrollSnapshot has no index signature,
+  // so a direct cast is a TS2352 error. node --experimental-strip-types does
+  // not typecheck, so this only surfaces under `npx tsc --noEmit`.
+  const snap = toPayrollMemberSnapshot(jo()) as unknown as Record<string, unknown>;
   assert.equal("working_hours" in snap, false);
 });
 
@@ -543,8 +546,17 @@ Expected: FAIL — `countWeekdays`, `toPayrollMemberSnapshot`, `toPrintRow`, `su
 Append to `src/lib/job-order-payroll-helpers.ts` (keep the existing amount helpers exactly as they are), and add the imports at the top of the file:
 
 ```ts
-import type { JobOrderEmployee } from "@/lib/types";
+import type { JobOrderEmployee, JobOrderPayrollMember } from "@/lib/types";
 ```
+
+> **Ordering caveat, recorded retroactively.** `JobOrderPayrollMember` is added
+> to `src/lib/types.ts` by **Task 3**, so this one import runs ahead of its
+> defining task. This was discovered during execution: the original structural
+> parameter type on `toPrintRow` tripped TS2353 excess-property checking, and
+> because `node --experimental-strip-types` does not typecheck, the tests passed
+> green while `npx tsc --noEmit` failed. If you are executing this plan from
+> scratch, do Task 3's `src/lib/types.ts` additions before this step, or the
+> import will not resolve.
 
 ```ts
 // ---------------------------------------------------------------------------
@@ -651,21 +663,15 @@ export interface JobOrderPayrollPrintRow {
   tax_issued: string | null;
 }
 
-/** Shape a stored member row into the flat struct the PDFs expect. */
-export function toPrintRow(m: {
-  full_name: string;
-  area_name: string | null;
-  daily_rate: number | null;
-  days: number | null;
-  hours: number | null;
-  sss_no: string | null;
-  sss_ss: number | null;
-  sss_ec: number | null;
-  landbank_account_number: string | null;
-  community_tax_number: string | null;
-  community_tax_date: string | null;
-  community_tax_place_issued: string | null;
-}): JobOrderPayrollPrintRow {
+/**
+ * Shape a stored member row into the flat struct the PDFs expect.
+ *
+ * Takes the full `JobOrderPayrollMember` rather than a structural subset: the
+ * subset version tripped TypeScript's excess-property check the moment a
+ * caller passed a whole member row as an object literal (TS2353), which is
+ * exactly what the tests and Task 8 do.
+ */
+export function toPrintRow(m: JobOrderPayrollMember): JobOrderPayrollPrintRow {
   return {
     fullname: m.full_name,
     area_assigned: m.area_name,
