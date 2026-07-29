@@ -172,6 +172,99 @@ test(
   },
 );
 
+// The exact-numbers test above proves quantities — how many payrolls and
+// members came out the other end. It cannot prove the SNAPSHOT MAPPING is
+// correct: `planJobOrderPayrollImport` assigns 13 scalar fields from the
+// roster entry onto each member row by name, not by spreading the roster
+// entry wholesale. A transposition in that assignment block — e.g. swapping
+// `sss_ss` and `sss_ec`, or `area_name` and `sub_area`, or `community_tax_number`
+// and `sss_no` — produces byte-identical counts (same number of rows, same
+// isolated/unresolved lists) and would pass every assertion above while
+// quietly writing wrong SSS deductions and wrong area/ID fields onto a real,
+// migrated government payroll record. This test picks one real employee from
+// jos.csv and checks every snapshot field against the source roster row, so
+// a transposition like that fails loudly instead of hiding behind a green
+// summary.
+test(
+  "member snapshot fields exactly match the roster row — not merely present, but correctly mapped one-to-one",
+  { skip: !haveFiles && "supabase/old_jo_data/*.csv not present locally" },
+  () => {
+    const payrollsCsv = readFileSync(PAYROLLS_CSV, "utf8");
+    const membersCsv = readFileSync(MEMBERS_CSV, "utf8");
+    const roster = buildRosterFromJosCsv(readFileSync(JOS_CSV, "utf8"));
+
+    const plan = planJobOrderPayrollImport(payrollsCsv, membersCsv, roster);
+
+    // jos.csv legacy id 5 — "Gabato, Leomar N", Solid Waste and Environment
+    // Management Office / Driver. Chosen deliberately because every
+    // same-typed-neighbour pair a by-name assignment could transpose has
+    // DIFFERENT values here, so a swap is actually detectable:
+    //   - sss_ss (750) != sss_ec (10)            — catches an SSS-pair swap
+    //   - sub_area ("Driver") != area_name        — catches an area/sub_area swap
+    //   - sss_no, community_tax_number, landbank_account_number are three
+    //     distinct non-null strings — catches an identifier-field swap
+    // (If sss_ss and sss_ec happened to be equal for this employee, swapping
+    // them would produce an identical object and prove nothing — that's
+    // exactly why this one was picked over the first candidate found.)
+    const rosterEntry = roster.get("5");
+    assert.ok(rosterEntry, "fixture assumption: jos.csv legacy id 5 must exist");
+    assert.equal(rosterEntry.full_name, "Gabato, Leomar N");
+    assert.equal(rosterEntry.sss_ss, 750);
+    assert.equal(rosterEntry.sss_ec, 10);
+    assert.notEqual(rosterEntry.sss_ss, rosterEntry.sss_ec);
+    assert.equal(rosterEntry.sub_area, "Driver");
+    assert.notEqual(rosterEntry.sub_area, rosterEntry.area_name);
+
+    // Member legacy_id 267: jopayroll_id 4, jo_id 5, days 11, hours blank —
+    // one of 60 member rows in jopayroll_members.csv referencing this
+    // employee.
+    const member = plan.memberRows.find(
+      (m) => m.legacy_id === 267 && m.job_order_employee_id === rosterEntry.id,
+    );
+    assert.ok(member, "expected member row legacy_id 267 (jo_id 5) to be present in the plan");
+
+    assert.deepEqual(
+      {
+        full_name: member.full_name,
+        area_name: member.area_name,
+        sub_area: member.sub_area,
+        daily_rate: member.daily_rate,
+        sss_no: member.sss_no,
+        sss_ss: member.sss_ss,
+        sss_ec: member.sss_ec,
+        has_atm: member.has_atm,
+        landbank_account_number: member.landbank_account_number,
+        community_tax_number: member.community_tax_number,
+        community_tax_date: member.community_tax_date,
+        community_tax_place_issued: member.community_tax_place_issued,
+      },
+      {
+        full_name: "Gabato, Leomar N",
+        area_name: "Solid Waste and Environment Management Office",
+        sub_area: "Driver",
+        daily_rate: 500,
+        sss_no: "06-2237741-2",
+        sss_ss: 750,
+        sss_ec: 10,
+        has_atm: true,
+        landbank_account_number: "0817-0811-85",
+        community_tax_number: "12494658",
+        community_tax_date: "01/06/2025",
+        community_tax_place_issued: "OZAMIZ CITY",
+      },
+      "every snapshot field must match the roster row for jo_id 5 one-to-one — " +
+        "counts alone cannot catch a transposition here",
+    );
+
+    // days/hours come from the MEMBER's own CSV row, not the roster (which
+    // has no days/hours fields at all) and not the parent payroll's default
+    // `days` — the pure function never reads the payroll's `days` column
+    // when building a member row.
+    assert.equal(member.days, 11);
+    assert.equal(member.hours, null);
+  },
+);
+
 test(
   "re-running the plan against the same inputs is fully idempotent at the pure-function layer",
   { skip: !haveFiles && "supabase/old_jo_data/*.csv not present locally" },
