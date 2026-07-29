@@ -1816,14 +1816,24 @@ export async function addJobOrderPayrollMember(
   });
   if (!jo) return { error: "Job Order employee not found or inactive" };
 
-  const { data: payroll } = await supabase
+  const { data: payroll, error: payrollErr } = await supabase
     .schema("hris")
     .from("job_order_payrolls")
     .select("days")
     .eq("id", payrollId)
     .maybeSingle();
+  if (payrollErr) {
+    // Not fatal — the member is still worth adding — but without this the
+    // row silently gets days: null instead of the payroll's default.
+    console.error(
+      `addJobOrderPayrollMember: days lookup failed for payroll ${payrollId}: ${payrollErr.message}`,
+    );
+  }
 
-  const { error } = await supabase
+  // .select() chained so the audit entry can record the member row's own id
+  // rather than the payroll's — otherwise an auditor can see which payroll
+  // and which employee, but not which row was created.
+  const { data: inserted, error } = await supabase
     .schema("hris")
     .from("job_order_payroll_members")
     .insert({
@@ -1832,7 +1842,9 @@ export async function addJobOrderPayrollMember(
       days: (payroll as { days: number | string | null } | null)?.days ?? null,
       hours: null,
       ...toPayrollMemberSnapshot(jo),
-    });
+    })
+    .select("id")
+    .single();
   if (error) {
     // uq_job_order_payroll_members — a plain UNIQUE, so this is the only way
     // a duplicate can surface.
@@ -1848,7 +1860,9 @@ export async function addJobOrderPayrollMember(
     userEmail: user!.email,
     action: "create",
     tableName: "job_order_payroll_members",
-    recordId: payrollId,
+    // Falls back to the payroll id if the select somehow returned nothing;
+    // a missing audit id must not fail an insert that already succeeded.
+    recordId: (inserted as { id: string } | null)?.id ?? payrollId,
     newValues: { job_order_employee_id: jo.id, full_name: jo.full_name },
   });
 
@@ -1980,6 +1994,7 @@ export async function refreshMembersFromRoster(
 
   let updated = 0;
   let missing = 0;
+  let failed = 0;
   for (const m of linked) {
     const jo = byId.get(m.job_order_employee_id!);
     if (!jo) {
@@ -2007,7 +2022,20 @@ export async function refreshMembersFromRoster(
       .from("job_order_payroll_members")
       .update(snap)
       .eq("id", m.id);
-    if (error) return { error: error.message };
+    if (error) {
+      // Log and continue, never early-return. Bailing here would leave the
+      // members already updated in this loop carrying new snapshot values —
+      // possibly a changed area_name — while skipping the recomputeAreas()
+      // and logAudit() calls below, so the payroll would keep a stale
+      // `areas` search label and have no audit trail for writes that did
+      // land. Failures fold into `skipped` so the counts still reconcile
+      // against members.length.
+      console.error(
+        `refreshMembersFromRoster: member ${m.id} on payroll ${payrollId} failed: ${error.message}`,
+      );
+      failed += 1;
+      continue;
+    }
     updated += 1;
   }
 
