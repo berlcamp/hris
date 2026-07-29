@@ -58,14 +58,19 @@ export async function addJobOrderPayrollMember(
   });
   if (!jo) return { error: "Job Order employee not found or inactive" };
 
-  const { data: payroll } = await supabase
+  const { data: payroll, error: payrollErr } = await supabase
     .schema("hris")
     .from("job_order_payrolls")
     .select("days")
     .eq("id", payrollId)
     .maybeSingle();
+  if (payrollErr) {
+    console.error(
+      `addJobOrderPayrollMember: failed to read days for payroll ${payrollId}: ${payrollErr.message}`,
+    );
+  }
 
-  const { error } = await supabase
+  const { data: inserted, error } = await supabase
     .schema("hris")
     .from("job_order_payroll_members")
     .insert({
@@ -74,7 +79,9 @@ export async function addJobOrderPayrollMember(
       days: (payroll as { days: number | string | null } | null)?.days ?? null,
       hours: null,
       ...toPayrollMemberSnapshot(jo),
-    });
+    })
+    .select("id")
+    .single();
   if (error) {
     // uq_job_order_payroll_members — a plain UNIQUE, so this is the only way
     // a duplicate can surface.
@@ -84,13 +91,20 @@ export async function addJobOrderPayrollMember(
     return { error: error.message };
   }
 
+  const memberId = (inserted as { id: string } | null)?.id;
+  if (!memberId) {
+    console.error(
+      `addJobOrderPayrollMember: insert for payroll ${payrollId} / JO ${jo.id} succeeded but returned no id; audit will use the payroll id`,
+    );
+  }
+
   await recomputeAreas(supabase, payrollId);
   await logAudit({
     userId: user!.id,
     userEmail: user!.email,
     action: "create",
     tableName: "job_order_payroll_members",
-    recordId: payrollId,
+    recordId: memberId ?? payrollId,
     newValues: { job_order_employee_id: jo.id, full_name: jo.full_name },
   });
 
@@ -222,6 +236,7 @@ export async function refreshMembersFromRoster(
 
   let updated = 0;
   let missing = 0;
+  let failed = 0;
   for (const m of linked) {
     const jo = byId.get(m.job_order_employee_id!);
     if (!jo) {
@@ -249,7 +264,17 @@ export async function refreshMembersFromRoster(
       .from("job_order_payroll_members")
       .update(snap)
       .eq("id", m.id);
-    if (error) return { error: error.message };
+    if (error) {
+      // Log-and-continue: one bad row must not abandon the rest of the
+      // refresh, strand recomputeAreas()/logAudit() from running for the
+      // members that did succeed, or leave `areas` stale. Counted into
+      // `skipped` so the totals still reconcile against members.length.
+      console.error(
+        `refreshMembersFromRoster: failed to update member ${m.id} (payroll ${payrollId}): ${error.message}`,
+      );
+      failed += 1;
+      continue;
+    }
     updated += 1;
   }
 
@@ -260,9 +285,9 @@ export async function refreshMembersFromRoster(
     action: "update",
     tableName: "job_order_payroll_members",
     recordId: payrollId,
-    newValues: { refreshed: updated, skipped: skipped + missing },
+    newValues: { refreshed: updated, skipped: skipped + missing + failed },
   });
 
   revalidate(payrollId);
-  return { updated, skipped: skipped + missing };
+  return { updated, skipped: skipped + missing + failed };
 }
