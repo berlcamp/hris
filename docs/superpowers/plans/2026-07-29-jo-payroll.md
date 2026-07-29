@@ -1068,17 +1068,51 @@ export async function loadMembers(
   return (data ?? []).map((r) => shapeMember(r as Record<string, unknown>));
 }
 
-/** Recompute the denormalized `areas` label after any membership change. */
+/**
+ * Recompute the denormalized `areas` label after any membership change.
+ *
+ * Logs rather than throws: a stale label must not fail the membership change
+ * that triggered it. But it cannot be silent — `areas` is one of the three
+ * columns `getJobOrderPayrolls` searches (`areas.ilike.…`), so a dropped
+ * update makes a payroll unfindable by area with no other symptom.
+ */
 export async function recomputeAreas(
   supabase: ReturnType<typeof createAdminClient>,
   payrollId: string,
 ): Promise<void> {
   const members = await loadMembers(supabase, payrollId);
-  await supabase
+  const { error } = await supabase
     .schema("hris")
     .from("job_order_payrolls")
     .update({ areas: deriveAreasLabel(members) })
     .eq("id", payrollId);
+  if (error) {
+    console.error(
+      `recomputeAreas failed for payroll ${payrollId}: ${error.message}`,
+    );
+  }
+}
+
+/**
+ * Roll back a payroll whose member insert failed, so no half-built row is
+ * left behind. Logs its own failure: a stranded zero-member draft cannot be
+ * finalized (finalizeJobOrderPayroll rejects an empty payroll), so it would
+ * sit inert in the list until someone deleted it by hand.
+ */
+async function cleanupOrphanedPayroll(
+  supabase: ReturnType<typeof createAdminClient>,
+  payrollId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .schema("hris")
+    .from("job_order_payrolls")
+    .delete()
+    .eq("id", payrollId);
+  if (error) {
+    console.error(
+      `cleanupOrphanedPayroll failed for payroll ${payrollId}: ${error.message}`,
+    );
+  }
 }
 
 /**
@@ -1394,12 +1428,7 @@ export async function createJobOrderPayroll(
     .from("job_order_payroll_members")
     .insert(rows);
   if (memErr) {
-    // Leave no half-built payroll behind.
-    await supabase
-      .schema("hris")
-      .from("job_order_payrolls")
-      .delete()
-      .eq("id", payrollId);
+    await cleanupOrphanedPayroll(supabase, payrollId);
     return { error: memErr.message };
   }
 
@@ -1544,11 +1573,7 @@ export async function duplicateJobOrderPayroll(
       .from("job_order_payroll_members")
       .insert(rows);
     if (memErr) {
-      await supabase
-        .schema("hris")
-        .from("job_order_payrolls")
-        .delete()
-        .eq("id", newId);
+      await cleanupOrphanedPayroll(supabase, newId);
       return { error: memErr.message };
     }
   }
