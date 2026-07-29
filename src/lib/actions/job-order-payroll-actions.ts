@@ -52,11 +52,44 @@ export async function recomputeAreas(
   payrollId: string,
 ): Promise<void> {
   const members = await loadMembers(supabase, payrollId);
-  await supabase
+  const { error } = await supabase
     .schema("hris")
     .from("job_order_payrolls")
     .update({ areas: deriveAreasLabel(members) })
     .eq("id", payrollId);
+  // Logged, not thrown: `areas` is a denormalized search/display label, not
+  // the record of truth (members are). But a silent failure here leaves it
+  // stale — and it's one of the three columns list search matches against
+  // (see the `.or(...)` in getJobOrderPayrolls) — so a failure must at least
+  // be visible for someone to notice and re-run.
+  if (error) {
+    console.error(
+      `recomputeAreas: failed to update areas for payroll ${payrollId}: ${error.message}`,
+    );
+  }
+}
+
+/**
+ * Deletes a just-created payroll row after its member insert failed, so a
+ * zero-member draft isn't left stranded (finalizeJobOrderPayroll refuses to
+ * finalize an empty payroll, so it would otherwise sit inert forever with no
+ * normal-use path to clean it up). Logged, not thrown: the caller already has
+ * the original insert error to surface and must still return it.
+ */
+async function cleanupOrphanedPayroll(
+  supabase: ReturnType<typeof createAdminClient>,
+  payrollId: string,
+): Promise<void> {
+  const { error } = await supabase
+    .schema("hris")
+    .from("job_order_payrolls")
+    .delete()
+    .eq("id", payrollId);
+  if (error) {
+    console.error(
+      `cleanupOrphanedPayroll: failed to delete orphaned payroll ${payrollId}: ${error.message}`,
+    );
+  }
 }
 
 /**
@@ -373,11 +406,7 @@ export async function createJobOrderPayroll(
     .insert(rows);
   if (memErr) {
     // Leave no half-built payroll behind.
-    await supabase
-      .schema("hris")
-      .from("job_order_payrolls")
-      .delete()
-      .eq("id", payrollId);
+    await cleanupOrphanedPayroll(supabase, payrollId);
     return { error: memErr.message };
   }
 
@@ -522,11 +551,7 @@ export async function duplicateJobOrderPayroll(
       .from("job_order_payroll_members")
       .insert(rows);
     if (memErr) {
-      await supabase
-        .schema("hris")
-        .from("job_order_payrolls")
-        .delete()
-        .eq("id", newId);
+      await cleanupOrphanedPayroll(supabase, newId);
       return { error: memErr.message };
     }
   }
