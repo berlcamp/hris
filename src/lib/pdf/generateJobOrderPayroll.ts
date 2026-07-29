@@ -53,6 +53,8 @@ export interface GenerateJoPayrollPrintParams {
   description?: string | null;
   /** Comma-separated areas captured on the parent payroll, used in the header. */
   areas?: string | null;
+  /** Renders a diagonal DRAFT watermark. Set when payroll.status === "draft". */
+  draft?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,9 +211,44 @@ function printHTMLContent(htmlContent: string): void {
   }
 }
 
+// This module renders each printable as an HTML string played through an
+// iframe's native print (`printHTMLContent`), not @react-pdf/renderer — that
+// library is used elsewhere under src/components/pdf/ but not here. The
+// watermark below is the HTML/CSS equivalent of the brief's react-pdf
+// <Text style={{position:"absolute", transform:"rotate(-30deg)"}}> snippet:
+// same visual result (centered, rotated, translucent grey "DRAFT"), same
+// "renders behind the content" placement (first in paint order beneath the
+// table), just expressed in the DOM this file actually builds.
+const WATERMARK_STYLES = `
+  .draft-watermark {
+    position: absolute;
+    top: 45%;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 72pt;
+    color: #e5e5e5;
+    transform: rotate(-30deg);
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: 1000;
+  }
+`;
+
+/**
+ * Rendered first inside the printed page's container (`<body>` for
+ * single-page documents, `.summary-page` for the paginated ones) so it
+ * paints behind the table content. Returns "" (not rendered) when not draft.
+ */
+function renderDraftWatermark(draft: boolean | undefined): string {
+  if (!draft) return "";
+  return `<div class="draft-watermark">DRAFT</div>`;
+}
+
 const BASE_STYLES = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; font-size: 9pt; line-height: 1.2; color: #000; }
+  body { position: relative; font-family: Arial, sans-serif; font-size: 9pt; line-height: 1.2; color: #000; }
+  ${WATERMARK_STYLES}
   h1.title { text-align: center; font-size: 13pt; font-weight: bold; margin-bottom: 2px; }
   h2.subtitle { text-align: center; font-size: 10pt; margin-bottom: 4px; }
   h3.particulars { text-align: center; font-size: 9pt; font-weight: normal; margin-bottom: 6px; }
@@ -237,7 +274,8 @@ const BASE_STYLES = `
 
 const DAILY_WAGES_STYLES = `
   @page { size: legal landscape; margin: 0.3in; }
-  body { font-family: "Times New Roman", Times, serif; font-size: 9pt; line-height: 1.2; color: #000; }
+  body { position: relative; font-family: "Times New Roman", Times, serif; font-size: 9pt; line-height: 1.2; color: #000; }
+  ${WATERMARK_STYLES}
   .report-header { display: grid; grid-template-columns: 1fr 2fr 1fr; align-items: start; margin-bottom: 2px; }
   .report-header .center { text-align: center; }
   .report-header .right { text-align: center; }
@@ -339,6 +377,7 @@ function renderDailyWagesPayroll({
   periodEnd,
   areas,
   showSss,
+  draft,
 }: RenderDailyWagesParams): string {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   const sorted = [...rows].sort((a, b) => a.fullname.localeCompare(b.fullname));
@@ -391,6 +430,7 @@ function renderDailyWagesPayroll({
 <head><meta charset="UTF-8"><title>Daily Wages Payroll</title>
 <style>${DAILY_WAGES_STYLES}</style></head>
 <body>
+  ${renderDraftWatermark(draft)}
   ${renderDailyWagesHeader(periodHeader, areas)}
   <table class="payroll">
     <colgroup>
@@ -475,6 +515,7 @@ export function generateJoPayrollByDeptPrint({
   periodStart,
   periodEnd,
   particulars,
+  draft,
 }: GenerateJoPayrollPrintParams): void {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   const sorted = [...rows].sort((a, b) => a.fullname.localeCompare(b.fullname));
@@ -504,6 +545,7 @@ export function generateJoPayrollByDeptPrint({
 @page { size: legal landscape; margin: 0.3in; }
 </style></head>
 <body>
+  ${renderDraftWatermark(draft)}
   <h1 class="title">JOB ORDER PAYROLL</h1>
   <h2 class="subtitle">${periodHeader}</h2>
   ${particulars ? `<h3 class="particulars">${escapeHtml(particulars)}</h3>` : ""}
@@ -542,6 +584,7 @@ export function generateJoPayrollSummaryPrint({
   periodStart,
   periodEnd,
   particulars,
+  draft,
 }: GenerateJoPayrollPrintParams): void {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   const groups = groupMembersByRate(rows);
@@ -587,6 +630,7 @@ export function generateJoPayrollSummaryPrint({
 
       return `
         <div class="summary-page" style="page-break-after: ${pi === pages.length - 1 ? "auto" : "always"};">
+          ${renderDraftWatermark(draft)}
           <h1 class="title">JOB ORDER PAYROLL — SUMMARY</h1>
           <h2 class="subtitle">${periodHeader}</h2>
           ${particulars ? `<h3 class="particulars">${escapeHtml(particulars)}</h3>` : ""}
@@ -620,7 +664,7 @@ export function generateJoPayrollSummaryPrint({
 <head><meta charset="UTF-8"><title>JO Payroll Summary</title>
 <style>${BASE_STYLES}
 @page { size: legal portrait; margin: 0.4in; }
-.summary-page { padding-bottom: 0.2in; }
+.summary-page { position: relative; padding-bottom: 0.2in; }
 </style></head>
 <body>${pagesHtml}</body></html>`;
 
@@ -636,6 +680,7 @@ export function generateJoPayrollNoAtmPrint({
   periodStart,
   periodEnd,
   particulars,
+  draft,
 }: GenerateJoPayrollPrintParams): void {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   // Filter to employees without an ATM account number.
@@ -667,6 +712,7 @@ export function generateJoPayrollNoAtmPrint({
 @page { size: legal landscape; margin: 0.3in; }
 </style></head>
 <body>
+  ${renderDraftWatermark(draft)}
   <h1 class="title">JOB ORDER PAYROLL — CASH PAYABLE</h1>
   <h2 class="subtitle">${periodHeader}</h2>
   ${particulars ? `<h3 class="particulars">${escapeHtml(particulars)}</h3>` : ""}
@@ -711,6 +757,7 @@ function renderDailyWagesOvertimePayroll({
   periodEnd,
   areas,
   withAtm,
+  draft,
 }: GenerateJoPayrollPrintParams & { withAtm: boolean }): string {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   const subset = withAtm
@@ -790,6 +837,7 @@ function renderDailyWagesOvertimePayroll({
 <head><meta charset="UTF-8"><title>Daily Wages Payroll — Overtime${withAtm ? "" : " (No ATM)"}</title>
 <style>${DAILY_WAGES_STYLES}</style></head>
 <body>
+  ${renderDraftWatermark(draft)}
   ${renderDailyWagesHeader(periodHeader, areas)}
   <table class="payroll">
     <colgroup>${colgroup}</colgroup>
@@ -854,6 +902,7 @@ export function generateJoPayrollSummaryOvertimePrint({
   periodStart,
   periodEnd,
   particulars,
+  draft,
 }: GenerateJoPayrollPrintParams): void {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   const sorted = [...rows].sort((a, b) =>
@@ -894,6 +943,7 @@ export function generateJoPayrollSummaryOvertimePrint({
       grandOt += pageOt;
       return `
         <div class="summary-page" style="page-break-after: ${pi === pages.length - 1 ? "auto" : "always"};">
+          ${renderDraftWatermark(draft)}
           <h1 class="title">JOB ORDER PAYROLL — REGULAR + OVERTIME SUMMARY</h1>
           <h2 class="subtitle">${periodHeader}</h2>
           ${particulars ? `<h3 class="particulars">${escapeHtml(particulars)}</h3>` : ""}
@@ -932,7 +982,7 @@ export function generateJoPayrollSummaryOvertimePrint({
 <head><meta charset="UTF-8"><title>JO Payroll Summary (with OT)</title>
 <style>${BASE_STYLES}
 @page { size: legal landscape; margin: 0.3in; }
-.summary-page { padding-bottom: 0.2in; }
+.summary-page { position: relative; padding-bottom: 0.2in; }
 </style></head>
 <body>${pagesHtml}</body></html>`;
 
@@ -950,6 +1000,7 @@ interface RenderObrParams {
   particulars?: string | null;
   description?: string | null;
   overtime?: boolean;
+  draft?: boolean;
 }
 
 function renderObr({
@@ -959,6 +1010,7 @@ function renderObr({
   particulars,
   description,
   overtime,
+  draft,
 }: RenderObrParams): string {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   const groups = groupMembersByRate(rows);
@@ -995,6 +1047,7 @@ function renderObr({
 @page { size: legal portrait; margin: 0.4in; }
 </style></head>
 <body>
+  ${renderDraftWatermark(draft)}
   <h1 class="title">OBLIGATION REQUEST AND STATUS</h1>
   <h2 class="subtitle">${overtime ? "Overtime · " : ""}${periodHeader}</h2>
   <table class="payroll">
