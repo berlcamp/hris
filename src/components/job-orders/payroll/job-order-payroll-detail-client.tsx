@@ -5,27 +5,17 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
-  ChevronDown,
   Copy,
   Loader2,
   Lock,
   LockOpen,
   Pencil,
-  Printer,
   RefreshCw,
   Trash2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,26 +32,13 @@ import {
   JobOrderPayrollDuplicateDialog,
   type JobOrderPayrollDuplicateSource,
 } from "./job-order-payroll-duplicate-dialog";
+import { JobOrderPayrollPrintMenu } from "./job-order-payroll-print-menu";
 import {
   deleteJobOrderPayroll,
   finalizeJobOrderPayroll,
   reopenJobOrderPayroll,
 } from "@/lib/actions/job-order-payroll-actions";
 import { refreshMembersFromRoster } from "@/lib/actions/job-order-payroll-member-actions";
-import { toPrintRow } from "@/lib/job-order-payroll-helpers";
-import {
-  generateJoPayrollByDeptPrint,
-  generateJoPayrollNoAtmPrint,
-  generateJoPayrollNoSssPrint,
-  generateJoPayrollObrOvertimePrint,
-  generateJoPayrollObrPrint,
-  generateJoPayrollOvertimeNoAtmPrint,
-  generateJoPayrollOvertimePrint,
-  generateJoPayrollPrint,
-  generateJoPayrollSummaryOvertimePrint,
-  generateJoPayrollSummaryPrint,
-  type GenerateJoPayrollPrintParams,
-} from "@/lib/pdf/generateJobOrderPayroll";
 import type { JobOrderPayroll, JobOrderPayrollMember } from "@/lib/types";
 
 function fmtDate(d: string | null): string {
@@ -177,53 +154,6 @@ export function JobOrderPayrollDetailClient({
     }
   };
 
-  const printParams: GenerateJoPayrollPrintParams = {
-    rows: members.map(toPrintRow),
-    periodStart: payroll.period_start,
-    periodEnd: payroll.period_end,
-    particulars: payroll.particulars,
-    description: payroll.description,
-    areas: payroll.areas,
-    draft: isDraft,
-  };
-
-  const printVariants: { label: string; run: () => void }[] = [
-    {
-      label: "Daily Wages Payroll (with SSS)",
-      run: () => generateJoPayrollPrint(printParams),
-    },
-    {
-      label: "Daily Wages Payroll (No SSS)",
-      run: () => generateJoPayrollNoSssPrint(printParams),
-    },
-    {
-      label: "By Department",
-      run: () => generateJoPayrollByDeptPrint(printParams),
-    },
-    { label: "Summary", run: () => generateJoPayrollSummaryPrint(printParams) },
-    {
-      label: "Cash Payable (No ATM)",
-      run: () => generateJoPayrollNoAtmPrint(printParams),
-    },
-    {
-      label: "Overtime (with ATM)",
-      run: () => generateJoPayrollOvertimePrint(printParams),
-    },
-    {
-      label: "Overtime (No ATM)",
-      run: () => generateJoPayrollOvertimeNoAtmPrint(printParams),
-    },
-    {
-      label: "Summary + Overtime",
-      run: () => generateJoPayrollSummaryOvertimePrint(printParams),
-    },
-    { label: "OBR", run: () => generateJoPayrollObrPrint(printParams) },
-    {
-      label: "OBR (Overtime)",
-      run: () => generateJoPayrollObrOvertimePrint(printParams),
-    },
-  ];
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -333,22 +263,11 @@ export function JobOrderPayrollDetailClient({
             </Button>
           )}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger render={<Button size="sm" />}>
-              <Printer className="h-4 w-4" />
-              Print
-              <ChevronDown className="h-4 w-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Print variant</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {printVariants.map((v) => (
-                <DropdownMenuItem key={v.label} onClick={v.run}>
-                  {v.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <JobOrderPayrollPrintMenu
+            payroll={payroll}
+            members={members}
+            isDraft={isDraft}
+          />
         </div>
       </div>
 
