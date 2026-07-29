@@ -1314,93 +1314,6 @@ export type Database = {
           },
         ]
       }
-      jo_payroll: {
-        Row: {
-          areas: string | null
-          created_at: string | null
-          days: number | null
-          description: string | null
-          id: string
-          particulars: string | null
-          payroll_date: string | null
-          period_end: string
-          period_start: string
-          updated_at: string | null
-        }
-        Insert: {
-          areas?: string | null
-          created_at?: string | null
-          days?: number | null
-          description?: string | null
-          id?: string
-          particulars?: string | null
-          payroll_date?: string | null
-          period_end: string
-          period_start: string
-          updated_at?: string | null
-        }
-        Update: {
-          areas?: string | null
-          created_at?: string | null
-          days?: number | null
-          description?: string | null
-          id?: string
-          particulars?: string | null
-          payroll_date?: string | null
-          period_end?: string
-          period_start?: string
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
-      jo_payroll_members: {
-        Row: {
-          created_at: string | null
-          days: number | null
-          employee_id: string
-          hours: number | null
-          id: string
-          payroll_id: string
-          rate: number | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          days?: number | null
-          employee_id: string
-          hours?: number | null
-          id?: string
-          payroll_id: string
-          rate?: number | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          days?: number | null
-          employee_id?: string
-          hours?: number | null
-          id?: string
-          payroll_id?: string
-          rate?: number | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "jo_payroll_members_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "jo_payroll_members_payroll_id_fkey"
-            columns: ["payroll_id"]
-            isOneToOne: false
-            referencedRelation: "jo_payroll"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       job_order_areas: {
         Row: {
           created_at: string
@@ -1549,6 +1462,153 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      job_order_payroll_members: {
+        Row: {
+          area_name: string | null
+          community_tax_date: string | null
+          community_tax_number: string | null
+          community_tax_place_issued: string | null
+          created_at: string
+          daily_rate: number | null
+          days: number | null
+          full_name: string
+          has_atm: boolean
+          hours: number | null
+          id: string
+          job_order_employee_id: string | null
+          landbank_account_number: string | null
+          legacy_id: number | null
+          payroll_id: string
+          sss_ec: number | null
+          sss_no: string | null
+          sss_ss: number | null
+          sub_area: string | null
+          updated_at: string
+        }
+        Insert: {
+          area_name?: string | null
+          community_tax_date?: string | null
+          community_tax_number?: string | null
+          community_tax_place_issued?: string | null
+          created_at?: string
+          daily_rate?: number | null
+          days?: number | null
+          full_name: string
+          has_atm?: boolean
+          hours?: number | null
+          id?: string
+          job_order_employee_id?: string | null
+          landbank_account_number?: string | null
+          legacy_id?: number | null
+          payroll_id: string
+          sss_ec?: number | null
+          sss_no?: string | null
+          sss_ss?: number | null
+          sub_area?: string | null
+          updated_at?: string
+        }
+        Update: {
+          area_name?: string | null
+          community_tax_date?: string | null
+          community_tax_number?: string | null
+          community_tax_place_issued?: string | null
+          created_at?: string
+          daily_rate?: number | null
+          days?: number | null
+          full_name?: string
+          has_atm?: boolean
+          hours?: number | null
+          id?: string
+          job_order_employee_id?: string | null
+          landbank_account_number?: string | null
+          legacy_id?: number | null
+          payroll_id?: string
+          sss_ec?: number | null
+          sss_no?: string | null
+          sss_ss?: number | null
+          sub_area?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_order_payroll_members_job_order_employee_id_fkey"
+            columns: ["job_order_employee_id"]
+            isOneToOne: false
+            referencedRelation: "job_order_employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_order_payroll_members_payroll_id_fkey"
+            columns: ["payroll_id"]
+            isOneToOne: false
+            referencedRelation: "job_order_payrolls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      job_order_payrolls: {
+        Row: {
+          areas: string | null
+          created_at: string
+          created_by: string | null
+          days: number | null
+          deleted_at: string | null
+          description: string | null
+          finalized_at: string | null
+          finalized_by: string | null
+          id: string
+          is_reconstructed: boolean
+          legacy_id: number | null
+          particulars: string | null
+          payroll_date: string | null
+          period_end: string
+          period_start: string
+          status: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          areas?: string | null
+          created_at?: string
+          created_by?: string | null
+          days?: number | null
+          deleted_at?: string | null
+          description?: string | null
+          finalized_at?: string | null
+          finalized_by?: string | null
+          id?: string
+          is_reconstructed?: boolean
+          legacy_id?: number | null
+          particulars?: string | null
+          payroll_date?: string | null
+          period_end: string
+          period_start: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          areas?: string | null
+          created_at?: string
+          created_by?: string | null
+          days?: number | null
+          deleted_at?: string | null
+          description?: string | null
+          finalized_at?: string | null
+          finalized_by?: string | null
+          id?: string
+          is_reconstructed?: boolean
+          legacy_id?: number | null
+          particulars?: string | null
+          payroll_date?: string | null
+          period_end?: string
+          period_start?: string
+          status?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       leave_applications: {
         Row: {
