@@ -158,14 +158,46 @@ test.after(async () => {
 });
 
 // 1. RLS — the reason this file needs an anon client at all.
+//
+// A bare `.select("id").limit(1)` against a table that (after `db:reset`)
+// holds zero rows would return `[]` whether RLS blocks the anon client or
+// RLS is completely disabled — that ambiguity is exactly the blind spot that
+// let Spec 1's Job Order PII leak survive nine task gates. To be load-bearing
+// this must: insert a KNOWN row via `admin`, have `anon` look it up BY ID (not
+// an unfiltered scan), assert zero rows come back, and then assert `admin`
+// can still see that same row — proving the row genuinely exists and is
+// genuinely invisible to `anon`, not merely absent. Mirrors
+// job-orders.test.mts's "anon key cannot read job_order_employees" test.
 test("anon key cannot read job_order_payrolls", async () => {
-  const { data } = await anon.from("job_order_payrolls").select("id").limit(1);
-  assert.deepEqual(data, []);
+  const payroll = await makePayroll({ description: `${TAG}-rls-payroll` });
+
+  const anonRead = await anon.from("job_order_payrolls").select("id").eq("id", payroll.id);
+  assert.equal(anonRead.error, null, `anon select should not error, just return nothing: ${anonRead.error?.message}`);
+  assert.equal(anonRead.data!.length, 0, "anon (unauthenticated) client must see zero rows once RLS is enabled");
+
+  const adminRead = await admin.from("job_order_payrolls").select("id").eq("id", payroll.id);
+  assert.equal(adminRead.error, null, `admin select failed: ${adminRead.error?.message}`);
+  assert.equal(adminRead.data!.length, 1, "admin (service-role) client bypasses RLS and must still see the row");
 });
 
 test("anon key cannot read job_order_payroll_members", async () => {
-  const { data } = await anon.from("job_order_payroll_members").select("id").limit(1);
-  assert.deepEqual(data, []);
+  const area = await makeArea(`${TAG}-area-rls-members`);
+  const jo = await makeJo(area.id, { full_name: `${TAG} RLS Member Probe` });
+  const payroll = await makePayroll({ description: `${TAG}-rls-members` });
+  const member = await makeMember(payroll.id, {
+    job_order_employee_id: jo.id,
+    full_name: jo.full_name,
+    sss_no: "01-2345678-9",
+    legacy_id: freshLegacyId(),
+  });
+
+  const anonRead = await anon.from("job_order_payroll_members").select("id, full_name, sss_no").eq("id", member.id);
+  assert.equal(anonRead.error, null, `anon select should not error, just return nothing: ${anonRead.error?.message}`);
+  assert.equal(anonRead.data!.length, 0, "anon (unauthenticated) client must see zero rows once RLS is enabled");
+
+  const adminRead = await admin.from("job_order_payroll_members").select("id").eq("id", member.id);
+  assert.equal(adminRead.error, null, `admin select failed: ${adminRead.error?.message}`);
+  assert.equal(adminRead.data!.length, 1, "admin (service-role) client bypasses RLS and must still see the row");
 });
 
 // 2. The migration 059 regression pin, on BOTH tables. A partial unique index
