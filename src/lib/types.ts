@@ -444,30 +444,6 @@ export interface CosEmployeePayroll {
   updated_at: string;
 }
 
-export interface JoPayroll {
-  id: string;
-  period_start: string;
-  period_end: string;
-  description: string | null;
-  particulars: string | null;
-  areas: string | null;
-  days: number | null;
-  payroll_date: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface JoPayrollMember {
-  id: string;
-  payroll_id: string;
-  employee_id: string;
-  days: number | null;
-  hours: number | null;
-  rate: number | null;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface JobOrderArea {
   id: string;
   name: string;
@@ -510,6 +486,67 @@ export interface JobOrderEmployee {
   legacy_id: number | null;
   created_at: string;
   updated_at: string;
+}
+
+export type JobOrderPayrollStatus = "draft" | "finalized";
+
+export interface JobOrderPayroll {
+  id: string;
+  period_start: string;
+  period_end: string;
+  days: number | null;
+  description: string | null;
+  particulars: string | null;
+  areas: string | null;
+  payroll_date: string | null;
+  status: JobOrderPayrollStatus;
+  finalized_at: string | null;
+  finalized_by: string | null;
+  // Imported from the legacy system, priced at the JO's rate at import time
+  // rather than the rate actually paid — legacy jopayroll_members had no rate
+  // column. Displayed as a "Reconstructed" badge.
+  is_reconstructed: boolean;
+  legacy_id: number | null;
+  created_at: string;
+  updated_at: string;
+  // Aggregates computed in the action, not stored.
+  member_count: number;
+  total_gross: number;
+  total_sss: number;
+  total_net: number;
+}
+
+export interface JobOrderPayrollMember {
+  id: string;
+  payroll_id: string;
+  // Null when the linked JO was deleted (ON DELETE SET NULL) or when the row
+  // was added manually. The snapshot below is what prints either way.
+  job_order_employee_id: string | null;
+  days: number | null;
+  // Overtime hours. Unrelated to JobOrderEmployee.working_hours.
+  hours: number | null;
+  full_name: string;
+  area_name: string | null;
+  sub_area: string | null;
+  daily_rate: number | null;
+  sss_no: string | null;
+  sss_ss: number | null;
+  sss_ec: number | null;
+  has_atm: boolean;
+  landbank_account_number: string | null;
+  community_tax_number: string | null;
+  community_tax_date: string | null;
+  community_tax_place_issued: string | null;
+  legacy_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** An active area plus its active-JO count, for the payroll area picker. */
+export interface JobOrderAreaOption {
+  id: string;
+  name: string;
+  active_employee_count: number;
 }
 
 // ============================================================
