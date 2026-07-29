@@ -23,7 +23,7 @@ import {
   computeJoNetAmount,
   computeJoOvertimeGross,
   groupMembersByRate,
-} from "@/lib/utils/joPayrollAmount";
+} from "@/lib/job-order-payroll-helpers";
 
 // Hard-coded LGU Ozamiz City signatory block — matches the printed Daily Wages
 // Payroll template the accounting office uses. If these names ever change, the

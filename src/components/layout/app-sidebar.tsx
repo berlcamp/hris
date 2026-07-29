@@ -25,7 +25,6 @@ import {
   Upload,
   CircleDollarSign,
   Briefcase,
-  Hammer,
   CalendarClock,
   CalendarOff,
   Network,
@@ -233,7 +232,6 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Regular Payroll", href: "/payroll", icon: CircleDollarSign, roles: adminRoles },
       { title: "COS Payroll", href: "/cos-payroll", icon: Briefcase, roles: adminRoles },
-      { title: "Job Order Payroll", href: "/jo-payroll", icon: Hammer, roles: adminRoles },
     ],
   },
   {
