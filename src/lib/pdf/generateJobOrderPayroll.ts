@@ -227,13 +227,31 @@ function printHTMLContent(htmlContent: string): void {
 // what actually pushes it below: per the CSS painting order, a negative
 // z-index descendant paints above its stacking-context root's own
 // background/border but below that root's non-positioned in-flow content
-// (here, the table). `.draft-watermark`'s stacking-context root is the
-// nearest positioned ancestor (`body`, or `.summary-page` for the paginated
-// generators), and neither sets a background-color, so there is nothing
-// opaque for the watermark to sink beneath.
+// (here, the table). `.draft-watermark`'s stacking-context root is `body`
+// (or `.summary-page` for the paginated generators, overridden back below),
+// and neither sets a background-color, so there is nothing opaque for the
+// watermark to sink beneath.
+//
+// `position: fixed`, verified against a real multi-page print (Task 8): the
+// six non-paginated generators render exactly one `.draft-watermark` div for
+// the ENTIRE document, positioned `top: 45%` of `body`. With `position:
+// absolute` that 45% is relative to the whole flowed document's height, not
+// each physical page, so on a payroll spanning N printed pages the watermark
+// only ever lands once, on whichever single page happens to sit at the
+// document's vertical midpoint — confirmed by rendering a 150-row payroll to
+// a 5-page PDF: pages 1, 2, 4 and 5 came back completely unmarked, only page
+// 3 (the midpoint) showed it. `position: fixed` is anchored to each page box
+// during paginated media instead of the document's total height, so browsers
+// repaint it on every physical page — confirmed by re-rendering the same
+// 5-page PDF after this change: all 5 pages now show it. The two
+// `.summary-page` generators already build one watermark div per physical
+// page (one `renderDraftWatermark()` call per page-broken `.summary-page`
+// block), so they never had this bug; the override below keeps their
+// already-correct, unrelated `position: absolute` behavior byte-for-byte
+// unchanged.
 const WATERMARK_STYLES = `
   .draft-watermark {
-    position: absolute;
+    position: fixed;
     top: 45%;
     left: 0;
     right: 0;
@@ -244,6 +262,14 @@ const WATERMARK_STYLES = `
     opacity: 0.5;
     pointer-events: none;
     z-index: -1;
+  }
+  /* The two paginated (.summary-page) generators already emit one watermark
+     div per physical page — position: fixed is unnecessary there and, more
+     importantly, must not be introduced there: this scopes those two back to
+     the original position: absolute so their already-verified-correct output
+     (Task 6) is untouched by this fix. */
+  .summary-page .draft-watermark {
+    position: absolute;
   }
 `;
 

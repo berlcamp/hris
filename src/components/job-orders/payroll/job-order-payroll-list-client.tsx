@@ -40,6 +40,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { jobOrderPayrollColumns } from "@/components/tables/columns/job-order-payroll-columns";
 import { JobOrderPayrollCreateDialog } from "./job-order-payroll-create-dialog";
+import {
+  JobOrderPayrollDuplicateDialog,
+  type JobOrderPayrollDuplicateSource,
+} from "./job-order-payroll-duplicate-dialog";
 import { deleteJobOrderPayroll } from "@/lib/actions/job-order-payroll-actions";
 import type { JobOrderAreaOption, JobOrderPayroll } from "@/lib/types";
 
@@ -92,6 +96,8 @@ export function JobOrderPayrollListClient({
   }, [spQ, spStatus, spFrom, spTo]);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [duplicateSource, setDuplicateSource] =
+    useState<JobOrderPayrollDuplicateSource | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<JobOrderPayroll | null>(
     null,
   );
@@ -152,6 +158,7 @@ export function JobOrderPayrollListClient({
 
   const columns = jobOrderPayrollColumns({
     onView: (p) => router.push(`/job-orders/payroll/${p.id}`),
+    onDuplicate: (p) => setDuplicateSource(p),
     onDelete: (p) => setDeleteTarget(p),
     canDelete,
   });
@@ -288,6 +295,13 @@ export function JobOrderPayrollListClient({
         open={createOpen}
         onOpenChange={setCreateOpen}
         areas={areas}
+      />
+
+      <JobOrderPayrollDuplicateDialog
+        source={duplicateSource}
+        onOpenChange={(o) => {
+          if (!o) setDuplicateSource(null);
+        }}
       />
 
       <AlertDialog

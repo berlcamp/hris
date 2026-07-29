@@ -35,6 +35,7 @@ import {
   HardHat,
   MapPin,
   LayoutTemplate,
+  Hammer,
 } from "lucide-react";
 
 import {
@@ -264,6 +265,7 @@ const navGroups: NavGroup[] = [
     items: [
       { title: "Job Order Employees", href: "/job-orders", icon: HardHat, roles: jobOrderRoles },
       { title: "Area Assignments", href: "/job-orders/areas", icon: MapPin, roles: jobOrderRoles },
+      { title: "Payroll", href: "/job-orders/payroll", icon: Hammer, roles: jobOrderRoles },
     ],
   },
   {
@@ -389,12 +391,13 @@ export function AppSidebar() {
                       pathname.startsWith(item.href)) ||
                     (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits")))) ||
                     (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits")))) ||
-                    // "/job-orders/areas" is a sibling section, not a detail
-                    // page under "/job-orders" — without this it would also
-                    // highlight "Job Order Employees" while viewing "Area
-                    // Assignments", the same class of bug fixed above for
+                    // "/job-orders/areas" and "/job-orders/payroll" are
+                    // sibling sections, not detail pages under "/job-orders"
+                    // — without this they would also highlight "Job Order
+                    // Employees" while viewing "Area Assignments" or
+                    // "Payroll", the same class of bug fixed above for
                     // /leaves and /cto.
-                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas"))));
+                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas") && !pathname.startsWith("/job-orders/payroll"))));
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton

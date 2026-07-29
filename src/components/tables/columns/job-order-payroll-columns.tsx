@@ -2,7 +2,7 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
-import { MoreHorizontal, Eye, Trash2 } from "lucide-react";
+import { Copy, MoreHorizontal, Eye, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ function fmtMoney(n: number): string {
 
 export function jobOrderPayrollColumns(handlers: {
   onView: (p: JobOrderPayroll) => void;
+  onDuplicate: (p: JobOrderPayroll) => void;
   onDelete: (p: JobOrderPayroll) => void;
   canDelete: boolean;
 }): ColumnDef<JobOrderPayroll>[] {
@@ -112,10 +113,9 @@ export function jobOrderPayrollColumns(handlers: {
             <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
               <Eye className="mr-2 h-4 w-4" /> Open
             </DropdownMenuItem>
-            {/* Duplicate is intentionally absent: it needs a metadata dialog
-                to collect the new period before it can clone anything, which
-                Task 8 builds alongside the detail page. Task 8 adds this
-                action back, wired to duplicateJobOrderPayroll. */}
+            <DropdownMenuItem onClick={() => handlers.onDuplicate(row.original)}>
+              <Copy className="mr-2 h-4 w-4" /> Duplicate
+            </DropdownMenuItem>
             {handlers.canDelete && (
               <DropdownMenuItem
                 variant="destructive"
