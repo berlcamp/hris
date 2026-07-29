@@ -304,6 +304,12 @@ const navGroups: NavGroup[] = [
         icon: Upload,
         roles: ["super_admin"],
       },
+      {
+        title: "Job Order Payroll Import",
+        href: "/admin/job-order-payroll-import",
+        icon: Upload,
+        roles: ["super_admin"],
+      },
       { title: "Work Schedules", href: "/admin/schedules", icon: CalendarClock, roles: ["super_admin", "dtr_manager"] },
       { title: "Holidays", href: "/attendance/holidays", icon: CalendarOff, roles: ["super_admin", "dtr_manager"] },
       { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin"] },

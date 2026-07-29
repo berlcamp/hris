@@ -12,7 +12,7 @@
     "db:reset": "supabase db reset",
     "db:new": "supabase migration new",
     "db:types": "supabase gen types typescript --local --schema hris > src/lib/database.types.ts",
-    "test:dtr": "node --experimental-strip-types --test supabase/tests/dtr-bucketing.test.mts supabase/tests/job-order-helpers.test.mts supabase/tests/parse-csv.test.mts supabase/tests/csv-import-helpers.test.mts supabase/tests/job-order-payroll-helpers.test.mts",
+    "test:dtr": "node --experimental-strip-types --test supabase/tests/dtr-bucketing.test.mts supabase/tests/job-order-helpers.test.mts supabase/tests/parse-csv.test.mts supabase/tests/csv-import-helpers.test.mts supabase/tests/job-order-payroll-helpers.test.mts supabase/tests/job-order-payroll-import.test.mts",
     "test:db": "node --experimental-strip-types --test supabase/tests/dtr-import.test.mts supabase/tests/job-orders.test.mts",
     "test:cos": "node --experimental-strip-types --test supabase/tests/cos-unit.test.mts supabase/tests/cos-contract-unit.test.mts",
     "test:cos-db": "node --experimental-strip-types --test supabase/tests/cos-employees.test.mts supabase/tests/cos-contracts.test.mts",
