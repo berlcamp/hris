@@ -233,7 +233,7 @@ npm run db:reset
 npm run lint && npm run build
 ```
 
-Expected: `db:reset` runs all migrations through 064 with no error; lint shows no NEW errors versus the baseline (`main` is at 43 problems / 2 errors); build succeeds. Confirm the tables exist:
+Expected: `db:reset` runs all migrations through 064 with no error; lint shows no NEW errors versus the **measured baseline of 92 problems (4 errors, 88 warnings)**; build succeeds. Confirm the tables exist:
 
 ```bash
 npx supabase status -o json   # read DB_URL, then:
@@ -744,7 +744,7 @@ export type JoPayrollPrintRow = JobOrderPayrollPrintRow;
 node --experimental-strip-types --test supabase/tests/job-order-payroll-helpers.test.mts
 ```
 
-Expected: PASS, 22 tests.
+Expected: PASS, 21 tests — the exact number written in Step 1. If your count differs, you added or dropped a case; reconcile before moving on.
 
 - [ ] **Step 5: Wire into the npm test script**
 
@@ -1272,25 +1272,49 @@ export async function getJobOrderAreasForPicker(): Promise<JobOrderAreaOption[]>
 
 // ── Writes ───────────────────────────────────────────────────────────
 
-/** Roster rows shaped for snapshotting. Numerics converted; area flattened. */
+/**
+ * Roster rows shaped for snapshotting. Numerics converted; area flattened.
+ *
+ * Paged with .range() in chunks of 1000 because supabase/config.toml caps
+ * PostgREST's max_rows at 1000. An unpaginated select would silently truncate
+ * once the roster passes that — it is ~578 rows today. `getAddableJobOrders`
+ * calls this with no filter at all, so it is the first caller that would hit
+ * the cap. Same pattern and same reason as job-order-actions.ts:104.
+ * `full_name` does not uniquely order rows, so `id` is the tiebreaker that
+ * keeps page boundaries stable.
+ */
 export async function loadJobOrdersForSnapshot(
   supabase: ReturnType<typeof createAdminClient>,
   where: { areaIds?: string[]; ids?: string[] },
 ): Promise<JobOrderEmployee[]> {
-  let query = supabase
-    .schema("hris")
-    .from("job_order_employees")
-    .select(JO_SELECT_FOR_SNAPSHOT)
-    .eq("status", "active")
-    .is("deleted_at", null);
+  const PAGE_SIZE = 1000;
+  const collected: Record<string, unknown>[] = [];
+  let from = 0;
 
-  if (where.areaIds) query = query.in("area_id", where.areaIds);
-  if (where.ids) query = query.in("id", where.ids);
+  for (;;) {
+    let query = supabase
+      .schema("hris")
+      .from("job_order_employees")
+      .select(JO_SELECT_FOR_SNAPSHOT)
+      .eq("status", "active")
+      .is("deleted_at", null);
 
-  const { data, error } = await query.order("full_name");
-  if (error) throw error;
+    if (where.areaIds) query = query.in("area_id", where.areaIds);
+    if (where.ids) query = query.in("id", where.ids);
 
-  return (data ?? []).map((raw) => {
+    const { data, error } = await query
+      .order("full_name")
+      .order("id")
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+
+    const batch = (data ?? []) as Record<string, unknown>[];
+    collected.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return collected.map((raw) => {
     const r = raw as Record<string, unknown>;
     const area = r.job_order_areas as { name: string } | null;
     const { job_order_areas: _drop, ...rest } = r;
@@ -2601,7 +2625,9 @@ npm test
 npm run lint && npm run build
 ```
 
-Expected: every suite green; lint shows no new errors against the `main` baseline (43 problems / 2 errors); build succeeds.
+Expected: every suite green; lint shows no new errors against the measured baseline of **92 problems (4 errors, 88 warnings)**; build succeeds.
+
+Baseline recorded before Task 1, for comparison: `npm test` = 160 tests passing across four suites (62 `test:dtr`, 54 `test:cos`, 22 `test:db`, 22 `test:cos-db`). After this plan, `test:dtr` and `test:db` each gain a suite.
 
 - [ ] **Step 5: Commit**
 
