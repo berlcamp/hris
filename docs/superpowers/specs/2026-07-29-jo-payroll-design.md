@@ -343,7 +343,25 @@ mapper function:
 All ten generators, the `DAILY_WAGES_SIGNATORIES` block, and the amount helpers
 (`computeJoGross`, `computeJoNetAmount`, `computeJoOvertimeGross`,
 `groupMembersByRate`) move across unchanged. The only addition is a shared DRAFT
-watermark element rendered when `status = 'draft'`.
+watermark rendered when `status = 'draft'`.
+
+> **Correction, made during implementation.** This section originally described
+> the module as `@react-pdf/renderer`-based. It is not, and the error was mine:
+> CLAUDE.md scopes that library to `src/components/pdf/**.tsx`, and I
+> generalised it to `src/lib/pdf/` without checking.
+>
+> `src/lib/pdf/generateJobOrderPayroll.ts` is a **`.ts` file** — JSX cannot
+> parse there at all. It builds **HTML strings** and prints them through a
+> hidden iframe via `printHTMLContent()` (`document.createElement("iframe")`
+> → `contentWindow.print()`). The sibling `src/lib/pdf/generatePayroll.ts`
+> works the same way.
+>
+> Consequences: the watermark is a `.draft-watermark` div with
+> `position:absolute; transform:rotate(-30deg)` in the generated stylesheet,
+> not a react-pdf `<Text>`; and the print actions open the browser print
+> dialog rather than producing a downloadable PDF blob. Any UI built on these
+> generators must be written for print-to-iframe, not for a react-pdf
+> download button.
 
 Because the no-ATM and by-department variants now filter and group on snapshot
 values, they reflect the payroll as issued rather than the roster as it is

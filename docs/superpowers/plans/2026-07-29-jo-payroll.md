@@ -6,7 +6,16 @@
 
 **Architecture:** Two new tables — `hris.job_order_payrolls` and `hris.job_order_payroll_members` — where each member row carries a **frozen snapshot** of everything the printables need (name, area, rate, SSS, ATM, community tax). Payrolls have a `draft` → `finalized` lifecycle enforced in the server actions. Migration 023's unused `jo_payroll` tables are dropped; the ten existing PDF generators are preserved and rewired through a single mapper.
 
-**Tech Stack:** Next.js 16.2 App Router (React 19), Supabase Postgres + PostgREST, TypeScript strict, Tailwind v4, shadcn/ui, react-hook-form + zod, @tanstack/react-table via `<DataTable>`, @react-pdf/renderer, `node --experimental-strip-types --test` for both test tiers.
+**Tech Stack:** Next.js 16.2 App Router (React 19), Supabase Postgres + PostgREST, TypeScript strict, Tailwind v4, shadcn/ui, react-hook-form + zod, @tanstack/react-table via `<DataTable>`, `node --experimental-strip-types --test` for both test tiers.
+
+> **Printables are NOT `@react-pdf/renderer`.** Corrected during execution.
+> That library is used only by `src/components/pdf/**.tsx`. The Job Order
+> payroll printables live in `src/lib/pdf/generateJobOrderPayroll.ts`, a
+> **`.ts` file** that builds HTML strings and prints them through a hidden
+> iframe (`printHTMLContent()` → `contentWindow.print()`). JSX cannot parse in
+> a `.ts` file, so any instruction below that shows react-pdf JSX is wrong —
+> use the file's own HTML-string idiom. Task 8's print menu must therefore
+> trigger the browser print dialog, not a PDF download.
 
 **Spec:** `docs/superpowers/specs/2026-07-29-jo-payroll-design.md`
 
@@ -2489,6 +2498,23 @@ npm run lint && npm run build
 ```
 
 Manually: open a draft, edit a row's days, confirm totals update; click Finalize and confirm every input goes read-only and Edit/Refresh/Add disappear; as a non-super_admin confirm Reopen and Delete are absent; print one variant from a draft and confirm the DRAFT watermark, then finalize and confirm it is gone.
+
+**Carried over from Task 6 — settle this here, it could not be verified there.**
+Nothing called the print generators until now, so the watermark's multi-page
+behaviour was untestable. In the six **non-paginated** generators
+(`generateJoPayrollPrint`, `NoSss`, `ByDept`, `NoAtm`, `Overtime`,
+`OvertimeNoAtm`) the watermark is `position: absolute; top: 45%` against the
+whole `<body>`, so it lands once near the midpoint of the entire document
+rather than once per printed page. The two paginated `.summary-page` variants
+are already correct.
+
+Build a draft payroll long enough to span **at least three printed pages**
+(select the largest areas — legacy payrolls run to 130 members), open the
+browser print preview, and check every page. If later pages are unmarked,
+switch those six to a `position: fixed` watermark, which browsers repeat per
+printed page, and re-check the preview — `fixed` has real cross-browser
+variance in print, so confirm by looking, not by reasoning. Leave the two
+`.summary-page` variants alone either way.
 
 - [ ] **Step 6: Commit**
 
