@@ -135,14 +135,6 @@ export function JobOrderPayrollListClient({
 
   const columns = jobOrderPayrollColumns({
     onView: (p) => router.push(`/job-orders/payroll/${p.id}`),
-    // Duplicating a payroll (duplicateJobOrderPayroll) needs its own
-    // period/metadata form, same shape as CosPayrollDuplicateModal. That's
-    // out of scope here — Task 7 only wires getJobOrderPayrolls,
-    // getJobOrderAreasForPicker, createJobOrderPayroll and
-    // deleteJobOrderPayroll. Point the user at the detail page instead of
-    // leaving the menu item silently dead.
-    onDuplicate: () =>
-      toast.info("Duplicate a payroll from its detail page."),
     onDelete: (p) => setDeleteTarget(p),
     canDelete,
   });

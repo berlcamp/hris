@@ -2344,7 +2344,26 @@ Follow the structure of `src/components/job-orders/job-order-form.tsx` for the s
 
 - [ ] **Step 4: Build the list client and page**
 
-Create `src/components/job-orders/payroll/job-order-payroll-list-client.tsx` following `src/components/job-orders/job-order-list-client.tsx`: `<DataTable>` with `jobOrderPayrollColumns`, a "New payroll" button opening the create dialog, a status `Select` (All / Draft / Finalized), a period-range pair of date inputs, a search box, and an `AlertDialog` for delete. Because pagination is server-side, filter/page changes call `router.push` with updated `searchParams` rather than filtering in memory.
+Create `src/components/job-orders/payroll/job-order-payroll-list-client.tsx` following `src/components/job-orders/job-order-list-client.tsx`: a table driven by `jobOrderPayrollColumns`, a "New payroll" button opening the create dialog, a status `Select` (All / Draft / Finalized), a period-range pair of date inputs, a search box, and an `AlertDialog` for delete. Because pagination is server-side, filter/page changes call `router.push` with updated `searchParams` rather than filtering in memory.
+
+> **Correction, made during execution.** This step originally said to compose
+> the shared `<DataTable>`. That contradicted this plan's own server-side
+> pagination requirement. `src/components/tables/data-table.tsx` hardwires
+> `getPaginationRowModel()` and its props are only
+> `columns / data / totalCount / filterableColumns / searchableColumns /
+> isLoading / toolbar / fillHeight / initialColumnVisibility` — there is no
+> `manualPagination`, `pageCount`, or `onPaginationChange`. It can only
+> paginate an array it already holds.
+>
+> Server-paginated lists in this repo already bypass it:
+> `payroll-list-client.tsx` and `cos-payroll-list-client.tsx` both hand-roll
+> plain shadcn `<Table>` markup with URL-driven paging. This module instead
+> drives `useReactTable` + `flexRender` directly, so it still reuses the
+> column definitions those two duplicate by hand.
+>
+> Bypassing `<DataTable>` is correct **here specifically, because the list is
+> server-paginated**. The project convention still stands for every
+> client-paginated list: add a columns file and compose `<DataTable>`.
 
 Create `src/app/(dashboard)/job-orders/payroll/page.tsx`:
 
