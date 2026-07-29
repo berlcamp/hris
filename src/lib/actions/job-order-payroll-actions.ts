@@ -11,6 +11,10 @@ import {
   toPayrollMemberSnapshot,
 } from "@/lib/job-order-payroll-helpers";
 import {
+  assertDraft,
+  canReopenOrDeletePayroll,
+} from "@/lib/job-order-payroll-guards";
+import {
   jobOrderPayrollCreateSchema,
   jobOrderPayrollMetadataSchema,
   type JobOrderPayrollCreateValues,
@@ -30,20 +34,47 @@ import type {
   JobOrderPayrollMember,
 } from "@/lib/types";
 
-/** Every member of a payroll, ordered by area then name. */
+/**
+ * Every member of a payroll, ordered by area then name.
+ *
+ * Paged with `.range()` in chunks of 1000 because supabase/config.toml caps
+ * PostgREST's max_rows at 1000 — an area-picker payroll can snapshot ~578
+ * active JOs today, and this result feeds mutations (duplicate, finalize's
+ * empty-check, refreshMembersFromRoster), not just display, so a silent
+ * truncation here is worse than the same cap on a read-only list. Same
+ * pattern as `loadJobOrdersForSnapshot` below. `area_name`/`full_name` do not
+ * uniquely order rows, so `id` is appended as a tiebreaker to keep page
+ * boundaries stable — the members table relies on the area/name ordering
+ * itself to group rows when it walks the list, so that ordering must not
+ * change.
+ */
 export async function loadMembers(
   supabase: ReturnType<typeof createAdminClient>,
   payrollId: string,
 ): Promise<JobOrderPayrollMember[]> {
-  const { data, error } = await supabase
-    .schema("hris")
-    .from("job_order_payroll_members")
-    .select(MEMBER_SELECT)
-    .eq("payroll_id", payrollId)
-    .order("area_name", { ascending: true, nullsFirst: false })
-    .order("full_name", { ascending: true });
-  if (error) throw error;
-  return (data ?? []).map((r) => shapeMember(r as Record<string, unknown>));
+  const PAGE_SIZE = 1000;
+  const collected: Record<string, unknown>[] = [];
+  let from = 0;
+
+  for (;;) {
+    const { data, error } = await supabase
+      .schema("hris")
+      .from("job_order_payroll_members")
+      .select(MEMBER_SELECT)
+      .eq("payroll_id", payrollId)
+      .order("area_name", { ascending: true, nullsFirst: false })
+      .order("full_name", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+
+    const batch = (data ?? []) as Record<string, unknown>[];
+    collected.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return collected.map((r) => shapeMember(r));
 }
 
 /** Recompute the denormalized `areas` label after any membership change. */
@@ -92,30 +123,27 @@ async function cleanupOrphanedPayroll(
   }
 }
 
-/**
- * Shared draft guard. Returns an error string when the payroll is missing or
- * already finalized, otherwise null. A finalized payroll is an issued record;
- * only `reopenJobOrderPayroll` (super_admin) can unlock it.
- */
-export async function assertDraft(
-  supabase: ReturnType<typeof createAdminClient>,
-  payrollId: string,
-): Promise<string | null> {
-  const { data, error } = await supabase
-    .schema("hris")
-    .from("job_order_payrolls")
-    .select("id, status, deleted_at")
-    .eq("id", payrollId)
-    .maybeSingle();
-  if (error) return error.message;
-  if (!data || data.deleted_at) return "Payroll not found";
-  if (data.status !== "draft") {
-    return "This payroll is finalized. Reopen it before making changes.";
-  }
-  return null;
-}
+// `assertDraft` (the shared draft guard used below and by
+// job-order-payroll-member-actions.ts) now lives in the plain,
+// non-`"use server"` `@/lib/job-order-payroll-guards` module so its decision
+// logic can be unit-tested without a Supabase client — see
+// supabase/tests/job-order-payroll-guards.test.mts. Imported at the top of
+// this file.
 
 // ── Reads ────────────────────────────────────────────────────────────
+
+/**
+ * Quotes a value for embedding inside a PostgREST `.or(...)` filter string.
+ * PostgREST splits `.or()`'s argument on top-level commas, so an unquoted
+ * search term containing a comma (e.g. "Ozamiz, Area 1" — plausible here
+ * since `areas` is itself a comma-joined label) breaks into two invalid
+ * filter fragments and PostgREST returns a 400. Wrapping the value in double
+ * quotes protects any embedded comma, and `\`/`"` inside it must in turn be
+ * backslash-escaped so they aren't read as the closing quote.
+ */
+function esc(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
 
 export interface JobOrderPayrollFilters {
   status?: "draft" | "finalized" | "all";
@@ -156,9 +184,9 @@ export async function getJobOrderPayrolls(
   if (filters.periodFrom) query = query.gte("period_end", filters.periodFrom);
   if (filters.periodTo) query = query.lte("period_start", filters.periodTo);
   if (filters.search?.trim()) {
-    const term = `%${filters.search.trim()}%`;
+    const term = esc(`%${filters.search.trim()}%`);
     query = query.or(
-      `description.ilike.${term},particulars.ilike.${term},areas.ilike.${term}`,
+      `description.ilike."${term}",particulars.ilike."${term}",areas.ilike."${term}"`,
     );
   }
 
@@ -167,18 +195,40 @@ export async function getJobOrderPayrolls(
   if (!data || data.length === 0) return { rows: [], totalCount: count ?? 0 };
 
   const ids = data.map((r) => (r as { id: string }).id);
-  const { data: members, error: memErr } = await supabase
-    .schema("hris")
-    .from("job_order_payroll_members")
-    .select("payroll_id, daily_rate, days, sss_ss, sss_ec")
-    .in("payroll_id", ids);
-  if (memErr) throw memErr;
+
+  // Paged with `.range()` in chunks of 1000 because supabase/config.toml caps
+  // PostgREST's max_rows at 1000. A page of 20 payrolls, each snapshotting an
+  // area's full active roster (~578 people today), can easily exceed 1000
+  // member rows combined — an unpaginated `.in("payroll_id", ids)` would
+  // silently return only the first 1000, zeroing `member_count`/totals for
+  // whichever payrolls' rows land past the cut with no error at all.
+  // `.order("payroll_id")` makes the page boundaries stable across requests;
+  // without it Postgres is free to return the 1000 rows in a different order
+  // each time, so a different payroll gets truncated on every reload.
+  const MEMBER_PAGE_SIZE = 1000;
+  const members: Record<string, unknown>[] = [];
+  let memberFrom = 0;
+  for (;;) {
+    const { data: batch, error: memErr } = await supabase
+      .schema("hris")
+      .from("job_order_payroll_members")
+      .select("payroll_id, daily_rate, days, sss_ss, sss_ec")
+      .in("payroll_id", ids)
+      .order("payroll_id")
+      .range(memberFrom, memberFrom + MEMBER_PAGE_SIZE - 1);
+    if (memErr) throw memErr;
+
+    const rows = batch ?? [];
+    members.push(...rows);
+    if (rows.length < MEMBER_PAGE_SIZE) break;
+    memberFrom += MEMBER_PAGE_SIZE;
+  }
 
   const byPayroll = new Map<
     string,
     { rate: number | null; days: number | null; sss_ss: number | null; sss_ec: number | null }[]
   >();
-  for (const m of members ?? []) {
+  for (const m of members) {
     const row = m as Record<string, unknown>;
     const key = row.payroll_id as string;
     const list = byPayroll.get(key) ?? [];
@@ -617,7 +667,7 @@ export async function reopenJobOrderPayroll(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (user?.role !== "super_admin") return { error: "Unauthorized" };
+  if (!canReopenOrDeletePayroll(user?.role)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { data: current, error: readErr } = await supabase
@@ -640,14 +690,14 @@ export async function reopenJobOrderPayroll(
       status: "draft",
       finalized_at: null,
       finalized_by: null,
-      updated_by: user.id,
+      updated_by: user!.id,
     })
     .eq("id", id);
   if (error) return { error: error.message };
 
   await logAudit({
-    userId: user.id,
-    userEmail: user.email,
+    userId: user!.id,
+    userEmail: user!.email,
     action: "reopen",
     tableName: "job_order_payrolls",
     recordId: id,
@@ -664,7 +714,7 @@ export async function deleteJobOrderPayroll(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (user?.role !== "super_admin") return { error: "Unauthorized" };
+  if (!canReopenOrDeletePayroll(user?.role)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   // Only soft-delete a row that is actually there and not already deleted, so
@@ -683,13 +733,13 @@ export async function deleteJobOrderPayroll(
   const { error } = await supabase
     .schema("hris")
     .from("job_order_payrolls")
-    .update({ deleted_at: new Date().toISOString(), updated_by: user.id })
+    .update({ deleted_at: new Date().toISOString(), updated_by: user!.id })
     .eq("id", id);
   if (error) return { error: error.message };
 
   await logAudit({
-    userId: user.id,
-    userEmail: user.email,
+    userId: user!.id,
+    userEmail: user!.email,
     action: "delete",
     tableName: "job_order_payrolls",
     recordId: id,

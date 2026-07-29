@@ -151,6 +151,10 @@ export function JobOrderPayrollListClient({
       toast.success("Payroll deleted.");
       setDeleteTarget(null);
       router.refresh();
+    } catch {
+      toast.error(
+        "Something went wrong deleting this payroll. Please try again.",
+      );
     } finally {
       setDeleting(false);
     }

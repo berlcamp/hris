@@ -164,8 +164,8 @@ export function canEditDetailedDepartmentAnyDept(
 // Roles that can manage the Job Orders module: JO employees, Area Assignments,
 // and (from Specs 2 and 3) payrolls, memos and special orders. "jo_manager" is
 // a dedicated role with no reach outside Job Orders. super_admin and hr_admin
-// are included because they hold this access today under the /jo-payroll guard
-// (ADMIN_ROLES in jo-payroll-actions.ts) — this preserves it rather than
+// are included because they hold this access today via `canManageJobOrders`
+// itself, gating `/job-orders/payroll` — this preserves it rather than
 // silently removing it.
 const JOB_ORDER_ROLES: readonly UserRole[] = [
   "super_admin",

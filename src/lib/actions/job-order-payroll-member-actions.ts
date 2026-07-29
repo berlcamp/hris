@@ -6,8 +6,8 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { canManageJobOrders } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import { toPayrollMemberSnapshot } from "@/lib/job-order-payroll-helpers";
+import { assertDraft } from "@/lib/job-order-payroll-guards";
 import {
-  assertDraft,
   loadJobOrdersForSnapshot,
   loadMembers,
   recomputeAreas,

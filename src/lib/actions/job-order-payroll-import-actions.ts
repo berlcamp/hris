@@ -16,11 +16,19 @@ const UPSERT_CHUNK = 500;
 
 export interface JobOrderPayrollImportResult {
   payrollsCreated: number;
-  payrollsUpdated: number;
+  /**
+   * Rows whose `legacy_id` already exists in `job_order_payrolls` — skipped,
+   * not updated. A finalized payroll is an issued government record, so a
+   * second run of this importer must never re-price it at whatever the
+   * roster says months later; correcting historical data means deleting the
+   * affected payroll first and re-importing. See I3 in the final review.
+   */
+  payrollsSkippedExisting: number;
   payrollsSkippedEmpty: number;
   payrollsIsolated: { legacy_id: string; reason: string }[];
   membersCreated: number;
-  membersUpdated: number;
+  /** Same skip-not-update rule as `payrollsSkippedExisting`, for members. */
+  membersSkippedExisting: number;
   unresolvedMembers: { legacy_id: string; reason: string }[];
   warnings: string[];
 }
@@ -28,11 +36,11 @@ export interface JobOrderPayrollImportResult {
 function emptyResult(warnings: string[] = []): JobOrderPayrollImportResult {
   return {
     payrollsCreated: 0,
-    payrollsUpdated: 0,
+    payrollsSkippedExisting: 0,
     payrollsSkippedEmpty: 0,
     payrollsIsolated: [],
     membersCreated: 0,
-    membersUpdated: 0,
+    membersSkippedExisting: 0,
     unresolvedMembers: [],
     warnings,
   };
@@ -108,24 +116,31 @@ async function loadRoster(
   return roster;
 }
 
-/** Which of `legacyIds` already exist in `table`, so a summary can tell created from updated. */
-async function loadExistingLegacyIds(
+/**
+ * `legacy_id -> id` for every row of `table` whose `legacy_id` is in
+ * `legacyIds`. Used two ways: to decide which rows to SKIP on a re-run (I3 —
+ * a finalized payroll must never be rewritten at whatever the roster says
+ * later), and, for payrolls specifically, to resolve member rows' parent FK
+ * even when that parent payroll already existed and was skipped this run
+ * rather than freshly inserted.
+ */
+async function loadExistingLegacyIdMap(
   supabase: ReturnType<typeof createAdminClient>,
   table: "job_order_payrolls" | "job_order_payroll_members",
   legacyIds: number[],
-): Promise<Set<number>> {
-  const found = new Set<number>();
+): Promise<Map<number, string>> {
+  const found = new Map<number, string>();
   for (let i = 0; i < legacyIds.length; i += UPSERT_CHUNK) {
     const slice = legacyIds.slice(i, i + UPSERT_CHUNK);
     if (slice.length === 0) continue;
     const { data, error } = await supabase
       .schema("hris")
       .from(table)
-      .select("legacy_id")
+      .select("id, legacy_id")
       .in("legacy_id", slice);
     if (error) throw new Error(`Failed to check existing ${table} legacy_id values: ${error.message}`);
-    for (const row of (data ?? []) as { legacy_id: number | null }[]) {
-      if (row.legacy_id != null) found.add(row.legacy_id);
+    for (const row of (data ?? []) as { id: string; legacy_id: number | null }[]) {
+      if (row.legacy_id != null) found.set(row.legacy_id, row.id);
     }
   }
   return found;
@@ -155,22 +170,36 @@ export async function importJobOrderPayrollCsv(
   const warnings = [...plan.summary.warnings];
 
   // ── Payrolls ─────────────────────────────────────────────────────────
-  const existingPayrollLegacyIds = await loadExistingLegacyIds(
+  // I3 (final review): a finalized payroll is an issued government record —
+  // re-running this import must never re-price it at whatever the current
+  // roster says. So rows whose legacy_id already exists are SKIPPED, not
+  // upserted. `existingPayrollIds` doubles as the seed for
+  // `legacyToPayrollId` below, so a member row whose parent payroll already
+  // existed (and was therefore skipped this run, not freshly inserted) can
+  // still resolve to a real UUID.
+  const existingPayrollIds = await loadExistingLegacyIdMap(
     supabase,
     "job_order_payrolls",
     plan.payrollRows.map((r) => r.legacy_id),
   );
+  const newPayrollRows = plan.payrollRows.filter(
+    (r) => !existingPayrollIds.has(r.legacy_id),
+  );
+  const payrollsSkippedExisting = plan.payrollRows.length - newPayrollRows.length;
 
   let payrollsCreated = 0;
-  let payrollsUpdated = 0;
-  const legacyToPayrollId = new Map<number, string>();
+  const legacyToPayrollId = new Map<number, string>(existingPayrollIds);
 
-  for (let i = 0; i < plan.payrollRows.length; i += UPSERT_CHUNK) {
-    const chunk = plan.payrollRows.slice(i, i + UPSERT_CHUNK);
+  for (let i = 0; i < newPayrollRows.length; i += UPSERT_CHUNK) {
+    const chunk = newPayrollRows.slice(i, i + UPSERT_CHUNK);
     const { data, error } = await supabase
       .schema("hris")
       .from("job_order_payrolls")
-      .upsert(chunk, { onConflict: "legacy_id" })
+      // `ignoreDuplicates: true` is belt-and-suspenders, not the primary
+      // mechanism: the JS-level filter above is what makes a normal re-run a
+      // no-op. This just guarantees that even a concurrent import racing this
+      // one for the same legacy_id can only insert-or-skip, never overwrite.
+      .upsert(chunk, { onConflict: "legacy_id", ignoreDuplicates: true })
       .select("id, legacy_id");
 
     if (error) {
@@ -186,13 +215,13 @@ export async function importJobOrderPayrollCsv(
 
     for (const row of (data ?? []) as { id: string; legacy_id: number }[]) {
       legacyToPayrollId.set(row.legacy_id, row.id);
-      if (existingPayrollLegacyIds.has(row.legacy_id)) payrollsUpdated++;
-      else payrollsCreated++;
+      payrollsCreated++;
     }
   }
 
   // ── Members ──────────────────────────────────────────────────────────
-  // Resolve payroll_legacy_id -> the real payroll_id UUID minted above.
+  // Resolve payroll_legacy_id -> the real payroll_id UUID (freshly minted
+  // above, or already existing from a prior run).
   type ResolvedMemberRow = Omit<JobOrderPayrollMemberUpsertRow, "payroll_legacy_id"> & {
     payroll_id: string;
   };
@@ -215,21 +244,25 @@ export async function importJobOrderPayrollCsv(
     resolvedMemberRows.push({ ...rest, payroll_id: payrollId });
   }
 
-  const existingMemberLegacyIds = await loadExistingLegacyIds(
+  // Same skip-not-update rule as payrolls above.
+  const existingMemberIds = await loadExistingLegacyIdMap(
     supabase,
     "job_order_payroll_members",
     resolvedMemberRows.map((r) => r.legacy_id),
   );
+  const newMemberRows = resolvedMemberRows.filter(
+    (r) => !existingMemberIds.has(r.legacy_id),
+  );
+  const membersSkippedExisting = resolvedMemberRows.length - newMemberRows.length;
 
   let membersCreated = 0;
-  let membersUpdated = 0;
 
-  for (let i = 0; i < resolvedMemberRows.length; i += UPSERT_CHUNK) {
-    const chunk = resolvedMemberRows.slice(i, i + UPSERT_CHUNK);
+  for (let i = 0; i < newMemberRows.length; i += UPSERT_CHUNK) {
+    const chunk = newMemberRows.slice(i, i + UPSERT_CHUNK);
     const { data, error } = await supabase
       .schema("hris")
       .from("job_order_payroll_members")
-      .upsert(chunk, { onConflict: "legacy_id" })
+      .upsert(chunk, { onConflict: "legacy_id", ignoreDuplicates: true })
       .select("legacy_id");
 
     if (error) {
@@ -239,19 +272,16 @@ export async function importJobOrderPayrollCsv(
       continue;
     }
 
-    for (const row of (data ?? []) as { legacy_id: number }[]) {
-      if (existingMemberLegacyIds.has(row.legacy_id)) membersUpdated++;
-      else membersCreated++;
-    }
+    membersCreated += (data ?? []).length;
   }
 
   const result: JobOrderPayrollImportResult = {
     payrollsCreated,
-    payrollsUpdated,
+    payrollsSkippedExisting,
     payrollsSkippedEmpty: plan.summary.payrollsSkippedEmpty,
     payrollsIsolated: plan.summary.payrollsIsolated,
     membersCreated,
-    membersUpdated,
+    membersSkippedExisting,
     unresolvedMembers,
     warnings,
   };
@@ -263,11 +293,11 @@ export async function importJobOrderPayrollCsv(
     tableName: "job_order_payrolls",
     newValues: {
       payrollsCreated,
-      payrollsUpdated,
+      payrollsSkippedExisting,
       payrollsSkippedEmpty: result.payrollsSkippedEmpty,
       payrollsIsolatedCount: result.payrollsIsolated.length,
       membersCreated,
-      membersUpdated,
+      membersSkippedExisting,
       unresolvedMembersCount: unresolvedMembers.length,
       warningCount: warnings.length,
     },

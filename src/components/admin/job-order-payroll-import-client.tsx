@@ -46,7 +46,8 @@ function ImportResultSummary({ result }: { result: JobOrderPayrollImportResult }
           Payrolls created: <span className="font-medium">{result.payrollsCreated}</span>
         </p>
         <p>
-          Payrolls updated: <span className="font-medium">{result.payrollsUpdated}</span>
+          Payrolls skipped (already imported):{" "}
+          <span className="font-medium">{result.payrollsSkippedExisting}</span>
         </p>
         <p>
           Skipped (empty): <span className="font-medium">{result.payrollsSkippedEmpty}</span>
@@ -58,7 +59,8 @@ function ImportResultSummary({ result }: { result: JobOrderPayrollImportResult }
           Members created: <span className="font-medium">{result.membersCreated}</span>
         </p>
         <p>
-          Members updated: <span className="font-medium">{result.membersUpdated}</span>
+          Members skipped (already imported):{" "}
+          <span className="font-medium">{result.membersSkippedExisting}</span>
         </p>
         <p>
           Unresolved members: <span className="font-medium">{result.unresolvedMembers.length}</span>
@@ -117,11 +119,11 @@ export function JobOrderPayrollImportClient() {
       ]);
       const res = await importJobOrderPayrollCsv(payrollsCsv, membersCsv);
       setResult(res);
-      if (res.payrollsCreated === 0 && res.payrollsUpdated === 0) {
+      if (res.payrollsCreated === 0 && res.payrollsSkippedExisting === 0) {
         toast.error("Import produced no saved payrolls — see the summary below.");
       } else {
         toast.success(
-          `Created ${res.payrollsCreated} payroll(s), updated ${res.payrollsUpdated}; ${res.membersCreated} member(s) created.`,
+          `Created ${res.payrollsCreated} payroll(s) (${res.payrollsSkippedExisting} already imported, skipped); ${res.membersCreated} member(s) created.`,
         );
       }
     } catch (e) {
@@ -142,9 +144,11 @@ export function JobOrderPayrollImportClient() {
           <code className="text-xs">jopayroll_members</code>): id, jopayroll_id, jo_id, days,
           hours, weekends, holidays, deleted_at, created_at, updated_at. Every imported payroll is
           marked <em>Reconstructed</em> — the legacy system had no rate column on payroll members,
-          so migrated amounts are priced at each employee&apos;s current rate. Rows are upserted on
-          the legacy id, so re-running this import updates existing rows rather than duplicating
-          them.
+          so migrated amounts are priced at each employee&apos;s current rate. Rows are matched on
+          the legacy id; a row already imported is skipped, not overwritten, so re-running this
+          import is safe to repeat and never rewrites an already-finalized payroll at a later
+          rate. To correct historical data, delete the affected payroll(s) first, then re-run the
+          import.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
