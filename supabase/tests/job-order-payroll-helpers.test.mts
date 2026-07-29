@@ -120,7 +120,10 @@ test("snapshot copies every field the printables need", () => {
 });
 
 test("snapshot never carries working_hours, which is a shift descriptor", () => {
-  const snap = toPayrollMemberSnapshot(jo()) as Record<string, unknown>;
+  const snap = toPayrollMemberSnapshot(jo()) as unknown as Record<
+    string,
+    unknown
+  >;
   assert.equal("working_hours" in snap, false);
 });
 

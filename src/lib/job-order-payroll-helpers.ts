@@ -10,7 +10,7 @@
  * totals row in print views.
  */
 
-import type { JobOrderEmployee } from "@/lib/types";
+import type { JobOrderEmployee, JobOrderPayrollMember } from "@/lib/types";
 
 export interface JoPayrollComputeInput {
   rate: number | null | undefined;
@@ -208,20 +208,9 @@ export interface JobOrderPayrollPrintRow {
 }
 
 /** Shape a stored member row into the flat struct the PDFs expect. */
-export function toPrintRow(m: {
-  full_name: string;
-  area_name: string | null;
-  daily_rate: number | null;
-  days: number | null;
-  hours: number | null;
-  sss_no: string | null;
-  sss_ss: number | null;
-  sss_ec: number | null;
-  landbank_account_number: string | null;
-  community_tax_number: string | null;
-  community_tax_date: string | null;
-  community_tax_place_issued: string | null;
-}): JobOrderPayrollPrintRow {
+export function toPrintRow(
+  m: JobOrderPayrollMember,
+): JobOrderPayrollPrintRow {
   return {
     fullname: m.full_name,
     area_assigned: m.area_name,
