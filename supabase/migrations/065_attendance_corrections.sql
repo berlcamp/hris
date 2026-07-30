@@ -146,6 +146,18 @@ CREATE TABLE IF NOT EXISTS hris.attendance_correction_items (
   attendance_log_id      UUID NOT NULL REFERENCES hris.attendance_logs(id),
   disposition            TEXT NOT NULL DEFAULT 'update'
                            CHECK (disposition IN ('update','clear_as_off')),
+  -- Deliberately the default ON DELETE NO ACTION, unlike
+  -- attendance_logs.schedule_id (ON DELETE SET NULL, migration 047's
+  -- attendance_logs_schedule_id_fkey). A row-level override on an APPLIED
+  -- attendance_logs row is fine to drop to "inherit" if its schedule goes
+  -- away — nothing further reviews that row. A PENDING correction item's pin
+  -- is a proposal an HR reviewer has not yet approved: silently rewriting it
+  -- to "inherit" would change the forgiven late/undertime minutes to numbers
+  -- nobody reviewed. NO ACTION instead makes Postgres refuse to delete a
+  -- schedule any live item still references, which is the safer failure mode
+  -- here. attendance-correction-actions.ts's approveCorrectionRequest also
+  -- checks for a missing item pin and flips the request to needs_rebase as
+  -- defense-in-depth on top of this FK, not as the primary guarantee.
   proposed_schedule_id   UUID REFERENCES hris.schedules(id),
   -- Wall-clock times only (TIME, not TIMESTAMPTZ): these are proposed
   -- HH:MM values off the correction wizard's grid, not calendar timestamps.
@@ -173,6 +185,13 @@ CREATE TABLE IF NOT EXISTS hris.attendance_correction_items (
 
 CREATE INDEX IF NOT EXISTS idx_aci_request ON hris.attendance_correction_items(request_id);
 CREATE INDEX IF NOT EXISTS idx_aci_log ON hris.attendance_correction_items(attendance_log_id);
+
+COMMENT ON COLUMN hris.attendance_correction_items.proposed_schedule_id IS
+  'ON DELETE NO ACTION is deliberate, unlike attendance_logs.schedule_id '
+  '(ON DELETE SET NULL). A pending item''s pin is an unreviewed proposal; '
+  'silently falling back to "inherit" if it is deleted would change the '
+  'forgiven late/undertime minutes to numbers nobody reviewed, so Postgres '
+  'blocks the delete instead. See the column definition above for detail.';
 
 -- CREATE TABLE IF NOT EXISTS above does not retroactively fix the column
 -- type on a database where this table already exists with the original

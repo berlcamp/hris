@@ -14,7 +14,8 @@ import {
 } from "@/lib/validations/attendance-correction-schema";
 import {
   buildCorrectionRecord,
-  resolveCorrectionSchedule,
+  resolveItemSchedules,
+  type ResolvedItemSchedule,
 } from "@/lib/attendance-corrections";
 import {
   DEFAULT_SCHEDULE,
@@ -343,18 +344,68 @@ function hhmmOf(ts: string | null): string | null {
   return ts?.match(/(\d{2}:\d{2})/)?.[1] ?? null;
 }
 
-async function loadSchedule(
+// Batch-fetches everything resolveItemSchedules (attendance-corrections.ts)
+// needs — the employee's own schedule, each item's row-level pin (via its
+// attendance_log's schedule_id), and every schedule either might reference —
+// in three queries regardless of how many items the request has, then hands
+// off to the pure resolver. approveCorrectionRequest and
+// getCorrectionReviewSummary both call ONLY this for schedule resolution, so
+// the minutes HR reviews and the minutes approval writes cannot diverge —
+// they are the same computation over the same data, not two independent
+// re-derivations that can drift apart.
+async function loadItemSchedules(
   supabase: ReturnType<typeof createAdminClient>,
-  id: string | null,
-): Promise<ScheduleLike | null> {
-  if (!id) return null;
-  const { data } = await supabase
+  employeeId: string,
+  items: { attendance_log_id: string; proposed_schedule_id: string | null }[],
+): Promise<ResolvedItemSchedule[]> {
+  const { data: emp, error: empErr } = await supabase
     .schema("hris")
-    .from("schedules")
-    .select("id, time_in, time_out, break_start, break_end")
-    .eq("id", id)
+    .from("employees")
+    .select("schedules(id, time_in, time_out, break_start, break_end)")
+    .eq("id", employeeId)
     .maybeSingle();
-  return (data as ScheduleLike | null) ?? null;
+  if (empErr) throw empErr;
+  const employeeSchedule =
+    (emp?.schedules as unknown as ScheduleLike | null) ?? null;
+
+  const { data: logs, error: logsErr } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .select("id, schedule_id")
+    .in("id", items.map((i) => i.attendance_log_id));
+  if (logsErr) throw logsErr;
+  const rowScheduleIdByLogId = new Map(
+    (logs ?? []).map((l) => [l.id as string, l.schedule_id as string | null]),
+  );
+
+  const scheduleIds = [
+    ...new Set(
+      items
+        .map((i) => i.proposed_schedule_id)
+        .concat([...rowScheduleIdByLogId.values()])
+        .filter((v): v is string => !!v),
+    ),
+  ];
+  const { data: schedules, error: schedErr } =
+    scheduleIds.length === 0
+      ? { data: [] as ScheduleLike[], error: null }
+      : await supabase
+          .schema("hris")
+          .from("schedules")
+          .select("id, time_in, time_out, break_start, break_end")
+          .in("id", scheduleIds);
+  if (schedErr) throw schedErr;
+  const scheduleById = new Map(
+    (schedules ?? []).map((s) => [s.id as string, s as ScheduleLike]),
+  );
+
+  return resolveItemSchedules(
+    items,
+    scheduleById,
+    rowScheduleIdByLogId,
+    employeeSchedule,
+    DEFAULT_SCHEDULE,
+  );
 }
 
 export async function approveCorrectionRequest(id: string) {
@@ -384,66 +435,52 @@ export async function approveCorrectionRequest(id: string) {
   if (itemErr) throw itemErr;
   if (!items || items.length === 0) throw new Error("This request has no days");
 
-  // The employee's own schedule, and the org default, as fallbacks.
-  const { data: emp } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select("schedules(id, time_in, time_out, break_start, break_end)")
-    .eq("id", request.employee_id)
-    .maybeSingle();
-  const employeeSchedule =
-    (emp?.schedules as unknown as ScheduleLike | null) ?? null;
+  const resolved = await loadItemSchedules(supabase, request.employee_id, items);
 
-  const { data: logs } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("id, schedule_id")
-    .in("id", items.map((i) => i.attendance_log_id));
-  const rowPinById = new Map((logs ?? []).map((l) => [l.id, l.schedule_id]));
-
-  const rows: { attendance_log_id: string; record: Record<string, unknown> }[] = [];
-  for (const item of items) {
-    const itemPin = await loadSchedule(supabase, item.proposed_schedule_id);
-    // A schedule deleted between submit and approval must not silently revert
-    // the day to the inherited schedule — send the request back instead.
-    if (item.proposed_schedule_id && !itemPin) {
-      await supabase
-        .schema("hris")
-        .from("attendance_correction_requests")
-        .update({ status: "needs_rebase", updated_at: new Date().toISOString() })
-        .eq("id", id);
-      revalidatePath("/attendance-corrections");
-      return { outcome: "needs_rebase" as const };
-    }
-    const rowPin = await loadSchedule(
-      supabase,
-      rowPinById.get(item.attendance_log_id) ?? null,
-    );
-    const schedule = resolveCorrectionSchedule(
-      itemPin,
-      rowPin,
-      employeeSchedule,
-      DEFAULT_SCHEDULE,
-    );
-
-    rows.push({
-      attendance_log_id: item.attendance_log_id,
-      record: buildCorrectionRecord(request.employee_id, {
-        duty_date: item.duty_date,
-        disposition: item.disposition,
-        schedule,
-        scheduleId: item.proposed_schedule_id,
-        time_in_am: hhmmOf(item.proposed_time_in_am),
-        time_out_am: hhmmOf(item.proposed_time_out_am),
-        time_in_pm: hhmmOf(item.proposed_time_in_pm),
-        time_out_pm: hhmmOf(item.proposed_time_out_pm),
-        reason_in_am: item.proposed_in_am_reason as CorrectionReason | null,
-        reason_out_am: item.proposed_out_am_reason as CorrectionReason | null,
-        reason_in_pm: item.proposed_in_pm_reason as CorrectionReason | null,
-        reason_out_pm: item.proposed_out_pm_reason as CorrectionReason | null,
-      }),
+  // A schedule deleted between submit and approval must not silently revert
+  // the day to the inherited schedule — send the request back instead.
+  // Unreachable through app code today: attendance_correction_items_proposed_schedule_id_fkey
+  // is ON DELETE NO ACTION (migration 065), so Postgres itself refuses to
+  // delete a schedule any live item still references — contrast
+  // attendance_logs_schedule_id_fkey, which is ON DELETE SET NULL. This check
+  // is defense-in-depth on top of that FK, not the primary guarantee: a
+  // direct DB edit or a future migration that loosens the FK should still
+  // fail safe here instead of silently applying numbers nobody reviewed.
+  if (resolved.some((r) => r.itemPinMissing)) {
+    await supabase
+      .schema("hris")
+      .from("attendance_correction_requests")
+      .update({ status: "needs_rebase", updated_at: new Date().toISOString() })
+      .eq("id", id);
+    await logAudit({
+      userId: user.id,
+      userEmail: user.email,
+      action: "attendance_correction_needs_rebase",
+      tableName: "attendance_correction_requests",
+      recordId: id,
+      newValues: { reason: "a pinned schedule was deleted before approval" },
     });
+    revalidatePath("/attendance-corrections");
+    return { outcome: "needs_rebase" as const };
   }
+
+  const rows = items.map((item, i) => ({
+    attendance_log_id: item.attendance_log_id,
+    record: buildCorrectionRecord(request.employee_id, {
+      duty_date: item.duty_date,
+      disposition: item.disposition,
+      schedule: resolved[i].schedule,
+      scheduleId: item.proposed_schedule_id,
+      time_in_am: hhmmOf(item.proposed_time_in_am),
+      time_out_am: hhmmOf(item.proposed_time_out_am),
+      time_in_pm: hhmmOf(item.proposed_time_in_pm),
+      time_out_pm: hhmmOf(item.proposed_time_out_pm),
+      reason_in_am: item.proposed_in_am_reason as CorrectionReason | null,
+      reason_out_am: item.proposed_out_am_reason as CorrectionReason | null,
+      reason_in_pm: item.proposed_in_pm_reason as CorrectionReason | null,
+      reason_out_pm: item.proposed_out_pm_reason as CorrectionReason | null,
+    }),
+  }));
 
   const { data: outcome, error: rpcError } = await supabase
     .schema("hris")
@@ -480,6 +517,24 @@ export async function rejectCorrectionRequest(id: string, notes: string) {
   if (!notes.trim()) throw new Error("Say why the request is being rejected");
 
   const supabase = createAdminClient();
+
+  // Explicit pre-check, mirroring approveCorrectionRequest. Without it, an
+  // update scoped to `.eq("id", id).in("status", [...])` against a request
+  // that is already approved/rejected/cancelled matches zero rows —
+  // PostgREST still returns error: null for that — and the code below would
+  // log a rejection, and write a false audit entry, for a transition that
+  // never happened.
+  const { data: existing, error: fetchErr } = await supabase
+    .schema("hris")
+    .from("attendance_correction_requests")
+    .select("status")
+    .eq("id", id)
+    .single();
+  if (fetchErr) throw fetchErr;
+  if (!["pending", "needs_rebase"].includes(existing.status)) {
+    throw new Error("Only a live request can be rejected");
+  }
+
   const { error } = await supabase
     .schema("hris")
     .from("attendance_correction_requests")
@@ -513,21 +568,20 @@ export async function getCorrectionReviewSummary(id: string) {
   const { request, items } = await getCorrectionRequest(id);
   const supabase = createAdminClient();
 
-  const { data: logs } = await supabase
+  const { data: logs, error: logsErr } = await supabase
     .schema("hris")
     .from("attendance_logs")
     .select("id, date, late_minutes, undertime_minutes")
     .in("id", items.map((i) => i.attendance_log_id));
+  if (logsErr) throw logsErr;
   const byId = new Map((logs ?? []).map((l) => [l.id, l]));
 
-  const { data: emp } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select("schedules(id, time_in, time_out, break_start, break_end)")
-    .eq("id", request.employee_id)
-    .maybeSingle();
-  const employeeSchedule =
-    (emp?.schedules as unknown as ScheduleLike | null) ?? null;
+  // Same resolver, same batched data as approveCorrectionRequest — see
+  // loadItemSchedules. Previously this function passed a hard-coded `null`
+  // row pin here, so any day carrying a row-level schedule override
+  // (migration 047) showed HR a different forgiven-minutes figure than what
+  // approval actually wrote.
+  const resolved = await loadItemSchedules(supabase, request.employee_id, items);
 
   let totalLateForgiven = 0;
   let totalUndertimeForgiven = 0;
@@ -539,18 +593,11 @@ export async function getCorrectionReviewSummary(id: string) {
     afterUndertime: number;
   }[] = [];
 
-  for (const item of items) {
-    const itemPin = await loadSchedule(supabase, item.proposed_schedule_id);
-    const schedule = resolveCorrectionSchedule(
-      itemPin,
-      null,
-      employeeSchedule,
-      DEFAULT_SCHEDULE,
-    );
+  items.forEach((item, i) => {
     const after = buildCorrectionRecord(request.employee_id, {
       duty_date: item.duty_date,
       disposition: item.disposition,
-      schedule,
+      schedule: resolved[i].schedule,
       scheduleId: item.proposed_schedule_id,
       time_in_am: hhmmOf(item.proposed_time_in_am),
       time_out_am: hhmmOf(item.proposed_time_out_am),
@@ -576,7 +623,7 @@ export async function getCorrectionReviewSummary(id: string) {
       beforeUndertime,
       afterUndertime,
     });
-  }
+  });
 
   return { totalLateForgiven, totalUndertimeForgiven, days };
 }

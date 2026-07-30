@@ -39,6 +39,54 @@ export function resolveCorrectionSchedule(
   return itemPin ?? rowPin ?? employeeSchedule ?? orgDefault;
 }
 
+export interface ResolvedItemSchedule {
+  schedule: ScheduleLike;
+  // The item's own proposed_schedule_id was set but no longer resolves to a
+  // schedule row (e.g. deleted between submit and approval). Should be
+  // unreachable in practice — attendance_correction_items_proposed_schedule_id_fkey
+  // is ON DELETE NO ACTION (migration 065), so Postgres blocks deleting a
+  // schedule any live item still references — but callers key their
+  // needs_rebase decision off this flag as defense-in-depth rather than
+  // trusting the FK alone.
+  itemPinMissing: boolean;
+}
+
+// The pure core of schedule resolution for a whole request: given maps
+// already batch-fetched from the database (one query for row pins, one for
+// every schedule referenced), resolves each item's schedule the same way
+// resolveCorrectionSchedule does, one item at a time.
+//
+// Extracted so approveCorrectionRequest and getCorrectionReviewSummary
+// (attendance-correction-actions.ts) share ONE resolution instead of each
+// re-deriving it — the bug this closes is exactly a case of two independent
+// re-derivations drifting apart (the review summary hard-coded rowPin to
+// null, so it under- or over-stated forgiven minutes for any day carrying a
+// row-level schedule override). Pure and DB-free, so it is unit-testable
+// without a running stack or an authenticated request context.
+export function resolveItemSchedules<
+  T extends { attendance_log_id: string; proposed_schedule_id: string | null },
+>(
+  items: readonly T[],
+  scheduleById: ReadonlyMap<string, ScheduleLike>,
+  rowScheduleIdByLogId: ReadonlyMap<string, string | null>,
+  employeeSchedule: ScheduleLike | null,
+  orgDefault: ScheduleLike,
+): ResolvedItemSchedule[] {
+  return items.map((item) => {
+    const itemPinMissing =
+      !!item.proposed_schedule_id && !scheduleById.has(item.proposed_schedule_id);
+    const itemPin = item.proposed_schedule_id
+      ? (scheduleById.get(item.proposed_schedule_id) ?? null)
+      : null;
+    const rowScheduleId = rowScheduleIdByLogId.get(item.attendance_log_id) ?? null;
+    const rowPin = rowScheduleId ? (scheduleById.get(rowScheduleId) ?? null) : null;
+    return {
+      schedule: resolveCorrectionSchedule(itemPin, rowPin, employeeSchedule, orgDefault),
+      itemPinMissing,
+    };
+  });
+}
+
 // A midnight-crossing shift starting on `dateTo` finishes the NEXT morning, so
 // its punches land on dateTo's duty date and the following calendar day is left
 // empty. That trailing day needs an explicit disposition or it reads as an

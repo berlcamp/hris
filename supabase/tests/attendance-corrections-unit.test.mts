@@ -83,6 +83,7 @@ test("null and undefined roles are denied everywhere", () => {
 import {
   buildCorrectionRecord,
   resolveCorrectionSchedule,
+  resolveItemSchedules,
   trailingDutyDate,
   type CorrectionItemInput,
 } from "../../src/lib/attendance-corrections.ts";
@@ -171,6 +172,63 @@ test("schedule resolution prefers the item pin, then the row pin, then the emplo
   assert.equal(resolveCorrectionSchedule(null, rowPin, employee, orgDefault).id, "row");
   assert.equal(resolveCorrectionSchedule(null, null, employee, orgDefault).id, "emp");
   assert.equal(resolveCorrectionSchedule(null, null, null, orgDefault).id, "org");
+});
+
+// resolveItemSchedules is the shared core approveCorrectionRequest and
+// getCorrectionReviewSummary both call (attendance-correction-actions.ts) so
+// the minutes HR reviews and the minutes approval writes cannot diverge. This
+// reproduces the exact bug that shipped: getCorrectionReviewSummary used to
+// hard-code the row pin to null, so a day carrying a row-level schedule
+// override (migration 047) but no item-level pin resolved against the
+// employee/org schedule in the summary while approval correctly used the row
+// pin — two different numbers for the same day. Asserting on the row pin
+// here proves the shared function does NOT reproduce that bug: with no item
+// pin, a row pin present beats the employee schedule and the org default.
+test("resolveItemSchedules: a row-level pin with no item pin resolves the row's schedule, not the employee's", () => {
+  const orgDefault: ScheduleLike = { ...REGULAR, id: "org" };
+  const employee: ScheduleLike = { ...REGULAR, id: "emp" };
+  const rowSchedule: ScheduleLike = { ...NIGHT, id: "row-sched" };
+
+  const items = [
+    { attendance_log_id: "log-1", proposed_schedule_id: null },
+  ];
+  const scheduleById = new Map([["row-sched", rowSchedule]]);
+  const rowScheduleIdByLogId = new Map([["log-1", "row-sched"]]);
+
+  const [resolved] = resolveItemSchedules(
+    items,
+    scheduleById,
+    rowScheduleIdByLogId,
+    employee,
+    orgDefault,
+  );
+  assert.equal(resolved.schedule.id, "row-sched");
+  assert.equal(resolved.itemPinMissing, false);
+
+  // Same call, item pin present this time — it must still win over the row
+  // pin, matching resolveCorrectionSchedule's precedence.
+  const itemSchedule: ScheduleLike = { ...NIGHT, id: "item-sched" };
+  const [withItemPin] = resolveItemSchedules(
+    [{ attendance_log_id: "log-1", proposed_schedule_id: "item-sched" }],
+    new Map([["row-sched", rowSchedule], ["item-sched", itemSchedule]]),
+    rowScheduleIdByLogId,
+    employee,
+    orgDefault,
+  );
+  assert.equal(withItemPin.schedule.id, "item-sched");
+  assert.equal(withItemPin.itemPinMissing, false);
+});
+
+test("resolveItemSchedules: an item pin id that resolves to no schedule is flagged, not silently dropped", () => {
+  const items = [{ attendance_log_id: "log-1", proposed_schedule_id: "deleted-sched" }];
+  const [resolved] = resolveItemSchedules(
+    items,
+    new Map(), // the pinned schedule id is not in scheduleById — "deleted"
+    new Map([["log-1", null]]),
+    null,
+    { ...REGULAR, id: "org" },
+  );
+  assert.equal(resolved.itemPinMissing, true);
 });
 
 // A night-shift range consumes the following morning, so an N-day range touches
