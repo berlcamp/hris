@@ -10,9 +10,15 @@ import {
   type JobOrderPayrollRoster,
   type JobOrderPayrollRosterEntry,
 } from "@/lib/job-order-payroll-import";
+// The chunked insert-or-skip loop and the existing-legacy_id lookup live in the
+// plain `job-order-payroll-repo` module, not here, so the real-stack test can
+// import and exercise the actual loop instead of re-running a copy of it.
+import {
+  loadExistingLegacyIdMap,
+  upsertLegacyChunks,
+} from "@/lib/job-order-payroll-repo";
 
 const ROSTER_PAGE_SIZE = 1000; // supabase/config.toml caps PostgREST max_rows at 1000.
-const UPSERT_CHUNK = 500;
 
 export interface JobOrderPayrollImportResult {
   payrollsCreated: number;
@@ -117,36 +123,6 @@ async function loadRoster(
 }
 
 /**
- * `legacy_id -> id` for every row of `table` whose `legacy_id` is in
- * `legacyIds`. Used two ways: to decide which rows to SKIP on a re-run (I3 —
- * a finalized payroll must never be rewritten at whatever the roster says
- * later), and, for payrolls specifically, to resolve member rows' parent FK
- * even when that parent payroll already existed and was skipped this run
- * rather than freshly inserted.
- */
-async function loadExistingLegacyIdMap(
-  supabase: ReturnType<typeof createAdminClient>,
-  table: "job_order_payrolls" | "job_order_payroll_members",
-  legacyIds: number[],
-): Promise<Map<number, string>> {
-  const found = new Map<number, string>();
-  for (let i = 0; i < legacyIds.length; i += UPSERT_CHUNK) {
-    const slice = legacyIds.slice(i, i + UPSERT_CHUNK);
-    if (slice.length === 0) continue;
-    const { data, error } = await supabase
-      .schema("hris")
-      .from(table)
-      .select("id, legacy_id")
-      .in("legacy_id", slice);
-    if (error) throw new Error(`Failed to check existing ${table} legacy_id values: ${error.message}`);
-    for (const row of (data ?? []) as { id: string; legacy_id: number | null }[]) {
-      if (row.legacy_id != null) found.set(row.legacy_id, row.id);
-    }
-  }
-  return found;
-}
-
-/**
  * Imports the legacy `jopayrolls` + `jopayroll_members` history. This
  * function itself does nothing but auth, load the roster, hand both CSVs to
  * the pure `planJobOrderPayrollImport`, and perform the chunked upserts —
@@ -187,37 +163,24 @@ export async function importJobOrderPayrollCsv(
   );
   const payrollsSkippedExisting = plan.payrollRows.length - newPayrollRows.length;
 
-  let payrollsCreated = 0;
   const legacyToPayrollId = new Map<number, string>(existingPayrollIds);
 
-  for (let i = 0; i < newPayrollRows.length; i += UPSERT_CHUNK) {
-    const chunk = newPayrollRows.slice(i, i + UPSERT_CHUNK);
-    const { data, error } = await supabase
-      .schema("hris")
-      .from("job_order_payrolls")
-      // `ignoreDuplicates: true` is belt-and-suspenders, not the primary
-      // mechanism: the JS-level filter above is what makes a normal re-run a
-      // no-op. This just guarantees that even a concurrent import racing this
-      // one for the same legacy_id can only insert-or-skip, never overwrite.
-      .upsert(chunk, { onConflict: "legacy_id", ignoreDuplicates: true })
-      .select("id, legacy_id");
+  // A failed chunk is reported and skipped, not rethrown — the rest of the
+  // chunks may still be good. This should not happen in practice: every row
+  // reaching this point already passed the pure layer's isolation checks
+  // against chk_job_order_payroll_period.
+  const payrollUpsert = await upsertLegacyChunks(
+    supabase,
+    "job_order_payrolls",
+    newPayrollRows,
+    { noun: "payroll", select: "id, legacy_id" },
+  );
+  warnings.push(...payrollUpsert.warnings);
 
-    if (error) {
-      // Isolate the failure, don't abort the whole import — the rest of the
-      // chunks may still be good. This should not happen in practice: every
-      // row reaching this point already passed the pure layer's isolation
-      // checks against chk_job_order_payroll_period.
-      warnings.push(
-        `Failed to save a batch of ${chunk.length} payroll(s) (legacy_id ${chunk[0]?.legacy_id}..${chunk[chunk.length - 1]?.legacy_id}): ${error.message}`,
-      );
-      continue;
-    }
-
-    for (const row of (data ?? []) as { id: string; legacy_id: number }[]) {
-      legacyToPayrollId.set(row.legacy_id, row.id);
-      payrollsCreated++;
-    }
+  for (const row of payrollUpsert.returned) {
+    if (row.id) legacyToPayrollId.set(row.legacy_id, row.id);
   }
+  const payrollsCreated = payrollUpsert.returned.length;
 
   // ── Members ──────────────────────────────────────────────────────────
   // Resolve payroll_legacy_id -> the real payroll_id UUID (freshly minted
@@ -255,25 +218,14 @@ export async function importJobOrderPayrollCsv(
   );
   const membersSkippedExisting = resolvedMemberRows.length - newMemberRows.length;
 
-  let membersCreated = 0;
-
-  for (let i = 0; i < newMemberRows.length; i += UPSERT_CHUNK) {
-    const chunk = newMemberRows.slice(i, i + UPSERT_CHUNK);
-    const { data, error } = await supabase
-      .schema("hris")
-      .from("job_order_payroll_members")
-      .upsert(chunk, { onConflict: "legacy_id", ignoreDuplicates: true })
-      .select("legacy_id");
-
-    if (error) {
-      warnings.push(
-        `Failed to save a batch of ${chunk.length} payroll member(s) (legacy_id ${chunk[0]?.legacy_id}..${chunk[chunk.length - 1]?.legacy_id}): ${error.message}`,
-      );
-      continue;
-    }
-
-    membersCreated += (data ?? []).length;
-  }
+  const memberUpsert = await upsertLegacyChunks(
+    supabase,
+    "job_order_payroll_members",
+    newMemberRows,
+    { noun: "payroll member", select: "legacy_id" },
+  );
+  warnings.push(...memberUpsert.warnings);
+  const membersCreated = memberUpsert.returned.length;
 
   const result: JobOrderPayrollImportResult = {
     payrollsCreated,

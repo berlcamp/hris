@@ -24,28 +24,22 @@
 //   * A soft-deleted JO is still resolvable by legacy_id — the path 5,893 of
 //     11,015 legacy member rows depend on (see job-order-payroll-import.ts).
 //   * The denormalized `areas` label actually lands in the column after a
-//     membership change, using the exact same pure `deriveAreasLabel()` the
-//     production `recomputeAreas()` calls.
+//     membership change, driven by the real `recomputeAreas()`.
 //   * A poisoned row inside one upsert chunk fails that chunk without
-//     aborting the rest of the import.
+//     aborting the rest of the import, driven by the real
+//     `upsertLegacyChunks()`.
 //
-// Two notes on things this file deliberately does NOT do, both because
-// `"use server"` action modules import `next/cache` / `next/headers`, which
-// Node's plain ESM loader (no Next.js bundler in the loop) cannot resolve:
+// The last two used to re-run *copies* of the production logic, because both
+// lived inside `"use server"` modules and `next/cache` / `next/headers` cannot
+// be resolved by Node's plain ESM loader with no Next bundler in the loop. Both
+// now live in the plain `src/lib/job-order-payroll-repo.ts` and are imported
+// and called directly, so a drift in either would fail these tests.
 //
-//   1. `recomputeAreas()` (src/lib/actions/job-order-payroll-actions.ts)
-//      cannot be imported directly here. The areas-resync test instead calls
-//      the exact same pure `deriveAreasLabel()` helper it calls internally,
-//      against members loaded from the real table, and persists the result
-//      with the same UPDATE `recomputeAreas` issues — proving the mechanism
-//      end to end without going through the unimportable wrapper.
-//   2. `importJobOrderPayrollCsv()` (job-order-payroll-import-actions.ts)
-//      also cannot be imported directly — and it additionally requires a
-//      signed-in super_admin session via `getCurrentUser()`, which has no
-//      meaning outside a real Next.js request. The chunk-failure test instead
-//      runs the identical chunked upsert-catch-continue loop the action
-//      runs (same shape, same warning message, same `onConflict: "legacy_id"`)
-//      directly against the real table, with one row deliberately poisoned.
+// Still out of reach, and deliberately so: `importJobOrderPayrollCsv()` itself
+// (job-order-payroll-import-actions.ts) requires a signed-in super_admin
+// session via `getCurrentUser()`, which has no meaning outside a real Next.js
+// request. What it does with the database beyond auth, roster load and the pure
+// planning layer is exactly `upsertLegacyChunks`, which is covered here.
 //
 // Credentials come from `supabase status -o json` and are never printed.
 //
@@ -57,7 +51,11 @@ import test from "node:test";
 import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { deriveAreasLabel } from "../../src/lib/job-order-payroll-helpers.ts";
+import {
+  recomputeAreas,
+  upsertLegacyChunks,
+  type PayrollDbClient,
+} from "../../src/lib/job-order-payroll-repo.ts";
 
 const PROJECT_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const status = JSON.parse(
@@ -82,6 +80,14 @@ const anon = createClient(status.API_URL, status.ANON_KEY, {
   db: { schema: "hris" },
   auth: { autoRefreshToken: false, persistSession: false },
 });
+
+// The production functions in job-order-payroll-repo.ts are typed against
+// `ReturnType<typeof createAdminClient>`. This file's `admin` handle is the
+// same `createClient` call with the same service-role key, differing only in
+// that it defaults `db.schema` to hris — the repo functions call `.schema("hris")`
+// explicitly anyway, so the handle is interchangeable at runtime. Cast once here
+// rather than at every call site.
+const adminRepo = admin as unknown as PayrollDbClient;
 
 const TAG = `jopaytest-${Date.now()}`;
 
@@ -440,10 +446,9 @@ test("status CHECK rejects a value outside draft/finalized", async () => {
 //     denormalized on job_order_payrolls AND is one of three columns the
 //     list search matches (see the `.or(...)` in getJobOrderPayrolls), so
 //     drift here is invisible until a search silently misses a payroll.
-//     recomputeAreas() itself cannot be imported into this plain Node test
-//     (see the file header), so this calls the exact pure function it
-//     delegates to and performs the same UPDATE, proving the persisted
-//     result actually reflects a real membership change.
+//     This calls the real recomputeAreas() from job-order-payroll-repo.ts —
+//     load, derive and persist — so the whole path is under test, not a
+//     reimplementation of it.
 test("the areas label re-syncs after a membership change", async () => {
   const areaA = await makeArea(`${TAG}-area-Alpha`);
   const areaB = await makeArea(`${TAG}-area-Bravo`);
@@ -458,30 +463,18 @@ test("the areas label re-syncs after a membership change", async () => {
     legacy_id: freshLegacyId(),
   });
 
-  async function recompute() {
+  async function persistedAreas() {
     const { data, error } = await admin
-      .from("job_order_payroll_members")
-      .select("area_name")
-      .eq("payroll_id", payroll.id);
-    assert.equal(error, null, `member load for recompute failed: ${error?.message}`);
-    const label = deriveAreasLabel((data ?? []) as { area_name: string | null }[]);
-    const { error: updateError } = await admin
       .from("job_order_payrolls")
-      .update({ areas: label })
-      .eq("id", payroll.id);
-    assert.equal(updateError, null, `areas update failed: ${updateError?.message}`);
-    return label;
+      .select("areas")
+      .eq("id", payroll.id)
+      .single();
+    assert.equal(error, null, `areas read failed: ${error?.message}`);
+    return data!.areas as string | null;
   }
 
-  const firstLabel = await recompute();
-  assert.equal(firstLabel, areaA.name);
-
-  const { data: afterFirst } = await admin
-    .from("job_order_payrolls")
-    .select("areas")
-    .eq("id", payroll.id)
-    .single();
-  assert.equal(afterFirst!.areas, areaA.name);
+  await recomputeAreas(adminRepo, payroll.id);
+  assert.equal(await persistedAreas(), areaA.name);
 
   // Membership change: add a second member from a different area.
   await makeMember(payroll.id, {
@@ -491,8 +484,7 @@ test("the areas label re-syncs after a membership change", async () => {
     legacy_id: freshLegacyId(),
   });
 
-  const secondLabel = await recompute();
-  assert.equal(secondLabel, [areaA.name, areaB.name].sort().join(", "));
+  await recomputeAreas(adminRepo, payroll.id);
 
   const { data: afterSecond } = await admin
     .from("job_order_payrolls")
@@ -506,18 +498,16 @@ test("the areas label re-syncs after a membership change", async () => {
   );
 });
 
-// 12. A forced chunk failure degrades gracefully. The real importer
-//     (importJobOrderPayrollCsv in job-order-payroll-import-actions.ts)
-//     upserts members in chunks of 500 via
-//     `.upsert(chunk, { onConflict: "legacy_id" })`, and on error pushes a
-//     batch-level warning naming the chunk's legacy_id range and `continue`s
-//     rather than aborting — so one bad row can drop up to 499 valid
-//     neighbours behind a single warning line, but the REST of the import
-//     must still land. That action cannot be invoked directly from this
-//     plain Node test (see the file header), so this runs the identical
-//     loop shape against the real table: one chunk deliberately poisoned
-//     with a duplicate (payroll_id, job_order_employee_id) pair violating
-//     uq_job_order_payroll_members, and a second, clean chunk after it.
+// 12. A forced chunk failure degrades gracefully. `upsertLegacyChunks` — the
+//     real function importJobOrderPayrollCsv uses for both its payroll and
+//     member writes — upserts in chunks, and on error pushes a batch-level
+//     warning naming the chunk's legacy_id range and continues rather than
+//     aborting. So one bad row can drop up to `chunkSize - 1` valid neighbours
+//     behind a single warning line, but the REST of the import must still land.
+//     Called here with chunkSize 2 so the input splits into exactly two
+//     chunks: the first deliberately poisoned with a duplicate
+//     (payroll_id, job_order_employee_id) pair violating
+//     uq_job_order_payroll_members, the second clean.
 test("a forced chunk failure degrades gracefully — the run reports it and continues", async () => {
   const area = await makeArea(`${TAG}-area-chunkfail`);
   const payroll = await makePayroll({ description: `${TAG}-chunkfail` });
@@ -560,26 +550,22 @@ test("a forced chunk failure degrades gracefully — the run reports it and cont
     },
   ];
 
-  const chunks = [poisonedChunk, cleanChunk];
-  const warnings: string[] = [];
-
-  // Mirrors importJobOrderPayrollCsv's member-upsert loop verbatim.
-  for (const chunk of chunks) {
-    const { error } = await admin
-      .from("job_order_payroll_members")
-      .upsert(chunk, { onConflict: "legacy_id" })
-      .select("legacy_id");
-
-    if (error) {
-      warnings.push(
-        `Failed to save a batch of ${chunk.length} payroll member(s) (legacy_id ${chunk[0]?.legacy_id}..${chunk[chunk.length - 1]?.legacy_id}): ${error.message}`,
-      );
-      continue;
-    }
-  }
+  // The real production function, chunked at 2 so the poisoned pair and the
+  // clean pair land in separate chunks.
+  const { returned, warnings } = await upsertLegacyChunks(
+    adminRepo,
+    "job_order_payroll_members",
+    [...poisonedChunk, ...cleanChunk],
+    { noun: "payroll member", select: "legacy_id", chunkSize: 2 },
+  );
 
   assert.equal(warnings.length, 1, "exactly one chunk (the poisoned one) must have failed");
   assert.match(warnings[0]!, /Failed to save a batch of 2 payroll member/);
+  assert.equal(
+    returned.length,
+    2,
+    "the reported insert count must cover the clean chunk only, not the failed one",
+  );
 
   const { data: poisonedRows } = await admin
     .from("job_order_payroll_members")

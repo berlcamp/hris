@@ -6,7 +6,6 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { canManageJobOrders } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
-  deriveAreasLabel,
   summarizeMembers,
   toPayrollMemberSnapshot,
 } from "@/lib/job-order-payroll-helpers";
@@ -15,90 +14,31 @@ import {
   canReopenOrDeletePayroll,
 } from "@/lib/job-order-payroll-guards";
 import {
+  loadJobOrdersForSnapshot,
+  loadMembers,
+  recomputeAreas,
+} from "@/lib/job-order-payroll-repo";
+import {
   jobOrderPayrollCreateSchema,
   jobOrderPayrollMetadataSchema,
   type JobOrderPayrollCreateValues,
   type JobOrderPayrollMetadataValues,
 } from "@/lib/validations/job-order-payroll-schema";
-import {
-  JO_SELECT_FOR_SNAPSHOT,
-  MEMBER_SELECT,
-  PAYROLL_SELECT,
-  shapeMember,
-  toNumber,
-} from "@/lib/job-order-payroll-queries";
+import { PAYROLL_SELECT, toNumber } from "@/lib/job-order-payroll-queries";
 import type {
   JobOrderAreaOption,
-  JobOrderEmployee,
   JobOrderPayroll,
   JobOrderPayrollMember,
 } from "@/lib/types";
 
-/**
- * Every member of a payroll, ordered by area then name.
- *
- * Paged with `.range()` in chunks of 1000 because supabase/config.toml caps
- * PostgREST's max_rows at 1000 — an area-picker payroll can snapshot ~578
- * active JOs today, and this result feeds mutations (duplicate, finalize's
- * empty-check, refreshMembersFromRoster), not just display, so a silent
- * truncation here is worse than the same cap on a read-only list. Same
- * pattern as `loadJobOrdersForSnapshot` below. `area_name`/`full_name` do not
- * uniquely order rows, so `id` is appended as a tiebreaker to keep page
- * boundaries stable — the members table relies on the area/name ordering
- * itself to group rows when it walks the list, so that ordering must not
- * change.
- */
-export async function loadMembers(
-  supabase: ReturnType<typeof createAdminClient>,
-  payrollId: string,
-): Promise<JobOrderPayrollMember[]> {
-  const PAGE_SIZE = 1000;
-  const collected: Record<string, unknown>[] = [];
-  let from = 0;
-
-  for (;;) {
-    const { data, error } = await supabase
-      .schema("hris")
-      .from("job_order_payroll_members")
-      .select(MEMBER_SELECT)
-      .eq("payroll_id", payrollId)
-      .order("area_name", { ascending: true, nullsFirst: false })
-      .order("full_name", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-
-    const batch = (data ?? []) as Record<string, unknown>[];
-    collected.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return collected.map((r) => shapeMember(r));
-}
-
-/** Recompute the denormalized `areas` label after any membership change. */
-export async function recomputeAreas(
-  supabase: ReturnType<typeof createAdminClient>,
-  payrollId: string,
-): Promise<void> {
-  const members = await loadMembers(supabase, payrollId);
-  const { error } = await supabase
-    .schema("hris")
-    .from("job_order_payrolls")
-    .update({ areas: deriveAreasLabel(members) })
-    .eq("id", payrollId);
-  // Logged, not thrown: `areas` is a denormalized search/display label, not
-  // the record of truth (members are). But a silent failure here leaves it
-  // stale — and it's one of the three columns list search matches against
-  // (see the `.or(...)` in getJobOrderPayrolls) — so a failure must at least
-  // be visible for someone to notice and re-run.
-  if (error) {
-    console.error(
-      `recomputeAreas: failed to update areas for payroll ${payrollId}: ${error.message}`,
-    );
-  }
-}
+// `loadMembers`, `recomputeAreas` and `loadJobOrdersForSnapshot` used to live
+// here. They are plain database access with no auth, no revalidation and no
+// audit, and exporting them from a `"use server"` module gave each one a
+// server-action endpoint with no auth check — not exploitable, since their
+// first parameter is a live SupabaseClient and therefore not serializable, but
+// a wider action namespace for no benefit. They now live in
+// `@/lib/job-order-payroll-repo`, which also makes them importable by
+// supabase/tests/job-order-payroll.test.mts (see that module's header).
 
 /**
  * Deletes a just-created payroll row after its member insert failed, so a
@@ -338,63 +278,6 @@ export async function getJobOrderAreasForPicker(): Promise<JobOrderAreaOption[]>
 }
 
 // ── Writes ───────────────────────────────────────────────────────────
-
-/**
- * Roster rows shaped for snapshotting. Numerics converted; area flattened.
- *
- * Paged with .range() in chunks of 1000 because supabase/config.toml caps
- * PostgREST's max_rows at 1000. An unpaginated select would silently truncate
- * once the roster passes that — it is ~578 rows today. `getAddableJobOrders`
- * calls this with no filter at all, so it is the first caller that would hit
- * the cap. Same pattern and same reason as job-order-actions.ts:104.
- * `full_name` does not uniquely order rows, so `id` is the tiebreaker that
- * keeps page boundaries stable.
- */
-export async function loadJobOrdersForSnapshot(
-  supabase: ReturnType<typeof createAdminClient>,
-  where: { areaIds?: string[]; ids?: string[] },
-): Promise<JobOrderEmployee[]> {
-  const PAGE_SIZE = 1000;
-  const collected: Record<string, unknown>[] = [];
-  let from = 0;
-
-  for (;;) {
-    let query = supabase
-      .schema("hris")
-      .from("job_order_employees")
-      .select(JO_SELECT_FOR_SNAPSHOT)
-      .eq("status", "active")
-      .is("deleted_at", null);
-
-    if (where.areaIds) query = query.in("area_id", where.areaIds);
-    if (where.ids) query = query.in("id", where.ids);
-
-    const { data, error } = await query
-      .order("full_name")
-      .order("id")
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-
-    const batch = (data ?? []) as Record<string, unknown>[];
-    collected.push(...batch);
-    if (batch.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return collected.map((raw) => {
-    const r = raw as Record<string, unknown>;
-    const area = r.job_order_areas as { name: string } | null;
-    const { job_order_areas: _drop, ...rest } = r;
-    return {
-      ...(rest as unknown as JobOrderEmployee),
-      area_name: area?.name ?? null,
-      daily_rate: toNumber(r.daily_rate),
-      previous_daily_rate: toNumber(r.previous_daily_rate),
-      sss_ss: toNumber(r.sss_ss),
-      sss_ec: toNumber(r.sss_ec),
-    };
-  });
-}
 
 export async function createJobOrderPayroll(
   input: JobOrderPayrollCreateValues,

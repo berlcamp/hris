@@ -11,7 +11,7 @@ import {
   loadJobOrdersForSnapshot,
   loadMembers,
   recomputeAreas,
-} from "@/lib/actions/job-order-payroll-actions";
+} from "@/lib/job-order-payroll-repo";
 import {
   jobOrderPayrollMemberSchema,
   type JobOrderPayrollMemberValues,
