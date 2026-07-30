@@ -3,8 +3,15 @@
  *
  *   gross_regular   = rate * days
  *   gross_overtime  = (rate / 8) * hours
+ *   gross           = gross_regular + gross_overtime
  *   sss_deduction   = sss_ss + sss_ec
  *   net_amount      = gross - sss_deduction
+ *
+ * Overtime is part of gross, and therefore of net. It did not used to be:
+ * `computeJoNetAmount` ignored `hours` while the printables added `otPay` in
+ * themselves, so entering 8 overtime hours moved the printed document but not
+ * the members table, the detail header or the list's "Net total" column. The
+ * screen and the printout now agree.
  *
  * `null` inputs are treated as 0 so partially-filled rows don't NaN-bomb the
  * totals row in print views.
@@ -44,8 +51,15 @@ export function computeJoSssDeduction(
   return n(sssShare) + n(ecShare);
 }
 
+/**
+ * Full net for one member: regular pay plus overtime, less the SSS shares.
+ * Callers that omit `hours` get regular-only net, which is what the SUMMARY
+ * printable wants (it has no overtime column).
+ */
 export function computeJoNetAmount(input: JoPayrollComputeInput): number {
-  const gross = computeJoGross(input.rate, input.days);
+  const gross =
+    computeJoGross(input.rate, input.days) +
+    computeJoOvertimeGross(input.rate, input.hours);
   const sss = computeJoSssDeduction(input.sss_ss, input.sss_ec);
   return gross - sss;
 }
@@ -86,7 +100,10 @@ export function groupMembersByRate<M extends JoPayrollMemberLike>(
     .sort((a, b) => a[0] - b[0])
     .map(([rate, ms]) => {
       const totalGross = ms.reduce(
-        (s, m) => s + computeJoGross(m.rate, m.days),
+        (s, m) =>
+          s +
+          computeJoGross(m.rate, m.days) +
+          computeJoOvertimeGross(m.rate, m.hours),
         0,
       );
       const totalSss = ms.reduce(
@@ -264,11 +281,20 @@ export interface JobOrderPayrollTotals {
   net: number;
 }
 
-/** Payroll totals. Null inputs count as zero so a half-filled draft still adds up. */
+/**
+ * Payroll totals. Null inputs count as zero so a half-filled draft still adds
+ * up.
+ *
+ * `hours` is required, not optional: these totals are what the list and the
+ * detail header show, and an optional field would let a call site silently
+ * under-report overtime by forgetting to select it — which is exactly how the
+ * screen and the printout drifted apart in the first place.
+ */
 export function summarizeMembers(
   members: {
     rate: number | null;
     days: number | null;
+    hours: number | null;
     sss_ss: number | null;
     sss_ec: number | null;
   }[],
@@ -276,7 +302,8 @@ export function summarizeMembers(
   let gross = 0;
   let sss = 0;
   for (const m of members) {
-    gross += computeJoGross(m.rate, m.days);
+    gross +=
+      computeJoGross(m.rate, m.days) + computeJoOvertimeGross(m.rate, m.hours);
     sss += computeJoSssDeduction(m.sss_ss, m.sss_ec);
   }
   return { gross, sss, net: gross - sss };

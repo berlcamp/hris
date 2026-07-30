@@ -152,7 +152,7 @@ export async function getJobOrderPayrolls(
     const { data: batch, error: memErr } = await supabase
       .schema("hris")
       .from("job_order_payroll_members")
-      .select("payroll_id, daily_rate, days, sss_ss, sss_ec")
+      .select("payroll_id, daily_rate, days, hours, sss_ss, sss_ec")
       .in("payroll_id", ids)
       .order("payroll_id")
       .range(memberFrom, memberFrom + MEMBER_PAGE_SIZE - 1);
@@ -166,7 +166,13 @@ export async function getJobOrderPayrolls(
 
   const byPayroll = new Map<
     string,
-    { rate: number | null; days: number | null; sss_ss: number | null; sss_ec: number | null }[]
+    {
+      rate: number | null;
+      days: number | null;
+      hours: number | null;
+      sss_ss: number | null;
+      sss_ec: number | null;
+    }[]
   >();
   for (const m of members) {
     const row = m as Record<string, unknown>;
@@ -175,6 +181,7 @@ export async function getJobOrderPayrolls(
     list.push({
       rate: toNumber(row.daily_rate),
       days: toNumber(row.days),
+      hours: toNumber(row.hours),
       sss_ss: toNumber(row.sss_ss),
       sss_ec: toNumber(row.sss_ec),
     });
@@ -221,6 +228,7 @@ export async function getJobOrderPayrollById(id: string): Promise<{
     members.map((m) => ({
       rate: m.daily_rate,
       days: m.days,
+      hours: m.hours,
       sss_ss: m.sss_ss,
       sss_ec: m.sss_ec,
     })),

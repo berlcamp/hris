@@ -210,10 +210,11 @@ const member = (
   ss: number | null,
   ec: number | null,
   area: string | null = "A",
+  hours: number | null = null,
 ) => ({
   rate,
   days,
-  hours: null,
+  hours,
   sss_ss: ss,
   sss_ec: ec,
   area_name: area,
@@ -277,6 +278,65 @@ test("net subtracts the SSS shares from gross", () => {
     computeJoNetAmount({ rate: 450, days: 11, sss_ss: 180, sss_ec: 10 }),
     4760,
   );
+});
+
+// ── overtime is part of gross, and therefore of net ──────────────────
+//
+// This is the behaviour that used to diverge: computeJoNetAmount ignored
+// `hours` while the printables added overtime in themselves, so 8 overtime
+// hours moved the printed document but left the members table, the detail
+// header and the list's "Net total" column unchanged.
+
+test("net includes overtime when hours are supplied", () => {
+  // 450*11 = 4950 regular, (450/8)*8 = 450 overtime, less 190 SSS.
+  assert.equal(
+    computeJoNetAmount({
+      rate: 450,
+      days: 11,
+      hours: 8,
+      sss_ss: 180,
+      sss_ec: 10,
+    }),
+    4950 + 450 - 190,
+  );
+});
+
+test("omitting hours still yields regular-only net — what the SUMMARY print wants", () => {
+  assert.equal(
+    computeJoNetAmount({ rate: 450, days: 11, sss_ss: 180, sss_ec: 10 }),
+    computeJoNetAmount({
+      rate: 450,
+      days: 11,
+      hours: null,
+      sss_ss: 180,
+      sss_ec: 10,
+    }),
+  );
+});
+
+test("summarize folds overtime into gross and net", () => {
+  const out = summarizeMembers([
+    member(450, 11, 180, 10, "A", 8),
+    member(400, 10, 160, 10, "A", null),
+  ]);
+  assert.equal(out.gross, 450 * 11 + 450 + 400 * 10);
+  assert.equal(out.sss, 360);
+  assert.equal(out.net, out.gross - 360);
+});
+
+test("overtime alone, with no regular days, still produces net", () => {
+  const out = summarizeMembers([member(480, null, null, null, "A", 4)]);
+  assert.equal(out.gross, (480 / 8) * 4);
+  assert.equal(out.net, out.gross);
+});
+
+test("groupMembersByRate's group gross includes overtime", () => {
+  const [group] = groupMembersByRate([
+    { rate: 400, days: 10, hours: 8, sss_ss: 100, sss_ec: 10 },
+  ]);
+  assert.equal(group!.totalGross, 400 * 10 + (400 / 8) * 8);
+  assert.equal(group!.totalSss, 110);
+  assert.equal(group!.totalNet, group!.totalGross - 110);
 });
 
 test("groupMembersByRate sorts ascending by rate", () => {

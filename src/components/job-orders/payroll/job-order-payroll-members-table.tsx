@@ -30,6 +30,7 @@ import { updateJobOrderPayrollMember, removeJobOrderPayrollMember } from "@/lib/
 import {
   computeJoGross,
   computeJoNetAmount,
+  computeJoOvertimeGross,
   computeJoSssDeduction,
 } from "@/lib/job-order-payroll-helpers";
 import type { JobOrderPayrollMember } from "@/lib/types";
@@ -220,11 +221,16 @@ function MemberRow({ member, isDraft, onRemove, onSaved }: MemberRowProps) {
     setRate(member.daily_rate);
   }, [member.days, member.hours, member.daily_rate]);
 
-  const gross = computeJoGross(rate, days);
+  // Gross and net both include overtime, so this row matches what the payroll
+  // prints. Computed off the live local state, not `member`, so the figures
+  // track what the user is typing before the blur-commit lands.
+  const gross =
+    computeJoGross(rate, days) + computeJoOvertimeGross(rate, hours);
   const sss = computeJoSssDeduction(member.sss_ss, member.sss_ec);
   const net = computeJoNetAmount({
     rate,
     days,
+    hours,
     sss_ss: member.sss_ss,
     sss_ec: member.sss_ec,
   });

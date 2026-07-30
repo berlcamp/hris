@@ -47,16 +47,22 @@ export interface HolidayInRange {
 /**
  * Holidays inside an inclusive date range, advisory only — the Job Order
  * payroll `days` field is a plain weekday count (see `countWeekdays`) and
- * never auto-deducts these. Read, same as `getHolidays()` above: no auth
- * check here either, since this file's convention is to gate writes with
- * `requireManager` and leave reads open to any authenticated caller (the
- * page/route that renders the consuming UI already applies its own
- * role guard).
+ * never auto-deducts these.
+ *
+ * Requires a signed-in user, unlike `getHolidays()` above. The data is
+ * non-sensitive (public holiday dates), so this is not closing a leak; it is
+ * refusing to add a brand-new *unauthenticated* server-action surface, which is
+ * what this export was when the Job Order payroll module introduced it. That
+ * makes the file inconsistent with `getHolidays()`, deliberately: the older
+ * function's callers were not re-audited as part of this change.
  */
 export async function getHolidaysInRange(
   startIso: string,
   endIso: string,
 ): Promise<HolidayInRange[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .schema("hris")
