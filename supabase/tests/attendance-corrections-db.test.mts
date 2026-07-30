@@ -277,6 +277,37 @@ test("a drifted row in a multi-row batch leaves the OTHER rows untouched too", a
   assert.equal(req!.status, "needs_rebase");
 });
 
+test("an approved correction survives a later biometric overwrite", async () => {
+  // A date outside every other live/leftover request range in this file: the
+  // "two live requests" test (2026-10-01..15) and the multi-row batch test
+  // (2026-11-01..03) both leave a request in a still-"live" status
+  // (pending/needs_rebase) for the acr_no_overlapping_pending EXCLUDE
+  // constraint until test.after() runs at the very end of the suite.
+  const date = "2026-12-02";
+  const log = await seedLog(date, "21:55");
+  const requestId = await seedRequest(date, date);
+  await admin.from("attendance_correction_items").insert({
+    request_id: requestId, duty_date: date, attendance_log_id: log.id,
+    disposition: "update", before: beforeOf(log),
+  });
+  const record = buildCorrectionRecord(EMPLOYEE, {
+    duty_date: date, disposition: "update", schedule: NIGHT, scheduleId: null,
+    time_in_am: "21:55", time_out_am: null, time_in_pm: null, time_out_pm: "06:05",
+    reason_in_am: null, reason_out_am: null, reason_in_pm: null, reason_out_pm: null,
+  });
+  await admin.rpc("apply_attendance_correction", {
+    p_request_id: requestId, p_reviewer_id: REVIEWER,
+    p_reviewer_email: "hr@example.gov",
+    p_rows: [{ attendance_log_id: log.id, record }],
+  });
+
+  const { data: locked } = await admin
+    .from("attendance_logs")
+    .select("correction_locked").eq("id", log.id).single();
+  assert.equal(locked!.correction_locked, true,
+    "an applied correction must be excluded from later imports");
+});
+
 test.after(async () => {
   // Requests first: attendance_correction_items cascade-delete with their
   // parent request (ON DELETE CASCADE, migration 065).

@@ -12,6 +12,15 @@ import {
   correctionRequestSchema,
   type CorrectionRequestInput,
 } from "@/lib/validations/attendance-correction-schema";
+import {
+  buildCorrectionRecord,
+  resolveCorrectionSchedule,
+} from "@/lib/attendance-corrections";
+import {
+  DEFAULT_SCHEDULE,
+  type ScheduleLike,
+} from "@/lib/attendance-schedule";
+import type { CorrectionReason } from "@/lib/constants";
 
 const PROOF_BUCKET = "attendance-proofs";
 const MAX_PROOF_BYTES = 10 * 1024 * 1024;
@@ -327,4 +336,247 @@ export async function cancelCorrectionRequest(id: string) {
     recordId: id,
   });
   revalidatePath("/attendance-corrections");
+}
+
+/** HH:MM out of a stored TIME column. Mirrors extractTime in attendance-actions.ts. */
+function hhmmOf(ts: string | null): string | null {
+  return ts?.match(/(\d{2}:\d{2})/)?.[1] ?? null;
+}
+
+async function loadSchedule(
+  supabase: ReturnType<typeof createAdminClient>,
+  id: string | null,
+): Promise<ScheduleLike | null> {
+  if (!id) return null;
+  const { data } = await supabase
+    .schema("hris")
+    .from("schedules")
+    .select("id, time_in, time_out, break_start, break_end")
+    .eq("id", id)
+    .maybeSingle();
+  return (data as ScheduleLike | null) ?? null;
+}
+
+export async function approveCorrectionRequest(id: string) {
+  const user = await getCurrentUser();
+  if (!user || !canReviewAttendanceCorrection(user.role)) {
+    throw new Error("Unauthorized");
+  }
+  const supabase = createAdminClient();
+
+  const { data: request, error: reqErr } = await supabase
+    .schema("hris")
+    .from("attendance_correction_requests")
+    .select("id, employee_id, status")
+    .eq("id", id)
+    .single();
+  if (reqErr) throw reqErr;
+  if (!["pending", "needs_rebase"].includes(request.status)) {
+    throw new Error("Only a live request can be approved");
+  }
+
+  const { data: items, error: itemErr } = await supabase
+    .schema("hris")
+    .from("attendance_correction_items")
+    .select("*")
+    .eq("request_id", id)
+    .order("duty_date");
+  if (itemErr) throw itemErr;
+  if (!items || items.length === 0) throw new Error("This request has no days");
+
+  // The employee's own schedule, and the org default, as fallbacks.
+  const { data: emp } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select("schedules(id, time_in, time_out, break_start, break_end)")
+    .eq("id", request.employee_id)
+    .maybeSingle();
+  const employeeSchedule =
+    (emp?.schedules as unknown as ScheduleLike | null) ?? null;
+
+  const { data: logs } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .select("id, schedule_id")
+    .in("id", items.map((i) => i.attendance_log_id));
+  const rowPinById = new Map((logs ?? []).map((l) => [l.id, l.schedule_id]));
+
+  const rows: { attendance_log_id: string; record: Record<string, unknown> }[] = [];
+  for (const item of items) {
+    const itemPin = await loadSchedule(supabase, item.proposed_schedule_id);
+    // A schedule deleted between submit and approval must not silently revert
+    // the day to the inherited schedule — send the request back instead.
+    if (item.proposed_schedule_id && !itemPin) {
+      await supabase
+        .schema("hris")
+        .from("attendance_correction_requests")
+        .update({ status: "needs_rebase", updated_at: new Date().toISOString() })
+        .eq("id", id);
+      revalidatePath("/attendance-corrections");
+      return { outcome: "needs_rebase" as const };
+    }
+    const rowPin = await loadSchedule(
+      supabase,
+      rowPinById.get(item.attendance_log_id) ?? null,
+    );
+    const schedule = resolveCorrectionSchedule(
+      itemPin,
+      rowPin,
+      employeeSchedule,
+      DEFAULT_SCHEDULE,
+    );
+
+    rows.push({
+      attendance_log_id: item.attendance_log_id,
+      record: buildCorrectionRecord(request.employee_id, {
+        duty_date: item.duty_date,
+        disposition: item.disposition,
+        schedule,
+        scheduleId: item.proposed_schedule_id,
+        time_in_am: hhmmOf(item.proposed_time_in_am),
+        time_out_am: hhmmOf(item.proposed_time_out_am),
+        time_in_pm: hhmmOf(item.proposed_time_in_pm),
+        time_out_pm: hhmmOf(item.proposed_time_out_pm),
+        reason_in_am: item.proposed_in_am_reason as CorrectionReason | null,
+        reason_out_am: item.proposed_out_am_reason as CorrectionReason | null,
+        reason_in_pm: item.proposed_in_pm_reason as CorrectionReason | null,
+        reason_out_pm: item.proposed_out_pm_reason as CorrectionReason | null,
+      }),
+    });
+  }
+
+  const { data: outcome, error: rpcError } = await supabase
+    .schema("hris")
+    .rpc("apply_attendance_correction", {
+      p_request_id: id,
+      p_reviewer_id: user.id,
+      p_reviewer_email: user.email,
+      p_rows: rows,
+    });
+  if (rpcError) throw rpcError;
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action:
+      outcome === "applied"
+        ? "attendance_correction_approved"
+        : "attendance_correction_needs_rebase",
+    tableName: "attendance_correction_requests",
+    recordId: id,
+    newValues: { days: rows.length, outcome },
+  });
+
+  revalidatePath("/attendance-corrections");
+  revalidatePath("/attendance");
+  return { outcome: outcome as "applied" | "needs_rebase" };
+}
+
+export async function rejectCorrectionRequest(id: string, notes: string) {
+  const user = await getCurrentUser();
+  if (!user || !canReviewAttendanceCorrection(user.role)) {
+    throw new Error("Unauthorized");
+  }
+  if (!notes.trim()) throw new Error("Say why the request is being rejected");
+
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .schema("hris")
+    .from("attendance_correction_requests")
+    .update({
+      status: "rejected",
+      reviewed_by: user.id,
+      reviewed_by_email: user.email,
+      reviewed_at: new Date().toISOString(),
+      review_notes: notes.trim(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .in("status", ["pending", "needs_rebase"]);
+  if (error) throw error;
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "attendance_correction_rejected",
+    tableName: "attendance_correction_requests",
+    recordId: id,
+    newValues: { notes: notes.trim() },
+  });
+  revalidatePath("/attendance-corrections");
+}
+
+// The figure a reviewer actually needs: how many minutes of tardiness and
+// undertime this request waives in total. Deriving it by scanning 22 rows is
+// exactly what the review screen exists to avoid.
+export async function getCorrectionReviewSummary(id: string) {
+  const { request, items } = await getCorrectionRequest(id);
+  const supabase = createAdminClient();
+
+  const { data: logs } = await supabase
+    .schema("hris")
+    .from("attendance_logs")
+    .select("id, date, late_minutes, undertime_minutes")
+    .in("id", items.map((i) => i.attendance_log_id));
+  const byId = new Map((logs ?? []).map((l) => [l.id, l]));
+
+  const { data: emp } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select("schedules(id, time_in, time_out, break_start, break_end)")
+    .eq("id", request.employee_id)
+    .maybeSingle();
+  const employeeSchedule =
+    (emp?.schedules as unknown as ScheduleLike | null) ?? null;
+
+  let totalLateForgiven = 0;
+  let totalUndertimeForgiven = 0;
+  const days: {
+    duty_date: string;
+    beforeLate: number;
+    afterLate: number;
+    beforeUndertime: number;
+    afterUndertime: number;
+  }[] = [];
+
+  for (const item of items) {
+    const itemPin = await loadSchedule(supabase, item.proposed_schedule_id);
+    const schedule = resolveCorrectionSchedule(
+      itemPin,
+      null,
+      employeeSchedule,
+      DEFAULT_SCHEDULE,
+    );
+    const after = buildCorrectionRecord(request.employee_id, {
+      duty_date: item.duty_date,
+      disposition: item.disposition,
+      schedule,
+      scheduleId: item.proposed_schedule_id,
+      time_in_am: hhmmOf(item.proposed_time_in_am),
+      time_out_am: hhmmOf(item.proposed_time_out_am),
+      time_in_pm: hhmmOf(item.proposed_time_in_pm),
+      time_out_pm: hhmmOf(item.proposed_time_out_pm),
+      reason_in_am: item.proposed_in_am_reason as CorrectionReason | null,
+      reason_out_am: item.proposed_out_am_reason as CorrectionReason | null,
+      reason_in_pm: item.proposed_in_pm_reason as CorrectionReason | null,
+      reason_out_pm: item.proposed_out_pm_reason as CorrectionReason | null,
+    });
+    const current = byId.get(item.attendance_log_id);
+    const beforeLate = current?.late_minutes ?? 0;
+    const beforeUndertime = current?.undertime_minutes ?? 0;
+    const afterLate = after.late_minutes as number;
+    const afterUndertime = after.undertime_minutes as number;
+
+    totalLateForgiven += Math.max(0, beforeLate - afterLate);
+    totalUndertimeForgiven += Math.max(0, beforeUndertime - afterUndertime);
+    days.push({
+      duty_date: item.duty_date,
+      beforeLate,
+      afterLate,
+      beforeUndertime,
+      afterUndertime,
+    });
+  }
+
+  return { totalLateForgiven, totalUndertimeForgiven, days };
 }
