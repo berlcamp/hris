@@ -46,6 +46,7 @@ async function seedLog(date: string, timeInAm: string) {
     .select("id, time_in_am, schedule_id, time_out_am, time_in_pm, time_out_pm, source")
     .single();
   if (error) throw error;
+  SEEDED_DATES.push(date);
   return data;
 }
 
@@ -61,6 +62,7 @@ async function seedRequest(from: string, to: string) {
     .select("id")
     .single();
   if (error) throw error;
+  SEEDED_REQUEST_IDS.push(data.id as string);
   return data.id as string;
 }
 
@@ -69,6 +71,15 @@ const beforeOf = (log: Record<string, unknown>) => ({
   time_in_pm: log.time_in_pm, time_out_pm: log.time_out_pm,
   schedule_id: log.schedule_id, source: log.source,
 });
+
+// Every duty date and request id this suite seeds, so test.after() can clean
+// up precisely — the same pattern dtr-import.test.mts and job-orders.test.mts
+// use to stay rerunnable without a `db:reset` between runs. A left-over
+// 'pending'/'needs_rebase' request keeps its claim on its date range (the
+// acr_no_overlapping_pending EXCLUDE constraint counts both as live), so an
+// uncleaned run poisons the next one.
+const SEEDED_DATES: string[] = [];
+const SEEDED_REQUEST_IDS: string[] = [];
 
 test("applying a correction writes the recomputed row and locks it", async () => {
   const date = "2026-09-07";
@@ -163,4 +174,74 @@ test("two live requests cannot claim overlapping dates for one employee", async 
       reason: "overlapping", proof_path: "a/b.pdf", proof_filename: "b.pdf",
     });
   assert.ok(error, "the EXCLUDE constraint must reject an overlapping live request");
+});
+
+test("a drifted row in a multi-row batch leaves the OTHER rows untouched too", async () => {
+  // A single-row drift test cannot distinguish "atomic multi-row commit" from
+  // "single-row drift check". This seeds a 3-day request, drifts only the
+  // MIDDLE day after snapshotting, and proves the two days that never drifted
+  // are still rolled back with it — the actual point of doing Pass 1 and
+  // Pass 2 as two separate loops over the whole batch instead of row-by-row.
+  const dates = ["2026-11-01", "2026-11-02", "2026-11-03"];
+  const logs = [];
+  for (const d of dates) logs.push(await seedLog(d, "21:55"));
+
+  const requestId = await seedRequest(dates[0], dates[dates.length - 1]);
+  for (let i = 0; i < dates.length; i++) {
+    await admin.from("attendance_correction_items").insert({
+      request_id: requestId, duty_date: dates[i], attendance_log_id: logs[i].id,
+      disposition: "update", before: beforeOf(logs[i]),
+    });
+  }
+
+  // Drift only the middle day (index 1) after its snapshot was taken.
+  await admin.from("attendance_logs")
+    .update({ time_in_am: `${dates[1]}T22:30:00` }).eq("id", logs[1].id);
+
+  const rows = dates.map((d, i) => ({
+    attendance_log_id: logs[i].id,
+    record: buildCorrectionRecord(EMPLOYEE, {
+      duty_date: d, disposition: "update", schedule: NIGHT, scheduleId: null,
+      time_in_am: "21:55", time_out_am: null, time_in_pm: null, time_out_pm: "06:05",
+      reason_in_am: null, reason_out_am: null, reason_in_pm: null, reason_out_pm: null,
+    }),
+  }));
+
+  const { data: outcome } = await admin.rpc("apply_attendance_correction", {
+    p_request_id: requestId, p_reviewer_id: REVIEWER,
+    p_reviewer_email: "hr@example.gov",
+    p_rows: rows,
+  });
+  assert.equal(outcome, "needs_rebase");
+
+  const { data: after } = await admin
+    .from("attendance_logs")
+    .select("id, time_in_am, correction_locked")
+    .in("id", logs.map((l) => l.id));
+  const byId = new Map((after ?? []).map((r) => [r.id as string, r]));
+
+  // The two days that never drifted must be untouched too — proof the commit
+  // is all-or-nothing across the whole batch, not per row.
+  assert.match(String(byId.get(logs[0].id)!.time_in_am), /21:55/, "day 1 (never drifted) must be untouched");
+  assert.match(String(byId.get(logs[2].id)!.time_in_am), /21:55/, "day 3 (never drifted) must be untouched");
+  assert.match(String(byId.get(logs[1].id)!.time_in_am), /22:30/, "day 2 (drifted) must keep the drifted value");
+  for (const l of logs) {
+    assert.equal(byId.get(l.id)!.correction_locked, false, `${l.id} must not be locked`);
+  }
+
+  const { data: req } = await admin
+    .from("attendance_correction_requests")
+    .select("status").eq("id", requestId).single();
+  assert.equal(req!.status, "needs_rebase");
+});
+
+test.after(async () => {
+  // Requests first: attendance_correction_items cascade-delete with their
+  // parent request (ON DELETE CASCADE, migration 065).
+  if (SEEDED_REQUEST_IDS.length > 0) {
+    await admin.from("attendance_correction_requests").delete().in("id", SEEDED_REQUEST_IDS);
+  }
+  if (SEEDED_DATES.length > 0) {
+    await admin.from("attendance_logs").delete().eq("employee_id", EMPLOYEE).in("date", SEEDED_DATES);
+  }
 });

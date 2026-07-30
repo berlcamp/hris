@@ -30,6 +30,13 @@ DECLARE
   v_before  JSONB;
   v_drift   BOOLEAN := false;
 BEGIN
+  -- An empty (or missing) row set has nothing to verify or apply. Without this
+  -- guard both loops below are no-ops and the request would be marked approved
+  -- having written nothing.
+  IF p_rows IS NULL OR jsonb_array_length(p_rows) = 0 THEN
+    RETURN 'needs_rebase';
+  END IF;
+
   -- Pass 1: lock every targeted row and compare it against its snapshot.
   -- Casting the snapshot's text back to the native column type makes the
   -- comparison immune to timestamp formatting differences between PostgREST,
@@ -85,6 +92,8 @@ BEGIN
       time_out_am_reason = NULLIF(v_rec->>'time_out_am_reason',''),
       time_in_pm_reason  = NULLIF(v_rec->>'time_in_pm_reason',''),
       time_out_pm_reason = NULLIF(v_rec->>'time_out_pm_reason',''),
+      remarks            = NULLIF(v_rec->>'remarks',''),
+      no_time_reason     = NULLIF(v_rec->>'no_time_reason',''),
       is_late            = (v_rec->>'is_late')::BOOLEAN,
       late_minutes       = (v_rec->>'late_minutes')::INT,
       is_undertime       = (v_rec->>'is_undertime')::BOOLEAN,
@@ -110,3 +119,13 @@ BEGIN
   RETURN 'applied';
 END;
 $$;
+
+-- Postgres grants EXECUTE to PUBLIC by default for functions. This one is
+-- SECURITY DEFINER and bypasses the RLS on attendance_logs, and it takes the
+-- reviewer identity as a PARAMETER rather than deriving it from auth.uid() —
+-- so an unrevoked PUBLIC grant lets any authenticated caller reach it over
+-- PostgREST and self-approve a correction with a forged reviewer. The only
+-- legitimate caller is the admin (service_role) client in
+-- attendance-correction-actions.ts, which performs the role check in TypeScript.
+REVOKE EXECUTE ON FUNCTION hris.apply_attendance_correction(UUID, UUID, TEXT, JSONB) FROM PUBLIC;
+GRANT  EXECUTE ON FUNCTION hris.apply_attendance_correction(UUID, UUID, TEXT, JSONB) TO service_role;
