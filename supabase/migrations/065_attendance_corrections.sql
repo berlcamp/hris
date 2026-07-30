@@ -106,6 +106,15 @@ CREATE INDEX IF NOT EXISTS idx_acr_status ON hris.attendance_correction_requests
 CREATE INDEX IF NOT EXISTS idx_acr_department ON hris.attendance_correction_requests(department_id);
 CREATE INDEX IF NOT EXISTS idx_acr_employee ON hris.attendance_correction_requests(employee_id);
 
+-- Deliberately unconstrained: this is a free-text narrative the requester
+-- types ("Assigned to night rotation per Office Order 2026-114"), not a code.
+-- Contrast with the proposed_*_reason columns on attendance_correction_items
+-- below, which hold one of the five fixed CORRECTION_REASONS codes and are
+-- CHECK-constrained accordingly. Do not add a CHECK here.
+COMMENT ON COLUMN hris.attendance_correction_requests.reason IS
+  'Free-text narrative for the whole request, not a reason code. See '
+  'attendance_correction_items.proposed_*_reason for the constrained codes.';
+
 -- At most one LIVE request per employee per overlapping date range.
 -- 'needs_rebase' counts as live: the requester is expected to re-base it, so it
 -- keeps its claim on those dates.
@@ -157,7 +166,54 @@ CREATE TABLE IF NOT EXISTS hris.attendance_correction_items (
 CREATE INDEX IF NOT EXISTS idx_aci_request ON hris.attendance_correction_items(request_id);
 CREATE INDEX IF NOT EXISTS idx_aci_log ON hris.attendance_correction_items(attendance_log_id);
 
--- 6. Proof storage bucket -------------------------------------------------------
+-- 6. RLS ------------------------------------------------------------------------
+-- Mandatory. Migration 020 installed ALTER DEFAULT PRIVILEGES IN SCHEMA hris
+-- granting ALL on every new hris table to `authenticated` and SELECT to
+-- `anon` — and the anon key ships in the browser bundle. Without RLS here,
+-- applying this migration makes both tables world-readable, including
+-- proof_path/proof_filename (a signed-URL-backed document naming an
+-- employee and their hours), review_notes, and the `before` JSONB
+-- attendance snapshot. This exact omission has already shipped PII twice
+-- for Job Orders (see 064_job_order_payrolls.sql:120-124) — do not repeat it
+-- a third time.
+--
+-- All server actions for this feature use the ADMIN client, which bypasses
+-- RLS entirely. These policies are defense-in-depth against direct
+-- PostgREST access, not the app's authorization mechanism — kept broad
+-- (FOR ALL, one predicate) so a future user-scoped read isn't silently
+-- blocked by a policy nobody remembered narrowing.
+--
+-- Roles: department_admin and department_admin_and_department_head file and
+-- track requests; super_admin, hr_admin and dtr_manager review/approve them.
+-- CREATE POLICY has no IF NOT EXISTS, so each is preceded by a DROP POLICY
+-- IF EXISTS to keep this migration re-runnable, same as the rest of 065.
+
+ALTER TABLE hris.attendance_correction_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hris.attendance_correction_items    ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "admin_all_attendance_correction_requests"
+  ON hris.attendance_correction_requests;
+CREATE POLICY "admin_all_attendance_correction_requests"
+  ON hris.attendance_correction_requests
+  FOR ALL USING (
+    hris.get_user_role() IN (
+      'super_admin', 'hr_admin', 'dtr_manager',
+      'department_admin', 'department_admin_and_department_head'
+    )
+  );
+
+DROP POLICY IF EXISTS "admin_all_attendance_correction_items"
+  ON hris.attendance_correction_items;
+CREATE POLICY "admin_all_attendance_correction_items"
+  ON hris.attendance_correction_items
+  FOR ALL USING (
+    hris.get_user_role() IN (
+      'super_admin', 'hr_admin', 'dtr_manager',
+      'department_admin', 'department_admin_and_department_head'
+    )
+  );
+
+-- 7. Proof storage bucket -------------------------------------------------------
 -- Private, unlike the public `201-files` bucket: a document naming an employee
 -- and their hours should not sit behind a guessable URL. Served via signed URL.
 -- Guarded because Storage is disabled in the local config.toml (see CLAUDE.md),
