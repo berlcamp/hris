@@ -1,5 +1,24 @@
 # JO Payroll — Follow-ups after merge
 
+**Status: all three tasks and both decisions are DONE** (branch
+`jo-payroll-followups`, 2026-07-30). Tasks A, B and C below are kept as the
+record of what was wrong and why; the two open decisions were resolved as
+described in "Two things worth a decision" and are no longer open. The only
+things still outstanding are in "Out of scope here, but recorded".
+
+Two defects surfaced while implementing, neither of which the review had found:
+
+1. **`countWeekdays` rolled over a day-of-month overflow instead of rejecting
+   it.** `new Date("2026-02-30T12:00:00")` is March 2, and `"2026-02-29"` (not
+   a leap year) is March 1, so the function returned a plausible *wrong*
+   working-day count where its own contract promises 0 for invalid input.
+   `parseIsoDateAtNoon` now round-trips the parse. Found only because Task B
+   asked for the missing test.
+2. **`summarizeMembers` took `hours` as an optional field** in the first cut of
+   the overtime fix, which would have let a call site silently under-report
+   overtime by forgetting to select the column — the exact mechanism by which
+   the screen and the printout drifted apart originally. It is required.
+
 Source: the final whole-branch review of the Spec 2 (JO Payroll) branch,
 28 commits, `4ea3eb9..c9b25f8`. Everything Critical and Important from that
 review was fixed before merge; this is what was deliberately deferred, with the
@@ -85,7 +104,7 @@ All in `src/lib/validations/job-order-payroll-schema.ts` and
 - **`isPending` discarded**, so there is no in-flight feedback during a
   filter/page navigation — a brief blank interval before the new server render.
 
-## Two things worth a decision rather than a fix
+## Two things worth a decision rather than a fix — both now decided
 
 - **Overtime is excluded from on-screen totals but included in the printout.**
   `computeJoNetAmount` ignores `hours` despite `JoPayrollComputeInput` declaring
@@ -98,6 +117,11 @@ All in `src/lib/validations/job-order-payroll-schema.ts` and
   labelled "Net total" is a new surface for it. Either fold overtime into
   `summarizeMembers` / `computeJoNetAmount`, or relabel the columns "Regular
   net".
+  **Decided: fold it in.** Overtime is now part of gross, and therefore net,
+  everywhere on screen — so the members table, the detail header and the list
+  agree with the printout. The SUMMARY printable passes no `hours` and has no
+  overtime column, so it is unchanged. Note this moves the displayed figures on
+  any payroll that has overtime recorded, including imported ones.
 - **`getHolidaysInRange` is unauthenticated.**
   `src/lib/actions/holiday-actions.ts` uses the admin client with no
   `getCurrentUser()` check, matching the existing `getHolidays()` in the same
@@ -105,6 +129,9 @@ All in `src/lib/validations/job-order-payroll-schema.ts` and
   unauthenticated server-action surface. One `if (!user) return []` closes it,
   and doing so would diverge from the file's prevailing convention — hence a
   decision, not a defect.
+  **Decided: close it.** `getHolidaysInRange` now requires a signed-in user.
+  `getHolidays()` is deliberately left alone — its callers were not re-audited
+  as part of this change — so the file is knowingly inconsistent.
 
 ## Out of scope here, but recorded
 
