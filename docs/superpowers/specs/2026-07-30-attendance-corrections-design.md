@@ -147,7 +147,7 @@ CREATE TABLE hris.attendance_correction_requests (
   proof_mime        TEXT,
   proof_size        INT,
   status            TEXT NOT NULL DEFAULT 'pending'
-                      CHECK (status IN ('pending','approved','rejected','cancelled','stale')),
+                      CHECK (status IN ('pending','needs_rebase','approved','rejected','cancelled')),
   requested_by      UUID,
   requested_by_email TEXT,
   requested_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -171,8 +171,11 @@ ALTER TABLE hris.attendance_correction_requests
   EXCLUDE USING gist (
     employee_id WITH =,
     daterange(date_from, date_to, '[]') WITH &&
-  ) WHERE (status = 'pending');
+  ) WHERE (status IN ('pending','needs_rebase'));
 ```
+
+`needs_rebase` is included because such a request is still live — the requester
+is expected to re-base it — so it must keep holding its claim on those dates.
 
 ### Items
 
@@ -221,6 +224,58 @@ ON** upserts unconditionally (`attendance-actions.ts:1148`) and would clobber a
 corrected day. Both import paths must exclude `correction_locked` rows and
 report them in the skipped count. An explicit flag is used rather than relying
 on `source`, which other flows may legitimately reset.
+
+## Relationship to imports
+
+**Corrections fix interpretation; imports supply raw punches.** They are not
+substitutes for each other, and the ordering is fixed: **import first, then
+correct.** A correction item requires an existing attendance row
+(`attendance_log_id NOT NULL`), so a day must be imported before it can be
+corrected.
+
+What does change: re-importing or replaying a batch is **no longer the remedy
+for a misread day**. Today, fixing a badly-bucketed night shift means adjusting
+the schedule and re-running `runImportReplay`. After this feature, an approved
+correction writes the fixed values directly. Replay keeps its real purpose —
+re-bucketing *uncorrected* days when the bucketing logic improves.
+
+### Approved corrections vs. overwrite
+
+Excluded unconditionally. `correction_locked` rows are skipped by both import
+paths **even with overwrite ON**, and counted as skipped.
+
+### Pending corrections vs. overwrite
+
+**The import wins, but non-destructively.** A pending request holds a `before`
+snapshot; if an import overwrites the underlying row, naively failing the drift
+check at approval time would discard the requester's work silently and late —
+quite possibly at payroll cutoff.
+
+Instead:
+
+1. **Before the import**, `matchAndPreviewImport` distinguishes conflict
+   classes. Today `hasConflict` is a flat boolean meaning only "a row exists
+   here," reported as *"Existing record will be updated"*
+   (`attendance-actions.ts:863–875`). It gains two further classes:
+   - `correction_locked` → *"Approved correction — will be skipped"*
+   - a pending request covers this day → *"Pending correction — will be
+     overwritten, request returns for re-base"*
+
+   HR decides with the consequences visible.
+
+2. **After the import**, affected requests move to `needs_rebase`, not a dead
+   end. The dept admin sees a three-way view — original `before` → newly
+   imported values → their proposal — and re-applies their changes onto the
+   fresh data in one action, or withdraws the request.
+
+This preserves HR's authority (they approve everything, so a subordinate's
+unapproved draft must not be able to block them from landing better device
+data) without throwing away the department's work.
+
+`needs_rebase` is the **single** drift outcome. Any cause — a biometric
+overwrite, an HR manual edit, or a pinned schedule that was deleted — returns
+the request to the requester with the same recovery path, rather than splitting
+into separate terminal states.
 
 ### Proof storage
 
@@ -300,6 +355,12 @@ List of own requests, plus a three-step wizard:
 1. Employee (eligible, effective-department only) + date range.
 2. The editing grid.
 3. Narrative reason + one proof upload → submit.
+
+A request in `needs_rebase` is surfaced at the top of the list with what changed
+underneath it. Opening it shows the same grid with a **three-way view** on the
+affected days — original `before` → newly imported values → the proposal — and
+two actions: *re-apply my changes to the new data*, or *withdraw*. The proof and
+narrative carry over; only the grid needs revisiting.
 
 ### The grid
 
@@ -401,9 +462,10 @@ rather than quietly diverging.
 
 | Case | Behavior |
 |---|---|
-| A log row changed since its `before` snapshot | Whole request → `stale`, returned to requester. No partial apply. |
+| A log row changed since its `before` snapshot | Whole request → `needs_rebase`, returned to requester with the three-way view. No partial apply. |
+| Biometric import overwrites a pending day | Import wins; request → `needs_rebase`. Flagged in the import preview beforehand. |
 | Overlapping pending request | Blocked by `acr_no_overlapping_pending`; surfaced as a plain message, not a raw constraint error. |
-| Pinned schedule deleted before approval | Validated at approval time; missing → `stale`, rather than silently reverting to the inherited schedule. |
+| Pinned schedule deleted before approval | Validated at approval time; missing → `needs_rebase`, rather than silently reverting to the inherited schedule. |
 | Proof upload fails | Upload precedes the row insert; no request is created. |
 | Apply fails midway | Single Postgres function, one transaction — all-or-nothing. |
 | Requester loses access to the employee mid-flight | Request stays visible to HR; the requester loses edit rights. |
@@ -423,11 +485,19 @@ Matching the two suites the project already has:
 
 **`npm run test:db`** (real Postgres + PostgREST, stack up):
 - `apply_attendance_correction` is atomic; a mid-batch failure rolls back fully.
-- The drift guard rejects a request whose snapshot is stale.
-- `acr_no_overlapping_pending` rejects a second overlapping pending request.
+- The drift guard moves a request whose snapshot no longer matches to
+  `needs_rebase` and applies nothing.
+- `acr_no_overlapping_pending` rejects a second overlapping request, for both
+  `pending` and `needs_rebase`.
 - Recompute round-trips correctly through real `TIMESTAMPTZ` serialization —
   per `CLAUDE.md`, the only way to catch the bug class migration 035 exists for.
-- Both import paths skip `correction_locked` rows.
+- **Both import paths skip `correction_locked` rows even with overwrite ON**,
+  and report them as skipped.
+- `importDahuaAttendance` with overwrite ON **does** overwrite a day covered by
+  a pending request, and that request lands in `needs_rebase` with its `before`
+  snapshot intact for the three-way view.
+- `matchAndPreviewImport` reports the two new conflict classes distinctly from
+  the generic "existing record" conflict.
 
 Then `npm run lint && npm run build`.
 
