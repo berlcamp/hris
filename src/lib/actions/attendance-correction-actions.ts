@@ -196,7 +196,23 @@ export async function createCorrectionRequest(
         before: snapshotOf(byId.get(i.attendance_log_id)!),
       })),
     );
-  if (itemError) throw itemError;
+  if (itemError) {
+    // The request row above already committed and, being 'pending', holds
+    // the acr_no_overlapping_pending exclusivity lock on these dates. Leaving
+    // it behind (e.g. two items sharing a duty_date, which fails only the
+    // items insert via the UNIQUE (request_id, duty_date) constraint) would
+    // block every future request for this employee's range with no way for
+    // the caller to find and cancel it — the id is never returned on this
+    // path. Compensate by deleting the request (items cascade, though none
+    // were committed) and the uploaded proof before rethrowing.
+    await supabase
+      .schema("hris")
+      .from("attendance_correction_requests")
+      .delete()
+      .eq("id", requestId);
+    await supabase.storage.from(PROOF_BUCKET).remove([path]);
+    throw itemError;
+  }
 
   await logAudit({
     userId: user.id,
@@ -289,7 +305,7 @@ export async function cancelCorrectionRequest(id: string) {
     .select("department_id, status")
     .eq("id", id)
     .single();
-  if (!existing || existing.department_id !== user.departmentId) {
+  if (!existing || !user.departmentId || existing.department_id !== user.departmentId) {
     throw new Error("Unauthorized");
   }
   if (!["pending", "needs_rebase"].includes(existing.status)) {

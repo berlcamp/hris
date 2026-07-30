@@ -147,10 +147,18 @@ CREATE TABLE IF NOT EXISTS hris.attendance_correction_items (
   disposition            TEXT NOT NULL DEFAULT 'update'
                            CHECK (disposition IN ('update','clear_as_off')),
   proposed_schedule_id   UUID REFERENCES hris.schedules(id),
-  proposed_time_in_am    TIMESTAMPTZ,
-  proposed_time_out_am   TIMESTAMPTZ,
-  proposed_time_in_pm    TIMESTAMPTZ,
-  proposed_time_out_pm   TIMESTAMPTZ,
+  -- Wall-clock times only (TIME, not TIMESTAMPTZ): these are proposed
+  -- HH:MM values off the correction wizard's grid, not calendar timestamps.
+  -- The calendar date — including the night-shift next-day rollover for a PM
+  -- clock-out like 06:05 belonging to the PREVIOUS duty date — is derived at
+  -- apply time by buildCorrectionRecord from the pinned schedule (Task 4).
+  -- Storing TIMESTAMPTZ here would force this table to duplicate that
+  -- schedule resolution just to pick a date, and would store a misleading
+  -- date for every night shift.
+  proposed_time_in_am    TIME,
+  proposed_time_out_am   TIME,
+  proposed_time_in_pm    TIME,
+  proposed_time_out_pm   TIME,
   -- Narrower than the column these feed: attendance_logs accepts 'holiday',
   -- correction items do not.
   proposed_in_am_reason  TEXT CHECK (proposed_in_am_reason  IN ('travel','field_work','official_business','off','no_break')),
@@ -165,6 +173,37 @@ CREATE TABLE IF NOT EXISTS hris.attendance_correction_items (
 
 CREATE INDEX IF NOT EXISTS idx_aci_request ON hris.attendance_correction_items(request_id);
 CREATE INDEX IF NOT EXISTS idx_aci_log ON hris.attendance_correction_items(attendance_log_id);
+
+-- CREATE TABLE IF NOT EXISTS above does not retroactively fix the column
+-- type on a database where this table already exists with the original
+-- TIMESTAMPTZ columns. Convert in place, guarded on the current type so this
+-- block is a no-op (and re-runnable) once converted. USING ...::time keeps
+-- only the wall-clock portion — no data existed in these columns pre-launch,
+-- so there is nothing meaningful to lose in the cast.
+DO $$
+DECLARE
+  col TEXT;
+BEGIN
+  FOREACH col IN ARRAY ARRAY[
+    'proposed_time_in_am',
+    'proposed_time_out_am',
+    'proposed_time_in_pm',
+    'proposed_time_out_pm'
+  ] LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'hris'
+        AND table_name = 'attendance_correction_items'
+        AND column_name = col
+        AND data_type = 'timestamp with time zone'
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE hris.attendance_correction_items ALTER COLUMN %I TYPE TIME USING %I::time',
+        col, col
+      );
+    END IF;
+  END LOOP;
+END $$;
 
 -- 6. RLS ------------------------------------------------------------------------
 -- Mandatory. Migration 020 installed ALTER DEFAULT PRIVILEGES IN SCHEMA hris

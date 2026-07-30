@@ -176,6 +176,48 @@ test("two live requests cannot claim overlapping dates for one employee", async 
   assert.ok(error, "the EXCLUDE constraint must reject an overlapping live request");
 });
 
+// Migration 065 originally declared proposed_time_in_am/out_am/in_pm/out_pm as
+// TIMESTAMPTZ, but createCorrectionRequest (attendance-correction-actions.ts)
+// writes the zod schema's bare "HH:MM" strings straight through — Postgres
+// rejects '21:55'::timestamptz outright. The columns were changed to TIME,
+// which accepts wall-clock strings directly; this proves the write path this
+// action actually uses (bare HH:MM, no seconds, no date) round-trips cleanly.
+test("proposed_time_* columns accept and round-trip bare HH:MM wall-clock values", async () => {
+  const date = "2026-09-21";
+  const log = await seedLog(date, "21:55");
+  const requestId = await seedRequest(date, date);
+
+  const { error: itemError } = await admin
+    .from("attendance_correction_items")
+    .insert({
+      request_id: requestId,
+      duty_date: date,
+      attendance_log_id: log.id,
+      disposition: "update",
+      proposed_time_in_am: "21:55",
+      proposed_time_out_am: "23:10",
+      proposed_time_in_pm: "23:40",
+      proposed_time_out_pm: "06:05",
+      before: beforeOf(log),
+    });
+  assert.equal(itemError, null, "HH:MM must insert cleanly into a TIME column");
+
+  const { data: item, error: readError } = await admin
+    .from("attendance_correction_items")
+    .select(
+      "proposed_time_in_am, proposed_time_out_am, proposed_time_in_pm, proposed_time_out_pm",
+    )
+    .eq("request_id", requestId)
+    .single();
+  assert.equal(readError, null);
+  assert.equal(item!.proposed_time_in_am, "21:55:00");
+  assert.equal(item!.proposed_time_out_am, "23:10:00");
+  assert.equal(item!.proposed_time_in_pm, "23:40:00");
+  // The night-shift clock-out: still 06:05, no date attached — TIME carries
+  // no calendar-date rollover, which is the whole point of this column type.
+  assert.equal(item!.proposed_time_out_pm, "06:05:00");
+});
+
 test("a drifted row in a multi-row batch leaves the OTHER rows untouched too", async () => {
   // A single-row drift test cannot distinguish "atomic multi-row commit" from
   // "single-row drift check". This seeds a 3-day request, drifts only the
