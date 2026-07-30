@@ -34,3 +34,48 @@ test("every reason code has both a full and a short label", () => {
     assert.ok(NO_TIME_REASON_SHORT[code], `missing short label for ${code}`);
   }
 });
+
+import {
+  canRequestAttendanceCorrection,
+  canReviewAttendanceCorrection,
+  canFlagCorrectionEligible,
+  canAccessAttendance,
+} from "../../src/lib/auth-helpers.ts";
+
+test("department admins may request corrections", () => {
+  assert.equal(canRequestAttendanceCorrection("department_admin"), true);
+  assert.equal(
+    canRequestAttendanceCorrection("department_admin_and_department_head"),
+    true,
+  );
+});
+
+test("requesters cannot review their own corrections", () => {
+  assert.equal(canReviewAttendanceCorrection("department_admin"), false);
+  assert.equal(canReviewAttendanceCorrection("department_head"), false);
+});
+
+test("HR admin, super admin and DTR manager review corrections", () => {
+  for (const role of ["super_admin", "hr_admin", "dtr_manager"] as const) {
+    assert.equal(canReviewAttendanceCorrection(role), true, role);
+    assert.equal(canFlagCorrectionEligible(role), true, role);
+  }
+});
+
+// The whole point of a narrow helper: filing a correction must NOT drag in the
+// Dahua importer, bulk DTR generation, or entry deletion.
+test("requesting a correction does not grant attendance module access", () => {
+  assert.equal(canAccessAttendance("department_admin"), false);
+  assert.equal(canAccessAttendance("department_admin_and_department_head"), false);
+});
+
+test("null and undefined roles are denied everywhere", () => {
+  for (const fn of [
+    canRequestAttendanceCorrection,
+    canReviewAttendanceCorrection,
+    canFlagCorrectionEligible,
+  ]) {
+    assert.equal(fn(null), false);
+    assert.equal(fn(undefined), false);
+  }
+});
