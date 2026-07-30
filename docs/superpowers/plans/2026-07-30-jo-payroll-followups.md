@@ -1,10 +1,14 @@
 # JO Payroll — Follow-ups after merge
 
-**Status: all three tasks and both decisions are DONE** (branch
-`jo-payroll-followups`, 2026-07-30). Tasks A, B and C below are kept as the
-record of what was wrong and why; the two open decisions were resolved as
-described in "Two things worth a decision" and are no longer open. The only
-things still outstanding are in "Out of scope here, but recorded".
+**Status: everything in this document is CLOSED** (2026-07-30). Tasks A, B and C
+went in on branch `jo-payroll-followups`; both decisions were resolved as
+described in "Two things worth a decision"; the three "Out of scope here, but
+recorded" items went in on `jo-payroll-followups-tail`, the last of them closed
+as no-longer-actionable rather than fixed. Nothing here is outstanding.
+
+The sections below are kept as the record of what was wrong and why — in
+particular "What the review said about the plan itself", which is guidance for
+future specs rather than a task.
 
 Two defects surfaced while implementing, neither of which the review had found:
 
@@ -151,19 +155,26 @@ All in `src/lib/validations/job-order-payroll-schema.ts` and
   `globalIgnores` so the next agent worktree cannot reintroduce the
   double-counting. Lint went 94 problems / 4 errors → **49 problems / 2 errors**,
   confirming the "4 errors" really was 2 counted twice.
-- **Migration 064 drops two tables with no pre-flight row count.** Verified safe:
-  only migrations 023 and 064 reference them, no dependent views or inbound FKs,
-  and the drop order is correct. The residual risk is only that the "never used
-  in production" premise was wrong, in which case there is no backup path.
+- ~~**Migration 064 drops two tables with no pre-flight row count.**~~
+  **CLOSED — no action possible.** Verified safe at review time: only migrations
+  023 and 064 reference the tables, no dependent views or inbound FKs, and the
+  drop order is correct.
 
-  **Still open, and only actionable if 064 has NOT yet been applied to
-  production.** Locally 064 has run: `hris.jo_payroll` and
-  `hris.jo_payroll_members` are gone and the new tables are in place. If the same
-  is true in production then the pre-flight window has closed and there is
-  nothing to recover — the count cannot be taken after the DROP. 064 must not be
-  edited either way; it is an applied migration.
+  The developer confirmed (2026-07-30) that **064 is already applied to
+  production**, so the pre-flight window has closed: the count cannot be taken
+  after the DROP, and 064 must not be edited because it is an applied migration.
+  The "never used in production" premise therefore stands unverified rather than
+  verified — no harm has surfaced, but the check that would have proved it was
+  never run and now cannot be. Locally the same state holds: `hris.jo_payroll`
+  and `hris.jo_payroll_members` are gone, new tables in place.
 
-  To settle it, run against production before/instead of assuming:
+  **The lesson worth carrying forward: a destructive migration that rests on a
+  "never used" premise should carry its own guard, in the migration, rather than
+  relying on someone remembering to check first.** A `DO` block that counts rows
+  and `RAISE EXCEPTION`s if any exist costs one statement and cannot be
+  forgotten. Recommended for the Spec 3 tables if any legacy drop is involved.
+
+  Retained only as the query that would have settled it, for reuse next time:
 
   ```sql
   -- Legacy tables still present? If so, these counts ARE the pre-flight check
@@ -177,9 +188,8 @@ All in `src/lib/validations/job-order-payroll-schema.ts` and
   -- Zero rows returned = already dropped, question settled.
   ```
 
-  If that returns rows and either count is non-zero, the "never used in
-  production" premise was wrong — stop and back those tables up before applying
-  064.
+  If that had returned rows with a non-zero count, the premise would have been
+  wrong and those tables needed a backup before 064 ran.
 
 ## What the review said about the plan itself
 
