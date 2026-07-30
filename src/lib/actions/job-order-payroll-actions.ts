@@ -24,7 +24,12 @@ import {
   type JobOrderPayrollCreateValues,
   type JobOrderPayrollMetadataValues,
 } from "@/lib/validations/job-order-payroll-schema";
-import { PAYROLL_SELECT, toNumber } from "@/lib/job-order-payroll-queries";
+import {
+  JOB_ORDER_PAYROLL_MAX_PAGE_SIZE,
+  JOB_ORDER_PAYROLL_PAGE_SIZE,
+  PAYROLL_SELECT,
+  toNumber,
+} from "@/lib/job-order-payroll-queries";
 import type {
   JobOrderAreaOption,
   JobOrderPayroll,
@@ -107,7 +112,10 @@ export async function getJobOrderPayrolls(
 
   const supabase = createAdminClient();
   const page = Math.max(1, filters.page ?? 1);
-  const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
+  const pageSize = Math.min(
+    JOB_ORDER_PAYROLL_MAX_PAGE_SIZE,
+    Math.max(1, filters.pageSize ?? JOB_ORDER_PAYROLL_PAGE_SIZE),
+  );
   const from = (page - 1) * pageSize;
 
   let query = supabase

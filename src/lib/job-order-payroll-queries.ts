@@ -1,5 +1,19 @@
 import type { JobOrderPayrollMember } from "@/lib/types";
 
+/**
+ * Rows per page for the payroll list.
+ *
+ * Shared deliberately: `getJobOrderPayrolls` uses it as the default when no
+ * `pageSize` is supplied, and the list client needs the same number to compute
+ * the page count it renders. Nothing else keeps the two in step, so when this
+ * was duplicated as a local `PAGE_SIZE = 20` on the client, changing the server
+ * default alone would have silently skewed every page number on screen.
+ */
+export const JOB_ORDER_PAYROLL_PAGE_SIZE = 20;
+
+/** Upper bound on a caller-supplied `pageSize`. */
+export const JOB_ORDER_PAYROLL_MAX_PAGE_SIZE = 100;
+
 export const PAYROLL_SELECT = `
   id, period_start, period_end, days, description, particulars, areas,
   payroll_date, status, finalized_at, finalized_by, is_reconstructed,

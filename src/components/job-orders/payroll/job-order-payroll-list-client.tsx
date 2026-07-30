@@ -2,12 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
+import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { Loader2, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 
@@ -45,9 +40,9 @@ import {
   type JobOrderPayrollDuplicateSource,
 } from "./job-order-payroll-duplicate-dialog";
 import { deleteJobOrderPayroll } from "@/lib/actions/job-order-payroll-actions";
+import { JOB_ORDER_PAYROLL_PAGE_SIZE } from "@/lib/job-order-payroll-queries";
+import { cn } from "@/lib/utils";
 import type { JobOrderAreaOption, JobOrderPayroll } from "@/lib/types";
-
-const PAGE_SIZE = 20;
 
 interface JobOrderPayrollListClientProps {
   payrolls: JobOrderPayroll[];
@@ -66,7 +61,7 @@ export function JobOrderPayrollListClient({
 }: JobOrderPayrollListClientProps) {
   const router = useRouter();
   const sp = useSearchParams();
-  const [, startTransition] = useTransition();
+  const [isPending, startTransition] = useTransition();
 
   // `q`/`status`/`from`/`to` are not passed as props — the page component
   // only computes `page` server-side (see page.tsx). The rest of the filter
@@ -103,7 +98,10 @@ export function JobOrderPayrollListClient({
   );
   const [deleting, setDeleting] = useState(false);
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalCount / JOB_ORDER_PAYROLL_PAGE_SIZE),
+  );
 
   // Every filter/page change round-trips through the URL — this list is
   // server-paginated (getJobOrderPayrolls) starting at ~805 rows, so there is
@@ -167,11 +165,13 @@ export function JobOrderPayrollListClient({
     canDelete,
   });
 
+  // No getSortedRowModel: this list is server-paginated, so sorting the 20 rows
+  // currently in the browser would reorder a page rather than the result set —
+  // misleading, not useful. No column advertises a sort control either.
   const table = useReactTable({
     data: payrolls,
     columns,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   });
 
   return (
@@ -234,8 +234,21 @@ export function JobOrderPayrollListClient({
         </Button>
       </div>
 
-      <div className="rounded-md border">
-        <Table>
+      {/* Every filter/page change is a server round-trip, so without this the
+          table just sits on stale rows and then swaps — dim it and show a
+          spinner for the duration instead. aria-busy so it is not a purely
+          visual cue. */}
+      <div className="relative rounded-md border">
+        {isPending && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
+            <Loader2 className="text-muted-foreground h-5 w-5 animate-spin" />
+            <span className="sr-only">Loading payrolls</span>
+          </div>
+        )}
+        <Table
+          aria-busy={isPending}
+          className={cn(isPending && "opacity-60")}
+        >
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -279,7 +292,7 @@ export function JobOrderPayrollListClient({
           <Button
             variant="outline"
             size="sm"
-            disabled={page <= 1}
+            disabled={page <= 1 || isPending}
             onClick={() => updateUrl({ page: String(page - 1) })}
           >
             Previous
@@ -287,7 +300,7 @@ export function JobOrderPayrollListClient({
           <Button
             variant="outline"
             size="sm"
-            disabled={page >= totalPages}
+            disabled={page >= totalPages || isPending}
             onClick={() => updateUrl({ page: String(page + 1) })}
           >
             Next

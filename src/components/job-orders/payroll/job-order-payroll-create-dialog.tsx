@@ -242,7 +242,7 @@ export function JobOrderPayrollCreateDialog({
             <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
               <p className="flex items-center gap-1 font-medium text-foreground">
                 <Info className="h-3.5 w-3.5" />
-                {`ⓘ ${holidays.length} holidays in this period:`}
+                {`${holidays.length} ${holidays.length === 1 ? "holiday" : "holidays"} in this period:`}
               </p>
               <ul className="mt-1 space-y-0.5">
                 {holidays.map((h) => (

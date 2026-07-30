@@ -12,7 +12,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
 import type { JobOrderPayroll } from "@/lib/types";
 
 function fmtDate(d: string | null): string {
@@ -31,10 +30,12 @@ export function jobOrderPayrollColumns(handlers: {
 }): ColumnDef<JobOrderPayroll>[] {
   return [
     {
+      // A plain header, not DataTableColumnHeader: this column has no
+      // accessorKey, so getCanSort() is false and the sort control that
+      // component renders did nothing. The list is server-paginated anyway —
+      // see the note on useReactTable in job-order-payroll-list-client.
       id: "period",
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="Period" />
-      ),
+      header: "Period",
       cell: ({ row }) => (
         <span className="font-medium whitespace-nowrap">
           {fmtDate(row.original.period_start)} – {fmtDate(row.original.period_end)}

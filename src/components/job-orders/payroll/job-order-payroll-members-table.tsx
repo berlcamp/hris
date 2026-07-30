@@ -321,6 +321,9 @@ function MemberRow({ member, isDraft, onRemove, onSaved }: MemberRowProps) {
             onClick={onRemove}
           >
             <Trash2 className="h-4 w-4" />
+            <span className="sr-only">
+              Remove {member.full_name} from this payroll
+            </span>
           </Button>
         )}
       </TableCell>
