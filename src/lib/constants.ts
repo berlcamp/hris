@@ -136,6 +136,7 @@ export const NO_TIME_REASONS = [
   "official_business",
   "holiday",
   "off",
+  "no_break",
 ] as const;
 
 export type NoTimeReason = (typeof NO_TIME_REASONS)[number];
@@ -146,6 +147,7 @@ export const NO_TIME_REASON_LABELS: Record<NoTimeReason, string> = {
   official_business: "OFFICIAL BUSINESS",
   holiday: "HOLIDAY",
   off: "OFF",
+  no_break: "NO BREAK",
 };
 
 // Short labels printed inside a single DTR time cell.
@@ -155,7 +157,22 @@ export const NO_TIME_REASON_SHORT: Record<NoTimeReason, string> = {
   official_business: "OB",
   holiday: "HOLIDAY",
   off: "OFF",
+  no_break: "NB",
 };
+
+// Reason codes a Department Admin may choose on a correction request.
+// `holiday` is deliberately excluded: holidays are org-wide and managed
+// centrally in hris.holidays (migration 040), so a per-employee holiday
+// declared by one department would contradict that table.
+export const CORRECTION_REASONS = [
+  "travel",
+  "field_work",
+  "official_business",
+  "off",
+  "no_break",
+] as const;
+
+export type CorrectionReason = (typeof CORRECTION_REASONS)[number];
 
 export const EMPLOYEE_NO_PREFIX = "LGU";
 
