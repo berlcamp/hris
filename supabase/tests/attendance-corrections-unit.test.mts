@@ -79,3 +79,103 @@ test("null and undefined roles are denied everywhere", () => {
     assert.equal(fn(undefined), false);
   }
 });
+
+import {
+  buildCorrectionRecord,
+  resolveCorrectionSchedule,
+  trailingDutyDate,
+  type CorrectionItemInput,
+} from "../../src/lib/attendance-corrections.ts";
+import type { ScheduleLike } from "../../src/lib/attendance-schedule.ts";
+
+const REGULAR: ScheduleLike = {
+  id: "regular", time_in: "08:00", time_out: "17:00",
+  break_start: "12:00", break_end: "13:00",
+};
+const NIGHT: ScheduleLike = {
+  id: "night", time_in: "22:00", time_out: "05:00",
+  break_start: null, break_end: null,
+};
+const EMP2 = "22222222-2222-2222-2222-222222222222";
+const DAY = "2026-06-15";
+
+const item = (over: Partial<CorrectionItemInput>): CorrectionItemInput => ({
+  duty_date: DAY,
+  disposition: "update",
+  schedule: REGULAR,
+  scheduleId: null,
+  time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+  reason_in_am: null, reason_out_am: null, reason_in_pm: null, reason_out_pm: null,
+  ...over,
+});
+
+// The headline case: 835 min late + 240 min undertime under the inherited 8-5
+// schedule becomes 0/0 once the night shift is pinned.
+test("pinning a night schedule clears a misread night shift", () => {
+  const wrong = buildCorrectionRecord(EMP2, item({
+    schedule: REGULAR, time_in_am: "21:55",
+  }));
+  assert.equal(wrong.late_minutes, 835);
+
+  const right = buildCorrectionRecord(EMP2, item({
+    schedule: NIGHT, scheduleId: "night", time_in_am: "21:55", time_out_pm: "06:05",
+  }));
+  assert.equal(right.late_minutes, 0);
+  assert.equal(right.undertime_minutes, 0);
+  assert.equal(right.schedule_id, "night");
+  assert.equal(right.time_out_pm, "2026-06-16T06:05:00");
+});
+
+test("clear_as_off empties the day and prints OFF without marking it absent", () => {
+  const r = buildCorrectionRecord(EMP2, item({
+    disposition: "clear_as_off",
+    schedule: NIGHT,
+    // Any proposed times are discarded by clear_as_off.
+    time_in_am: "21:55", time_out_pm: "06:05",
+  }));
+  assert.equal(r.time_in_am, null);
+  assert.equal(r.time_out_am, null);
+  assert.equal(r.time_in_pm, null);
+  assert.equal(r.time_out_pm, null);
+  assert.equal(r.time_in_am_reason, "off");
+  assert.equal(r.time_out_pm_reason, "off");
+  assert.equal(r.is_absent, false, "an OFF day is not an absence");
+  assert.equal(r.late_minutes, 0);
+  assert.equal(r.undertime_minutes, 0);
+});
+
+test("an applied correction is locked against later biometric overwrite", () => {
+  const r = buildCorrectionRecord(EMP2, item({ time_in_am: "08:00", time_out_pm: "17:00" }));
+  assert.equal(r.correction_locked, true);
+  assert.equal(r.source, "manual");
+});
+
+test("no_break fills the two middle slots of a straight-duty day", () => {
+  const r = buildCorrectionRecord(EMP2, item({
+    time_in_am: "08:00", time_out_pm: "17:00",
+    reason_out_am: "no_break", reason_in_pm: "no_break",
+  }));
+  assert.equal(r.time_out_am_reason, "no_break");
+  assert.equal(r.time_in_pm_reason, "no_break");
+  assert.equal(r.late_minutes, 0);
+  assert.equal(r.undertime_minutes, 0);
+});
+
+test("schedule resolution prefers the item pin, then the row pin, then the employee", () => {
+  const orgDefault: ScheduleLike = { ...REGULAR, id: "org" };
+  const employee: ScheduleLike = { ...REGULAR, id: "emp" };
+  const rowPin: ScheduleLike = { ...REGULAR, id: "row" };
+  const itemPin: ScheduleLike = { ...NIGHT, id: "item" };
+
+  assert.equal(resolveCorrectionSchedule(itemPin, rowPin, employee, orgDefault).id, "item");
+  assert.equal(resolveCorrectionSchedule(null, rowPin, employee, orgDefault).id, "row");
+  assert.equal(resolveCorrectionSchedule(null, null, employee, orgDefault).id, "emp");
+  assert.equal(resolveCorrectionSchedule(null, null, null, orgDefault).id, "org");
+});
+
+// A night-shift range consumes the following morning, so an N-day range touches
+// N+1 rows. A day-shift range does not.
+test("a night-shift range reaches one day past its end", () => {
+  assert.equal(trailingDutyDate("2026-06-20", NIGHT), "2026-06-21");
+  assert.equal(trailingDutyDate("2026-06-20", REGULAR), null);
+});

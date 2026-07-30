@@ -1,0 +1,93 @@
+// Pure logic for turning a proposed correction item into the hris.attendance_logs
+// row that approval will write. Shares buildAttendanceRecord with manual entry so
+// a corrected day is indistinguishable from a hand-entered one — except for
+// correction_locked, which protects it from a later biometric overwrite.
+
+import { buildAttendanceRecord } from "./attendance-record.ts";
+import { crossesMidnight, type ScheduleLike } from "./attendance-schedule.ts";
+import type { CorrectionReason } from "@/lib/constants";
+
+export type Disposition = "update" | "clear_as_off";
+
+export interface CorrectionItemInput {
+  /** Duty date, YYYY-MM-DD. */
+  duty_date: string;
+  disposition: Disposition;
+  /** Already-resolved schedule — see resolveCorrectionSchedule. */
+  schedule: ScheduleLike;
+  /** The pinned schedule's id, or null to inherit. Written to attendance_logs. */
+  scheduleId: string | null;
+  time_in_am: string | null;
+  time_out_am: string | null;
+  time_in_pm: string | null;
+  time_out_pm: string | null;
+  reason_in_am: CorrectionReason | null;
+  reason_out_am: CorrectionReason | null;
+  reason_in_pm: CorrectionReason | null;
+  reason_out_pm: CorrectionReason | null;
+}
+
+// Which schedule a corrected day is measured against, most specific first.
+// Mirrors how the DTR builders resolve a day: the per-day pin wins, then the
+// employee's assignment, then the org default.
+export function resolveCorrectionSchedule(
+  itemPin: ScheduleLike | null,
+  rowPin: ScheduleLike | null,
+  employeeSchedule: ScheduleLike | null,
+  orgDefault: ScheduleLike,
+): ScheduleLike {
+  return itemPin ?? rowPin ?? employeeSchedule ?? orgDefault;
+}
+
+// A midnight-crossing shift starting on `dateTo` finishes the NEXT morning, so
+// its punches land on dateTo's duty date and the following calendar day is left
+// empty. That trailing day needs an explicit disposition or it reads as an
+// absence. Day shifts return null — they touch only the days in range.
+export function trailingDutyDate(
+  dateTo: string,
+  sched: ScheduleLike,
+): string | null {
+  if (!crossesMidnight(sched)) return null;
+  const d = new Date(dateTo + "T00:00:00");
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function buildCorrectionRecord(
+  employeeId: string,
+  item: CorrectionItemInput,
+) {
+  // clear_as_off discards any proposed times and marks the whole day OFF. Used
+  // for the day a night-shift re-pin empties out: without a reason the row has
+  // no punches and computeAttendanceFlags would mark it ABSENT.
+  const fields =
+    item.disposition === "clear_as_off"
+      ? {
+          time_in_am: null,
+          time_out_am: null,
+          time_in_pm: null,
+          time_out_pm: null,
+          schedule_id: item.scheduleId,
+          reason_in_am: "off",
+          reason_out_am: "off",
+          reason_in_pm: "off",
+          reason_out_pm: "off",
+        }
+      : {
+          time_in_am: item.time_in_am,
+          time_out_am: item.time_out_am,
+          time_in_pm: item.time_in_pm,
+          time_out_pm: item.time_out_pm,
+          schedule_id: item.scheduleId,
+          reason_in_am: item.reason_in_am,
+          reason_out_am: item.reason_out_am,
+          reason_in_pm: item.reason_in_pm,
+          reason_out_pm: item.reason_out_pm,
+        };
+
+  return {
+    ...buildAttendanceRecord(employeeId, item.duty_date, fields, item.schedule),
+    // Excluded from both import paths even with "overwrite existing" ON.
+    correction_locked: true,
+  };
+}
