@@ -108,6 +108,34 @@ export function groupMembersByRate<M extends JoPayrollMemberLike>(
 // ---------------------------------------------------------------------------
 
 /**
+ * Parse a `YYYY-MM-DD` string to a Date at local noon, or null if it is not a
+ * real calendar date.
+ *
+ * The noon offset means a DST or timezone shift can never move the date across
+ * a day boundary. The round-trip check is the less obvious half: JS does NOT
+ * reject a well-formed-but-impossible day — `new Date("2026-02-30T12:00:00")`
+ * silently becomes March 2, and `"2026-02-29"` (not a leap year) becomes
+ * March 1. Left unchecked that turns a typo into a plausible, wrong working-day
+ * count rather than the 0 this module's callers expect for bad input.
+ * (`"2026-13-01"` and `"2026-01-32"` do yield Invalid Date, so only the
+ * day-of-month overflow needs catching.)
+ */
+function parseIsoDateAtNoon(iso: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return null;
+  const date = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  if (
+    date.getFullYear() !== Number(match[1]) ||
+    date.getMonth() + 1 !== Number(match[2]) ||
+    date.getDate() !== Number(match[3])
+  ) {
+    return null;
+  }
+  return date;
+}
+
+/**
  * Mon–Fri count in an inclusive date range, both ends `YYYY-MM-DD`.
  *
  * This reproduces the legacy system's `days` exactly: legacy payroll
@@ -115,14 +143,13 @@ export function groupMembersByRate<M extends JoPayrollMemberLike>(
  * holiday deduction. Holidays are surfaced in the UI as an advisory the user
  * subtracts deliberately — see the spec's "Working days" decision.
  *
- * Dates are constructed at T12:00:00 so a DST or timezone shift can never
- * move a date across a day boundary. Invalid input yields 0 rather than NaN,
- * because this value seeds a form field.
+ * Invalid input yields 0 rather than NaN or a rolled-over count, because this
+ * value seeds a form field. See `parseIsoDateAtNoon`.
  */
 export function countWeekdays(startIso: string, endIso: string): number {
-  const start = new Date(`${startIso}T12:00:00`);
-  const end = new Date(`${endIso}T12:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  const start = parseIsoDateAtNoon(startIso);
+  const end = parseIsoDateAtNoon(endIso);
+  if (!start || !end) return 0;
   if (end < start) return 0;
 
   let count = 0;

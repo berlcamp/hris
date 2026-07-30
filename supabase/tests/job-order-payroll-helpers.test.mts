@@ -65,6 +65,25 @@ test("an unparseable date yields 0 rather than NaN", () => {
   assert.equal(countWeekdays("not-a-date", "2026-07-15"), 0);
 });
 
+// Well-formed but impossible dates are the dangerous case, because JS does not
+// reject them: `new Date("2026-02-30T12:00:00")` silently rolls over to March 2
+// and `"2026-02-29"` (2026 is not a leap year) to March 1. Without the
+// round-trip check in parseIsoDateAtNoon these returned a plausible, wrong
+// count instead of 0 — and this value seeds the `days` form field.
+test("a day-of-month overflow yields 0 rather than a rolled-over count", () => {
+  assert.equal(countWeekdays("2026-02-30", "2026-03-06"), 0);
+  assert.equal(countWeekdays("2026-03-02", "2026-02-30"), 0);
+});
+
+test("Feb 29 of a non-leap year yields 0", () => {
+  assert.equal(countWeekdays("2026-02-29", "2026-03-06"), 0);
+});
+
+test("month and day out of range yield 0", () => {
+  assert.equal(countWeekdays("2026-13-01", "2026-13-05"), 0);
+  assert.equal(countWeekdays("2026-01-32", "2026-02-05"), 0);
+});
+
 // ── toPayrollMemberSnapshot ─────────────────────────────────────────
 
 function jo(overrides: Partial<JobOrderEmployee> = {}): JobOrderEmployee {
@@ -232,6 +251,17 @@ test("areas label is unique, sorted and comma-joined", () => {
 
 test("areas label ignores null area names", () => {
   assert.equal(deriveAreasLabel([member(1, 1, 0, 0, null)]), null);
+});
+
+// A payroll whose last member was just removed. The column must go back to
+// NULL, not "" — recomputeAreas writes this straight into job_order_payrolls,
+// and `areas` is one of three columns the list search matches against.
+test("areas label of an empty payroll is null, not an empty string", () => {
+  assert.equal(deriveAreasLabel([]), null);
+});
+
+test("areas label ignores whitespace-only area names", () => {
+  assert.equal(deriveAreasLabel([member(1, 1, 0, 0, "   ")]), null);
 });
 
 // ── preserved behaviour of the moved amount helpers ──────────────────
