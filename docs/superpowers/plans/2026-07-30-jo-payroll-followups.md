@@ -133,22 +133,53 @@ All in `src/lib/validations/job-order-payroll-schema.ts` and
   `getHolidays()` is deliberately left alone — its callers were not re-audited
   as part of this change — so the file is knowingly inconsistent.
 
-## Out of scope here, but recorded
+## Out of scope here, but recorded — first two now DONE
 
-- **`src/lib/actions/rsp-actions.ts:503` has the same unquoted PostgREST
-  `.or()` comma defect** that was fixed as I1 in the payroll module. A search
-  term containing a comma will 400 there too. Not touched, because it belongs to
-  an unrelated module.
-- **eslint scans a stale detached worktree** at
-  `.claude/worktrees/youthful-colden-816034`, from an unrelated branch, which
-  double-counts problems. The repo's "4 errors" figure is really 2 real errors
-  counted twice. Pre-existing; cleaning it up would make lint numbers meaningful
-  again.
+- ~~**`src/lib/actions/rsp-actions.ts:503` has the same unquoted PostgREST
+  `.or()` comma defect**~~ **DONE.** Searching an applicant by "Dela Cruz, Juan"
+  really did 400 and kill the page. Rather than patch the second instance the
+  same way as the first, the escaping moved into
+  `src/lib/postgrest-filters.ts` (`buildIlikeOrFilter`), which both call sites
+  now use — the defect had already recurred once, so a rule to remember at each
+  `.or()` was demonstrably not enough. Unit-tested in
+  `supabase/tests/postgrest-filters.test.mts`.
+  `attendance-actions.ts:1475` was checked and is NOT affected: it interpolates
+  a `departmentId` UUID, which cannot contain a comma.
+- ~~**eslint scans a stale detached worktree**~~ **DONE.** The worktree was
+  removed (verified first: clean tree, and its HEAD `f532017` was an ancestor of
+  `main`, so it held nothing unique), and `.claude/**` is now in
+  `globalIgnores` so the next agent worktree cannot reintroduce the
+  double-counting. Lint went 94 problems / 4 errors → **49 problems / 2 errors**,
+  confirming the "4 errors" really was 2 counted twice.
 - **Migration 064 drops two tables with no pre-flight row count.** Verified safe:
   only migrations 023 and 064 reference them, no dependent views or inbound FKs,
   and the drop order is correct. The residual risk is only that the "never used
-  in production" premise was wrong, in which case there is no backup path. A
-  `SELECT count(*) FROM hris.jo_payroll;` before applying costs nothing.
+  in production" premise was wrong, in which case there is no backup path.
+
+  **Still open, and only actionable if 064 has NOT yet been applied to
+  production.** Locally 064 has run: `hris.jo_payroll` and
+  `hris.jo_payroll_members` are gone and the new tables are in place. If the same
+  is true in production then the pre-flight window has closed and there is
+  nothing to recover — the count cannot be taken after the DROP. 064 must not be
+  edited either way; it is an applied migration.
+
+  To settle it, run against production before/instead of assuming:
+
+  ```sql
+  -- Legacy tables still present? If so, these counts ARE the pre-flight check
+  -- and 064 has not been applied yet.
+  SELECT c.relname,
+         (SELECT count(*) FROM hris.jo_payroll)         AS jo_payroll_rows,
+         (SELECT count(*) FROM hris.jo_payroll_members) AS jo_payroll_member_rows
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'hris' AND c.relname IN ('jo_payroll', 'jo_payroll_members');
+  -- Zero rows returned = already dropped, question settled.
+  ```
+
+  If that returns rows and either count is non-zero, the "never used in
+  production" premise was wrong — stop and back those tables up before applying
+  064.
 
 ## What the review said about the plan itself
 

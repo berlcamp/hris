@@ -30,6 +30,7 @@ import {
   PAYROLL_SELECT,
   toNumber,
 } from "@/lib/job-order-payroll-queries";
+import { buildIlikeOrFilter } from "@/lib/postgrest-filters";
 import type {
   JobOrderAreaOption,
   JobOrderPayroll,
@@ -77,19 +78,6 @@ async function cleanupOrphanedPayroll(
 
 // ── Reads ────────────────────────────────────────────────────────────
 
-/**
- * Quotes a value for embedding inside a PostgREST `.or(...)` filter string.
- * PostgREST splits `.or()`'s argument on top-level commas, so an unquoted
- * search term containing a comma (e.g. "Ozamiz, Area 1" — plausible here
- * since `areas` is itself a comma-joined label) breaks into two invalid
- * filter fragments and PostgREST returns a 400. Wrapping the value in double
- * quotes protects any embedded comma, and `\`/`"` inside it must in turn be
- * backslash-escaped so they aren't read as the closing quote.
- */
-function esc(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
 export interface JobOrderPayrollFilters {
   status?: "draft" | "finalized" | "all";
   periodFrom?: string | null;
@@ -132,9 +120,14 @@ export async function getJobOrderPayrolls(
   if (filters.periodFrom) query = query.gte("period_end", filters.periodFrom);
   if (filters.periodTo) query = query.lte("period_start", filters.periodTo);
   if (filters.search?.trim()) {
-    const term = esc(`%${filters.search.trim()}%`);
+    // `areas` is itself a comma-joined label, so a comma in the search term is
+    // especially likely here — buildIlikeOrFilter is what keeps that from
+    // becoming a PostgREST 400.
     query = query.or(
-      `description.ilike."${term}",particulars.ilike."${term}",areas.ilike."${term}"`,
+      buildIlikeOrFilter(
+        ["description", "particulars", "areas"],
+        filters.search.trim(),
+      ),
     );
   }
 

@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
 import { computeRanking } from "@/lib/rsp-ranking";
+import { buildIlikeOrFilter } from "@/lib/postgrest-filters";
 import {
   DEFAULT_ASSESSMENT_CRITERIA,
   PUBLICATION_VALIDITY_MONTHS,
@@ -499,8 +500,13 @@ export async function getApplicants(
     .order("first_name");
 
   if (search?.trim()) {
-    const term = `%${search.trim()}%`;
-    query = query.or(`last_name.ilike.${term},first_name.ilike.${term}`);
+    // Quoted via buildIlikeOrFilter: PostgREST splits `.or()` on top-level
+    // commas, so an unquoted "Dela Cruz, Juan" became two invalid filter
+    // fragments and returned 400 — searching an applicant by "surname, first
+    // name" crashed the page.
+    query = query.or(
+      buildIlikeOrFilter(["last_name", "first_name"], search.trim()),
+    );
   }
 
   const { data, error } = await query;
