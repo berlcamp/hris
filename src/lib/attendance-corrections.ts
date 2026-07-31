@@ -64,7 +64,13 @@ export interface ResolvedItemSchedule {
 // row-level schedule override). Pure and DB-free, so it is unit-testable
 // without a running stack or an authenticated request context.
 export function resolveItemSchedules<
-  T extends { attendance_log_id: string; proposed_schedule_id: string | null },
+  T extends {
+    // Nullable since migration 067: a CREATE item targets a date with no
+    // attendance row, so it has no row-level pin and resolution falls through
+    // to the employee's schedule.
+    attendance_log_id: string | null;
+    proposed_schedule_id: string | null;
+  },
 >(
   items: readonly T[],
   scheduleById: ReadonlyMap<string, ScheduleLike>,
@@ -78,13 +84,51 @@ export function resolveItemSchedules<
     const itemPin = item.proposed_schedule_id
       ? (scheduleById.get(item.proposed_schedule_id) ?? null)
       : null;
-    const rowScheduleId = rowScheduleIdByLogId.get(item.attendance_log_id) ?? null;
+    const rowScheduleId = item.attendance_log_id
+      ? (rowScheduleIdByLogId.get(item.attendance_log_id) ?? null)
+      : null;
     const rowPin = rowScheduleId ? (scheduleById.get(rowScheduleId) ?? null) : null;
     return {
       schedule: resolveCorrectionSchedule(itemPin, rowPin, employeeSchedule, orgDefault),
       itemPinMissing,
     };
   });
+}
+
+// Day of week (0 = Sunday) for a YYYY-MM-DD string, computed through Date.UTC
+// rather than `new Date(iso + "T00:00:00")`. The latter parses as LOCAL time,
+// so the same date can land on a different weekday depending on where the
+// caller runs — and this value is shared by the server action and the browser.
+export function dayOfWeekFor(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+// The reason code a weekend day defaults to when it carries no punches, so the
+// day reads as a rest day instead of an absence. Weekdays get null: a blank
+// weekday is a real absence until somebody says otherwise, and defaulting one
+// would quietly erase it.
+export function weekendReasonFor(iso: string): "saturday" | "sunday" | null {
+  const dow = dayOfWeekFor(iso);
+  if (dow === 6) return "saturday";
+  if (dow === 0) return "sunday";
+  return null;
+}
+
+// Every date from `from` to `to` inclusive, as YYYY-MM-DD. Used to build the
+// correction grid, which now lists dates with no attendance row alongside
+// those that have one.
+export function datesInRange(from: string, to: string): string[] {
+  const out: string[] = [];
+  const [fy, fm, fd] = from.split("-").map(Number) as [number, number, number];
+  const [ty, tm, td] = to.split("-").map(Number) as [number, number, number];
+  const cursor = new Date(Date.UTC(fy, fm - 1, fd));
+  const end = new Date(Date.UTC(ty, tm - 1, td));
+  while (cursor <= end) {
+    out.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return out;
 }
 
 // A midnight-crossing shift starting on `dateTo` finishes the NEXT morning, so
@@ -116,6 +160,12 @@ export function buildCorrectionRecord(
           time_in_pm: null,
           time_out_pm: null,
           schedule_id: item.scheduleId,
+          // no_time_reason states the fact about the WHOLE day, which is what
+          // clear_as_off means. Without it the DTR had only four per-slot
+          // reasons and no day-level label, so a cleared day that happened to
+          // fall on a declared holiday printed HOLIDAY — the calendar
+          // overriding an explicit human statement about that day.
+          no_time_reason: "off",
           reason_in_am: "off",
           reason_out_am: "off",
           reason_in_pm: "off",

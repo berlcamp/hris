@@ -29,7 +29,9 @@ const reason = z.enum(CORRECTION_REASONS).nullable();
 
 export const correctionItemSchema = z.object({
   duty_date: isoDate,
-  attendance_log_id: z.uuid(),
+  // NULL means "this date has no attendance row" — the item CREATES the day
+  // rather than updating one. See migration 067.
+  attendance_log_id: z.uuid().nullable(),
   disposition: z.enum(["update", "clear_as_off"]),
   proposed_schedule_id: z.uuid().nullable(),
   time_in_am: hhmm,
@@ -55,7 +57,22 @@ export const correctionRequestSchema = z
   .refine((v) => v.date_to >= v.date_from, {
     message: "The end date must not precede the start date",
     path: ["date_to"],
-  });
+  })
+  // The apply function keys items by duty_date (migration 067), and the table
+  // enforces UNIQUE (request_id, duty_date). Catching a duplicate here gives a
+  // readable message instead of a constraint violation mid-insert — which, on
+  // that path, also has to compensate by deleting the request row it already
+  // committed.
+  .refine(
+    (v) => new Set(v.items.map((i) => i.duty_date)).size === v.items.length,
+    { message: "The same day appears twice", path: ["items"] },
+  )
+  // Every item must fall inside the range the request declares and the
+  // supporting document justifies.
+  .refine(
+    (v) => v.items.every((i) => i.duty_date >= v.date_from && i.duty_date <= v.date_to),
+    { message: "A day falls outside the request's date range", path: ["items"] },
+  );
 
 export type CorrectionRequestInput = z.infer<typeof correctionRequestSchema>;
 export type CorrectionItemFormValues = z.infer<typeof correctionItemSchema>;

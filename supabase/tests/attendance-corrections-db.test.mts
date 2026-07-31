@@ -100,7 +100,7 @@ test("applying a correction writes the recomputed row and locks it", async () =>
     p_request_id: requestId,
     p_reviewer_id: REVIEWER,
     p_reviewer_email: "hr@example.gov",
-    p_rows: [{ attendance_log_id: log.id, record }],
+    p_rows: [{ duty_date: date, attendance_log_id: log.id, record }],
   });
   assert.equal(error, null);
   assert.equal(outcome, "applied");
@@ -149,7 +149,7 @@ test("a drifted row applies nothing and returns the request for re-base", async 
   const { data: outcome } = await admin.rpc("apply_attendance_correction", {
     p_request_id: requestId, p_reviewer_id: REVIEWER,
     p_reviewer_email: "hr@example.gov",
-    p_rows: [{ attendance_log_id: log.id, record }],
+    p_rows: [{ duty_date: date, attendance_log_id: log.id, record }],
   });
   assert.equal(outcome, "needs_rebase");
 
@@ -241,6 +241,7 @@ test("a drifted row in a multi-row batch leaves the OTHER rows untouched too", a
     .update({ time_in_am: `${dates[1]}T22:30:00` }).eq("id", logs[1].id);
 
   const rows = dates.map((d, i) => ({
+    duty_date: d,
     attendance_log_id: logs[i].id,
     record: buildCorrectionRecord(EMPLOYEE, {
       duty_date: d, disposition: "update", schedule: NIGHT, scheduleId: null,
@@ -298,7 +299,7 @@ test("an approved correction survives a later biometric overwrite", async () => 
   await admin.rpc("apply_attendance_correction", {
     p_request_id: requestId, p_reviewer_id: REVIEWER,
     p_reviewer_email: "hr@example.gov",
-    p_rows: [{ attendance_log_id: log.id, record }],
+    p_rows: [{ duty_date: date, attendance_log_id: log.id, record }],
   });
 
   const { data: locked } = await admin
@@ -306,6 +307,150 @@ test("an approved correction survives a later biometric overwrite", async () => 
     .select("correction_locked").eq("id", log.id).single();
   assert.equal(locked!.correction_locked, true,
     "an applied correction must be excluded from later imports");
+});
+
+// --- Migration 067: a day that has no attendance row at all ------------------
+
+test("a null attendance_log_id INSERTS the missing day, locked", async () => {
+  const date = "2026-09-19"; // a Saturday
+  SEEDED_DATES.push(date); // nothing seeded — registered so cleanup removes it
+  const requestId = await seedRequest(date, date);
+  await admin.from("attendance_correction_items").insert({
+    request_id: requestId, duty_date: date, attendance_log_id: null,
+    disposition: "update", proposed_in_am_reason: "saturday",
+    before: {},
+  });
+
+  const record = buildCorrectionRecord(EMPLOYEE, {
+    duty_date: date, disposition: "update", schedule: NIGHT, scheduleId: null,
+    time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+    reason_in_am: "saturday", reason_out_am: "saturday",
+    reason_in_pm: "saturday", reason_out_pm: "saturday",
+  });
+
+  const { data: outcome, error } = await admin.rpc("apply_attendance_correction", {
+    p_request_id: requestId, p_reviewer_id: REVIEWER,
+    p_reviewer_email: "hr@example.gov",
+    p_rows: [{ duty_date: date, attendance_log_id: null, record }],
+  });
+  assert.equal(error, null);
+  assert.equal(outcome, "applied");
+
+  const { data: created } = await admin
+    .from("attendance_logs")
+    .select("time_in_am_reason, is_absent, correction_locked, source, created_by")
+    .eq("employee_id", EMPLOYEE).eq("date", date).single();
+
+  assert.equal(created!.time_in_am_reason, "saturday");
+  // The whole point: a rest day must not read as an absence.
+  assert.equal(created!.is_absent, false);
+  assert.equal(created!.correction_locked, true);
+  assert.equal(created!.source, "manual");
+  assert.equal(created!.created_by, REVIEWER,
+    "an inserted row records the reviewer who approved it, not just updated_by");
+});
+
+test("a row appearing before approval sends a create-item back for re-base", async () => {
+  const date = "2026-09-20";
+  const requestId = await seedRequest(date, date);
+  await admin.from("attendance_correction_items").insert({
+    request_id: requestId, duty_date: date, attendance_log_id: null,
+    disposition: "update", before: {},
+  });
+
+  // A biometric import lands between filing and approval — exactly what the
+  // second drift rule exists for. Without it the INSERT would collide with
+  // UNIQUE (employee_id, date), or worse, silently overwrite this row.
+  const log = await seedLog(date, "08:00");
+
+  const record = buildCorrectionRecord(EMPLOYEE, {
+    duty_date: date, disposition: "update", schedule: NIGHT, scheduleId: null,
+    time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+    reason_in_am: "saturday", reason_out_am: null,
+    reason_in_pm: null, reason_out_pm: null,
+  });
+
+  const { data: outcome } = await admin.rpc("apply_attendance_correction", {
+    p_request_id: requestId, p_reviewer_id: REVIEWER,
+    p_reviewer_email: "hr@example.gov",
+    p_rows: [{ duty_date: date, attendance_log_id: null, record }],
+  });
+  assert.equal(outcome, "needs_rebase");
+
+  // Nothing touched: the imported row keeps its punch and stays unlocked.
+  const { data: after } = await admin
+    .from("attendance_logs")
+    .select("time_in_am, correction_locked, source").eq("id", log.id).single();
+  assert.match(after!.time_in_am as string, /08:00/);
+  assert.equal(after!.correction_locked, false);
+  assert.equal(after!.source, "biometric");
+
+  const { data: req } = await admin
+    .from("attendance_correction_requests")
+    .select("status").eq("id", requestId).single();
+  assert.equal(req!.status, "needs_rebase");
+});
+
+test("a mixed request applies create and update days together", async () => {
+  const existing = "2026-09-22";
+  const missing = "2026-09-23";
+  SEEDED_DATES.push(missing);
+  const log = await seedLog(existing, "21:55");
+  const requestId = await seedRequest(existing, missing);
+  await admin.from("attendance_correction_items").insert([
+    {
+      request_id: requestId, duty_date: existing, attendance_log_id: log.id,
+      disposition: "update", before: beforeOf(log),
+    },
+    {
+      request_id: requestId, duty_date: missing, attendance_log_id: null,
+      disposition: "update", before: {},
+    },
+  ]);
+
+  const mk = (d: string, timeIn: string | null, reason: string | null) =>
+    buildCorrectionRecord(EMPLOYEE, {
+      duty_date: d, disposition: "update", schedule: NIGHT, scheduleId: null,
+      time_in_am: timeIn, time_out_am: null, time_in_pm: null,
+      time_out_pm: timeIn ? "06:05" : null,
+      reason_in_am: reason as never, reason_out_am: reason as never,
+      reason_in_pm: reason as never, reason_out_pm: reason as never,
+    });
+
+  const { data: outcome } = await admin.rpc("apply_attendance_correction", {
+    p_request_id: requestId, p_reviewer_id: REVIEWER,
+    p_reviewer_email: "hr@example.gov",
+    p_rows: [
+      { duty_date: existing, attendance_log_id: log.id, record: mk(existing, "21:55", null) },
+      { duty_date: missing, attendance_log_id: null, record: mk(missing, null, "sunday") },
+    ],
+  });
+  assert.equal(outcome, "applied");
+
+  const { data: rows } = await admin
+    .from("attendance_logs")
+    .select("date, correction_locked, time_in_am_reason")
+    .eq("employee_id", EMPLOYEE).in("date", [existing, missing]).order("date");
+  assert.equal(rows!.length, 2, "both the updated and the created day must exist");
+  assert.ok(rows!.every((r) => r.correction_locked === true));
+  assert.equal(rows![1].time_in_am_reason, "sunday");
+});
+
+test("the widened CHECK accepts saturday/sunday/leave on attendance_logs", async () => {
+  const date = "2026-09-26";
+  SEEDED_DATES.push(date);
+  for (const reason of ["saturday", "sunday", "leave"]) {
+    const { error } = await admin.from("attendance_logs").upsert(
+      { employee_id: EMPLOYEE, date, no_time_reason: reason, source: "manual" },
+      { onConflict: "employee_id,date" },
+    );
+    assert.equal(error, null, `no_time_reason '${reason}' must be accepted`);
+  }
+  const { error: bad } = await admin.from("attendance_logs").upsert(
+    { employee_id: EMPLOYEE, date, no_time_reason: "not_a_reason", source: "manual" },
+    { onConflict: "employee_id,date" },
+  );
+  assert.notEqual(bad, null, "an unknown reason must still be rejected");
 });
 
 test.after(async () => {
@@ -317,4 +462,77 @@ test.after(async () => {
   if (SEEDED_DATES.length > 0) {
     await admin.from("attendance_logs").delete().eq("employee_id", EMPLOYEE).in("date", SEEDED_DATES);
   }
+});
+
+// --- Migration 068: direct-apply ---------------------------------------------
+
+test("the schema refuses a department filing with no proof", async () => {
+  // acr_proof_unless_direct is what stops the proof requirement being merely a
+  // TypeScript convention: a caller reaching PostgREST directly must not be
+  // able to file an unbacked department request.
+  const date = "2026-11-05";
+  const { error } = await admin.from("attendance_correction_requests").insert({
+    employee_id: EMPLOYEE, date_from: date, date_to: date,
+    reason: "no document attached", direct_apply: false,
+    proof_path: null, proof_filename: null,
+    requested_by_email: "dept@example.gov",
+  });
+  assert.notEqual(error, null, "a non-direct request without proof must be rejected");
+  assert.match(error!.message, /acr_proof_unless_direct/);
+});
+
+test("a direct-apply filing may carry no proof at all", async () => {
+  const date = "2026-11-06";
+  const { data, error } = await admin.from("attendance_correction_requests").insert({
+    employee_id: EMPLOYEE, date_from: date, date_to: date,
+    reason: "device missed the punch; verified against the logbook",
+    direct_apply: true, proof_path: null, proof_filename: null,
+    requested_by_email: "hr@example.gov",
+  }).select("id, direct_apply, proof_path").single();
+  assert.equal(error, null);
+  assert.equal(data!.direct_apply, true);
+  assert.equal(data!.proof_path, null);
+  SEEDED_REQUEST_IDS.push(data!.id as string);
+});
+
+test("direct-apply writes the day and leaves no live request holding the range", async () => {
+  // The whole point of filing as 'approved': acr_no_overlapping_pending is a
+  // PARTIAL exclusion (status IN ('pending','needs_rebase')), so an applied
+  // request releases its claim immediately and back-to-back direct-applies for
+  // one employee cannot collide. This is what makes the module usable as a
+  // replacement for Manual Attendance Entry.
+  const date = "2026-11-07"; // no attendance row exists — this CREATES the day
+  SEEDED_DATES.push(date);
+  const requestId = await seedRequest(date, date);
+  await admin.from("attendance_correction_requests")
+    .update({ direct_apply: true }).eq("id", requestId);
+  await admin.from("attendance_correction_items").insert({
+    request_id: requestId, duty_date: date, attendance_log_id: null,
+    disposition: "update", proposed_in_am_reason: "leave", before: {},
+  });
+
+  const record = buildCorrectionRecord(EMPLOYEE, {
+    duty_date: date, disposition: "update", schedule: NIGHT, scheduleId: null,
+    time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+    reason_in_am: "leave", reason_out_am: "leave",
+    reason_in_pm: "leave", reason_out_pm: "leave",
+  });
+  const { data: outcome } = await admin.rpc("apply_attendance_correction", {
+    p_request_id: requestId, p_reviewer_id: REVIEWER,
+    p_reviewer_email: "hr@example.gov",
+    p_rows: [{ duty_date: date, attendance_log_id: null, record }],
+  });
+  assert.equal(outcome, "applied");
+
+  const { data: log } = await admin.from("attendance_logs")
+    .select("time_in_am_reason, is_absent, correction_locked, source")
+    .eq("employee_id", EMPLOYEE).eq("date", date).single();
+  assert.equal(log!.time_in_am_reason, "leave");
+  assert.equal(log!.is_absent, false);
+  assert.equal(log!.correction_locked, true, "direct-apply must protect the day from re-import");
+  assert.equal(log!.source, "manual");
+
+  // A second direct-apply over the SAME range must not be blocked.
+  const second = await seedRequest(date, date);
+  assert.ok(second, "an applied request releases the overlap claim on its dates");
 });

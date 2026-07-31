@@ -130,3 +130,59 @@ test("a day with no punches and no reason is absent", () => {
   );
   assert.equal(flags.is_absent, true);
 });
+
+// The manual-entry grid now carries a reason per slot and an optional schedule
+// per date. buildAttendanceRecord is what both the single-entry and the bulk
+// paths funnel into (via buildManualEntryRecord), so these pin the behaviour
+// the grid depends on.
+
+test("a manual-entry day with reasons but no punches is not an absence", () => {
+  const rec = buildAttendanceRecord(
+    "emp-1",
+    "2026-09-19",
+    {
+      time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+      reason_in_am: "saturday", reason_out_am: "saturday",
+      reason_in_pm: "saturday", reason_out_pm: "saturday",
+    },
+    REGULAR,
+  );
+  assert.equal(rec.is_absent, false, "a tagged rest day must not count as absent");
+  assert.equal(rec.time_in_am_reason, "saturday");
+  assert.equal(rec.time_out_pm_reason, "saturday");
+  assert.equal(rec.late_minutes, 0);
+  assert.equal(rec.undertime_minutes, 0);
+});
+
+test("a per-date schedule pin is written and drives that day's late math", () => {
+  const inherited = buildAttendanceRecord(
+    "emp-1", "2026-09-21",
+    { time_in_am: "21:55", time_out_am: null, time_in_pm: null, time_out_pm: "06:05" },
+    REGULAR,
+  );
+  assert.ok(inherited.late_minutes > 0, "21:55 is very late against a day shift");
+
+  const pinned = buildAttendanceRecord(
+    "emp-1", "2026-09-21",
+    {
+      time_in_am: "21:55", time_out_am: null, time_in_pm: null, time_out_pm: "06:05",
+      schedule_id: "night",
+    },
+    NIGHT,
+  );
+  assert.equal(pinned.schedule_id, "night", "the row records which shift it was measured against");
+  assert.equal(pinned.late_minutes, 0);
+});
+
+test("a reason on the AM-in slot waives that day's tardiness", () => {
+  const rec = buildAttendanceRecord(
+    "emp-1", "2026-09-21",
+    {
+      time_in_am: "10:30", time_out_am: null, time_in_pm: null, time_out_pm: "17:00",
+      reason_in_am: "official_business",
+    },
+    REGULAR,
+  );
+  assert.equal(rec.late_minutes, 0, "an excused slot is not charged");
+  assert.equal(rec.is_late, false);
+});

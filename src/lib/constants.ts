@@ -137,9 +137,24 @@ export const NO_TIME_REASONS = [
   "holiday",
   "off",
   "no_break",
+  "saturday",
+  "sunday",
+  "leave",
 ] as const;
 
 export type NoTimeReason = (typeof NO_TIME_REASONS)[number];
+
+// Reasons that mark a day as non-working rather than on-duty. They still clear
+// `is_absent` (buildAttendanceRecord treats any reason that way), but unlike
+// TRAVEL / FIELD WORK / OFFICIAL BUSINESS they do not assert the employee was
+// out on official business — a rest day is simply not a duty day.
+export const NON_DUTY_REASONS = [
+  "off",
+  "saturday",
+  "sunday",
+  "leave",
+  "holiday",
+] as const;
 
 export const NO_TIME_REASON_LABELS: Record<NoTimeReason, string> = {
   travel: "TRAVEL",
@@ -148,6 +163,9 @@ export const NO_TIME_REASON_LABELS: Record<NoTimeReason, string> = {
   holiday: "HOLIDAY",
   off: "OFF",
   no_break: "NO BREAK",
+  saturday: "SATURDAY",
+  sunday: "SUNDAY",
+  leave: "LEAVE",
 };
 
 // Short labels printed inside a single DTR time cell.
@@ -158,6 +176,9 @@ export const NO_TIME_REASON_SHORT: Record<NoTimeReason, string> = {
   holiday: "HOLIDAY",
   off: "OFF",
   no_break: "NB",
+  saturday: "SAT",
+  sunday: "SUN",
+  leave: "LEAVE",
 };
 
 // Reason codes a Department Admin may choose on a correction request.
@@ -170,6 +191,9 @@ export const CORRECTION_REASONS = [
   "official_business",
   "off",
   "no_break",
+  "saturday",
+  "sunday",
+  "leave",
 ] as const;
 
 export type CorrectionReason = (typeof CORRECTION_REASONS)[number];

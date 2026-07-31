@@ -5,6 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
 import {
+  canDirectApplyAttendanceCorrection,
+  canFileAttendanceCorrection,
   canRequestAttendanceCorrection,
   canReviewAttendanceCorrection,
 } from "@/lib/auth-helpers";
@@ -14,6 +16,8 @@ import {
 } from "@/lib/validations/attendance-correction-schema";
 import {
   buildCorrectionRecord,
+  datesInRange,
+  dayOfWeekFor,
   resolveItemSchedules,
   type ResolvedItemSchedule,
 } from "@/lib/attendance-corrections";
@@ -27,7 +31,7 @@ const PROOF_BUCKET = "attendance-proofs";
 const MAX_PROOF_BYTES = 10 * 1024 * 1024;
 const ALLOWED_PROOF_TYPES = ["application/pdf", "image/jpeg", "image/png"];
 
-/** Columns compared by the apply-time drift check. Keep in sync with migration 066. */
+/** Columns compared by the apply-time drift check. Keep in sync with migration 067. */
 function snapshotOf(log: Record<string, unknown>) {
   return {
     time_in_am: log.time_in_am ?? null,
@@ -39,30 +43,60 @@ function snapshotOf(log: Record<string, unknown>) {
   };
 }
 
-// Employees this user may correct: flagged eligible AND whose EFFECTIVE
-// department (detailed_department_id ?? department_id) is the user's own.
-// Exclusive, not additive — an employee detailed away belongs to the department
-// that supervises the duty, which is also who signs their DTR.
-export async function getCorrectableEmployees() {
+export interface CorrectableEmployee {
+  id: string;
+  name: string;
+  first_name: string;
+  last_name: string;
+  biometric_no: number | null;
+}
+
+// Employees this user may correct.
+//
+// Direct-apply roles (HR / DTR / OCM) reach every ACTIVE employee, with no
+// eligibility flag and no department scoping — they are the authority that sets
+// the flag in the first place, and this call replaces the manual-entry picker,
+// which has always reached everyone.
+//
+// Department Admins are scoped twice over: the employee must be flagged
+// eligible AND their EFFECTIVE department (detailed_department_id ??
+// department_id) must be the caller's own. Exclusive, not additive — an
+// employee detailed away belongs to the department that supervises the duty,
+// which is also who signs their DTR.
+export async function getCorrectableEmployees(): Promise<CorrectableEmployee[]> {
   const user = await getCurrentUser();
-  if (!user || !canRequestAttendanceCorrection(user.role) || !user.departmentId) {
+  if (!user) throw new Error("Unauthorized");
+
+  const direct = canDirectApplyAttendanceCorrection(user.role);
+  if (!direct && (!canRequestAttendanceCorrection(user.role) || !user.departmentId)) {
     throw new Error("Unauthorized");
   }
+
   const supabase = createAdminClient();
-  const { data, error } = await supabase
+  let query = supabase
     .schema("hris")
     .from("employees")
-    .select("id, first_name, last_name, department_id, detailed_department_id")
-    .eq("attendance_correction_eligible", true)
-    .or(
-      `detailed_department_id.eq.${user.departmentId},` +
-        `and(detailed_department_id.is.null,department_id.eq.${user.departmentId})`,
-    )
+    .select("id, first_name, last_name, biometric_no, department_id, detailed_department_id")
+    .eq("status", "active")
     .order("last_name");
+
+  if (!direct) {
+    query = query
+      .eq("attendance_correction_eligible", true)
+      .or(
+        `detailed_department_id.eq.${user.departmentId},` +
+          `and(detailed_department_id.is.null,department_id.eq.${user.departmentId})`,
+      );
+  }
+
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map((e) => ({
-    id: e.id,
+    id: e.id as string,
     name: `${e.last_name}, ${e.first_name}`,
+    first_name: e.first_name as string,
+    last_name: e.last_name as string,
+    biometric_no: (e.biometric_no as number | null) ?? null,
   }));
 }
 
@@ -74,15 +108,49 @@ async function assertReach(employeeId: string) {
   }
 }
 
-// The prefilled grid: one row per date in range that ALREADY has an attendance
-// row. Dates with no record are returned with `hasRecord: false` and cannot be
-// corrected — this workflow fixes misread and incomplete days, it never invents
-// a day that was never recorded.
+export interface CorrectionDraftDay {
+  /** The attendance_logs row id, or null when the date has no row yet. */
+  id: string | null;
+  date: string;
+  /** 0 = Sunday. Server-computed so the grid's weekend defaults do not depend
+   *  on the browser's timezone. */
+  day_of_week: number;
+  /** False when nothing was ever recorded for this date — the item will CREATE
+   *  the day rather than update it. */
+  has_record: boolean;
+  schedule_id: string | null;
+  /** HH:MM, extracted from the stored TIMESTAMPTZ — see hhmmOf below. */
+  time_in_am: string | null;
+  time_out_am: string | null;
+  time_in_pm: string | null;
+  time_out_pm: string | null;
+  time_in_am_reason: string | null;
+  time_out_am_reason: string | null;
+  time_in_pm_reason: string | null;
+  time_out_pm_reason: string | null;
+  late_minutes: number;
+  undertime_minutes: number;
+  is_absent: boolean;
+  source: string | null;
+  correction_locked: boolean;
+}
+
+// The prefilled grid: one row per date in the range, whether or not an
+// attendance row exists for it. Dates with no row come back with
+// `has_record: false` and a null id — picking one files an item that CREATES
+// the day (migration 067), which is how a weekend the employee worked but the
+// biometric never captured gets onto the DTR.
+//
+// Times come back as HH:MM rather than raw TIMESTAMPTZ, matching what
+// getAttendanceLogs already returns to the manual-entry form. The grid is an
+// editor over wall-clock values; handing it timestamps would make every
+// consumer re-derive the same HH:MM. This does NOT feed the drift snapshot —
+// createCorrectionRequest re-reads the raw rows for that.
 export async function getCorrectionDraftDays(
   employeeId: string,
   dateFrom: string,
   dateTo: string,
-) {
+): Promise<CorrectionDraftDay[]> {
   await assertReach(employeeId);
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -98,7 +166,73 @@ export async function getCorrectionDraftDays(
     .lte("date", dateTo)
     .order("date");
   if (error) throw error;
-  return data ?? [];
+  // The admin client is untyped and the select list is built by concatenation,
+  // so PostgREST's row type does not survive to here — same reason
+  // listCorrectionRequests casts. The shape is the select list above.
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    date: string;
+    schedule_id: string | null;
+    time_in_am: string | null;
+    time_out_am: string | null;
+    time_in_pm: string | null;
+    time_out_pm: string | null;
+    time_in_am_reason: string | null;
+    time_out_am_reason: string | null;
+    time_in_pm_reason: string | null;
+    time_out_pm_reason: string | null;
+    late_minutes: number | null;
+    undertime_minutes: number | null;
+    is_absent: boolean | null;
+    source: string | null;
+    correction_locked: boolean | null;
+  }[];
+  const byDate = new Map(rows.map((r) => [r.date, r]));
+
+  // Walk the calendar, not the query result: a date with no attendance row is
+  // exactly the case this grid now has to offer.
+  return datesInRange(dateFrom, dateTo).map((date) => {
+    const row = byDate.get(date);
+    const day_of_week = dayOfWeekFor(date);
+    if (!row) {
+      return {
+        id: null,
+        date,
+        day_of_week,
+        has_record: false,
+        schedule_id: null,
+        time_in_am: null,
+        time_out_am: null,
+        time_in_pm: null,
+        time_out_pm: null,
+        time_in_am_reason: null,
+        time_out_am_reason: null,
+        time_in_pm_reason: null,
+        time_out_pm_reason: null,
+        // Nothing was recorded, so nothing is currently being charged. This is
+        // NOT the same as is_absent: an absence is a recorded judgement about a
+        // duty day, whereas a missing row is the absence of any record at all.
+        late_minutes: 0,
+        undertime_minutes: 0,
+        is_absent: false,
+        source: null,
+        correction_locked: false,
+      };
+    }
+    return {
+      ...row,
+      day_of_week,
+      has_record: true,
+      time_in_am: hhmmOf(row.time_in_am),
+      time_out_am: hhmmOf(row.time_out_am),
+      time_in_pm: hhmmOf(row.time_in_pm),
+      time_out_pm: hhmmOf(row.time_out_pm),
+      late_minutes: row.late_minutes ?? 0,
+      undertime_minutes: row.undertime_minutes ?? 0,
+      is_absent: !!row.is_absent,
+      correction_locked: !!row.correction_locked,
+    };
+  });
 }
 
 export async function createCorrectionRequest(
@@ -106,21 +240,32 @@ export async function createCorrectionRequest(
   proof: FormData,
 ) {
   const user = await getCurrentUser();
-  if (!user || !canRequestAttendanceCorrection(user.role)) {
+  if (!user || !canFileAttendanceCorrection(user.role)) {
     throw new Error("Unauthorized");
   }
+  // Whether this filing applies on submit or waits for a reviewer is decided
+  // HERE, from the caller's role — never from anything the client sends.
+  const directApply = canDirectApplyAttendanceCorrection(user.role);
   const parsed = correctionRequestSchema.parse(input);
   await assertReach(parsed.employee_id);
 
+  // Proof is mandatory for a department filing and optional for direct-apply:
+  // the document is what lets HR trust an assertion it cannot verify, and a
+  // reviewer-level role filing directly is the party that would have judged it.
+  // Migration 068's acr_proof_unless_direct enforces the same rule in the
+  // schema, so this cannot be bypassed by calling the action directly.
   const file = proof.get("proof");
-  if (!(file instanceof File) || file.size === 0) {
+  const hasFile = file instanceof File && file.size > 0;
+  if (!hasFile && !directApply) {
     throw new Error("A supporting document is required");
   }
-  if (file.size > MAX_PROOF_BYTES) {
-    throw new Error("The supporting document must be 10 MB or smaller");
-  }
-  if (!ALLOWED_PROOF_TYPES.includes(file.type)) {
-    throw new Error("The supporting document must be a PDF, JPEG or PNG");
+  if (hasFile) {
+    if (file.size > MAX_PROOF_BYTES) {
+      throw new Error("The supporting document must be 10 MB or smaller");
+    }
+    if (!ALLOWED_PROOF_TYPES.includes(file.type)) {
+      throw new Error("The supporting document must be a PDF, JPEG or PNG");
+    }
   }
 
   const supabase = createAdminClient();
@@ -136,26 +281,57 @@ export async function createCorrectionRequest(
   const departmentId = emp?.detailed_department_id ?? emp?.department_id ?? null;
 
   // Snapshot every targeted row BEFORE inserting, so the drift check has a
-  // baseline taken at the same moment the requester saw the data.
-  const logIds = parsed.items.map((i) => i.attendance_log_id);
-  const { data: logs, error: logErr } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("id, time_in_am, time_out_am, time_in_pm, time_out_pm, schedule_id, source")
-    .in("id", logIds);
+  // baseline taken at the same moment the requester saw the data. Items with a
+  // null attendance_log_id are CREATE items — there is no row to snapshot, and
+  // their drift rule is "has a row appeared since?", checked at apply time.
+  const logIds = parsed.items
+    .map((i) => i.attendance_log_id)
+    .filter((v): v is string => !!v);
+  const { data: logs, error: logErr } =
+    logIds.length === 0
+      ? { data: [], error: null }
+      : await supabase
+          .schema("hris")
+          .from("attendance_logs")
+          .select("id, time_in_am, time_out_am, time_in_pm, time_out_pm, schedule_id, source")
+          .in("id", logIds);
   if (logErr) throw logErr;
   const byId = new Map((logs ?? []).map((l) => [l.id, l]));
   if (byId.size !== logIds.length) {
     throw new Error("Some of those days no longer have an attendance record");
   }
 
+  // A CREATE item is only valid while the date really has no row. Re-check here
+  // rather than trusting the grid the requester loaded, which may be minutes
+  // old. The same check runs again inside apply_attendance_correction, because
+  // an import can land between submitting and approving.
+  const createDates = parsed.items
+    .filter((i) => !i.attendance_log_id)
+    .map((i) => i.duty_date);
+  if (createDates.length > 0) {
+    const { data: clashes, error: clashErr } = await supabase
+      .schema("hris")
+      .from("attendance_logs")
+      .select("date")
+      .eq("employee_id", parsed.employee_id)
+      .in("date", createDates);
+    if (clashErr) throw clashErr;
+    if ((clashes ?? []).length > 0) {
+      throw new Error(
+        "Attendance was recorded for one of those days while you were filling this in. Reload and try again.",
+      );
+    }
+  }
+
   // Upload first: a failed upload must not leave a request row behind.
   const requestId = crypto.randomUUID();
-  const path = `${parsed.employee_id}/${requestId}/${file.name}`;
-  const { error: uploadError } = await supabase.storage
-    .from(PROOF_BUCKET)
-    .upload(path, file, { contentType: file.type, upsert: false });
-  if (uploadError) throw new Error(`Could not upload the proof: ${uploadError.message}`);
+  const path = hasFile ? `${parsed.employee_id}/${requestId}/${file.name}` : null;
+  if (hasFile && path) {
+    const { error: uploadError } = await supabase.storage
+      .from(PROOF_BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
+    if (uploadError) throw new Error(`Could not upload the proof: ${uploadError.message}`);
+  }
 
   const { error: reqError } = await supabase
     .schema("hris")
@@ -167,15 +343,16 @@ export async function createCorrectionRequest(
       date_from: parsed.date_from,
       date_to: parsed.date_to,
       reason: parsed.reason,
+      direct_apply: directApply,
       proof_path: path,
-      proof_filename: file.name,
-      proof_mime: file.type,
-      proof_size: file.size,
+      proof_filename: hasFile ? file.name : null,
+      proof_mime: hasFile ? file.type : null,
+      proof_size: hasFile ? file.size : null,
       requested_by: user.id,
       requested_by_email: user.email,
     });
   if (reqError) {
-    await supabase.storage.from(PROOF_BUCKET).remove([path]);
+    if (path) await supabase.storage.from(PROOF_BUCKET).remove([path]);
     // The EXCLUDE constraint is the likely cause; say so in plain language.
     if (reqError.message.includes("acr_no_overlapping_pending")) {
       throw new Error(
@@ -203,7 +380,12 @@ export async function createCorrectionRequest(
         proposed_out_am_reason: i.reason_out_am,
         proposed_in_pm_reason: i.reason_in_pm,
         proposed_out_pm_reason: i.reason_out_pm,
-        before: snapshotOf(byId.get(i.attendance_log_id)!),
+        // `before` is NOT NULL. A CREATE item has no prior row, and an empty
+        // object is the honest snapshot of "nothing was there" — the apply
+        // function never compares it, keying off the null attendance_log_id.
+        before: i.attendance_log_id
+          ? snapshotOf(byId.get(i.attendance_log_id)!)
+          : {},
       })),
     );
   if (itemError) {
@@ -220,14 +402,33 @@ export async function createCorrectionRequest(
       .from("attendance_correction_requests")
       .delete()
       .eq("id", requestId);
-    await supabase.storage.from(PROOF_BUCKET).remove([path]);
+    if (path) await supabase.storage.from(PROOF_BUCKET).remove([path]);
     throw itemError;
+  }
+
+  // Direct-apply: commit the days now, through the same code an approving
+  // reviewer runs. The request row exists and is briefly 'pending', so the
+  // drift checks and the transactional RPC behave identically — the only
+  // difference is that nobody else had to press Approve.
+  //
+  // If this leaves the request live (a needs_rebase outcome, or a throw), that
+  // is deliberately NOT rolled back: the row stays visible in the list as a
+  // pending request the filer can retry or withdraw, rather than vanishing
+  // with the days silently unwritten.
+  let outcome: "applied" | "needs_rebase" | null = null;
+  if (directApply) {
+    outcome = await applyCorrectionItems(supabase, requestId, parsed.employee_id, {
+      id: user.id,
+      email: user.email,
+    });
   }
 
   await logAudit({
     userId: user.id,
     userEmail: user.email,
-    action: "attendance_correction_requested",
+    action: directApply
+      ? "attendance_correction_direct_applied"
+      : "attendance_correction_requested",
     tableName: "attendance_correction_requests",
     recordId: requestId,
     newValues: {
@@ -235,23 +436,62 @@ export async function createCorrectionRequest(
       date_from: parsed.date_from,
       date_to: parsed.date_to,
       days: parsed.items.length,
+      direct_apply: directApply,
+      has_proof: hasFile,
+      ...(outcome ? { outcome } : {}),
     },
   });
 
   revalidatePath("/attendance-corrections");
-  return { id: requestId };
+  if (directApply) revalidatePath("/attendance");
+  return { id: requestId, directApply, outcome };
 }
 
-export async function listCorrectionRequests() {
+export type CorrectionRequestStatus =
+  | "pending"
+  | "needs_rebase"
+  | "approved"
+  | "rejected"
+  | "cancelled";
+
+export interface CorrectionRequestListRow {
+  id: string;
+  employee_id: string;
+  department_id: string | null;
+  date_from: string;
+  date_to: string;
+  reason: string;
+  status: CorrectionRequestStatus;
+  /** Filed by a reviewer-level role and applied on submit — see migration 068. */
+  direct_apply: boolean;
+  /** Null when a direct-apply filing carried no supporting document. */
+  proof_filename: string | null;
+  requested_by: string | null;
+  requested_by_email: string | null;
+  requested_at: string;
+  reviewed_by_email: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  applied_at: string | null;
+  employees: { first_name: string; last_name: string } | null;
+  departments: { code: string | null; name: string } | null;
+}
+
+export async function listCorrectionRequests(): Promise<
+  CorrectionRequestListRow[]
+> {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
   const supabase = createAdminClient();
   let query = supabase
     .schema("hris")
     .from("attendance_correction_requests")
-    .select(
-      "*, employees!attendance_correction_requests_employee_id_fkey(first_name, last_name)",
-    )
+    // Kept as ONE string literal, not a concatenation: supabase-js parses the
+    // select list from the literal type, and a concatenated string collapses
+    // to `string`, which degrades every downstream row type to
+    // GenericStringError. Same reason the other selects in this file are long
+    // single lines.
+    .select("*, employees!attendance_correction_requests_employee_id_fkey(first_name, last_name), departments(code, name)")
     .order("requested_at", { ascending: false });
 
   if (canReviewAttendanceCorrection(user.role)) {
@@ -263,7 +503,35 @@ export async function listCorrectionRequests() {
   }
   const { data, error } = await query;
   if (error) throw error;
-  return data ?? [];
+  return (data ?? []) as unknown as CorrectionRequestListRow[];
+}
+
+export interface CorrectionItemRow {
+  id: string;
+  request_id: string;
+  duty_date: string;
+  /** Null when the item creates the day — see migration 067. */
+  attendance_log_id: string | null;
+  disposition: "update" | "clear_as_off";
+  proposed_schedule_id: string | null;
+  /** HH:MM:SS out of the TIME columns. */
+  proposed_time_in_am: string | null;
+  proposed_time_out_am: string | null;
+  proposed_time_in_pm: string | null;
+  proposed_time_out_pm: string | null;
+  proposed_in_am_reason: string | null;
+  proposed_out_am_reason: string | null;
+  proposed_in_pm_reason: string | null;
+  proposed_out_pm_reason: string | null;
+  /** Raw attendance_logs snapshot taken at submit time; drives the diff. */
+  before: {
+    time_in_am: string | null;
+    time_out_am: string | null;
+    time_in_pm: string | null;
+    time_out_pm: string | null;
+    schedule_id: string | null;
+    source: string | null;
+  };
 }
 
 export async function getCorrectionRequest(id: string) {
@@ -274,9 +542,7 @@ export async function getCorrectionRequest(id: string) {
   const { data: request, error } = await supabase
     .schema("hris")
     .from("attendance_correction_requests")
-    .select(
-      "*, employees!attendance_correction_requests_employee_id_fkey(first_name, last_name)",
-    )
+    .select("*, employees!attendance_correction_requests_employee_id_fkey(first_name, last_name), departments(code, name)")
     .eq("id", id)
     .single();
   if (error) throw error;
@@ -295,12 +561,24 @@ export async function getCorrectionRequest(id: string) {
     .eq("request_id", id)
     .order("duty_date");
 
-  // Private bucket — never a public URL.
-  const { data: signed } = await supabase.storage
-    .from(PROOF_BUCKET)
-    .createSignedUrl(request.proof_path, 60 * 10);
+  // Private bucket — never a public URL. A direct-apply filing may carry no
+  // proof at all (migration 068), in which case there is nothing to sign.
+  const proofPath = request.proof_path as string | null;
+  const { data: signed } = proofPath
+    ? await supabase.storage
+        .from(PROOF_BUCKET)
+        .createSignedUrl(proofPath, 60 * 10)
+    : { data: null };
 
-  return { request, items: items ?? [], proofUrl: signed?.signedUrl ?? null };
+  return {
+    request: request as unknown as CorrectionRequestListRow & {
+      proof_path: string | null;
+      proof_mime: string | null;
+      proof_size: number | null;
+    },
+    items: (items ?? []) as unknown as CorrectionItemRow[],
+    proofUrl: signed?.signedUrl ?? null,
+  };
 }
 
 export async function cancelCorrectionRequest(id: string) {
@@ -356,7 +634,10 @@ function hhmmOf(ts: string | null): string | null {
 async function loadItemSchedules(
   supabase: ReturnType<typeof createAdminClient>,
   employeeId: string,
-  items: { attendance_log_id: string; proposed_schedule_id: string | null }[],
+  items: {
+    attendance_log_id: string | null;
+    proposed_schedule_id: string | null;
+  }[],
 ): Promise<ResolvedItemSchedule[]> {
   const { data: emp, error: empErr } = await supabase
     .schema("hris")
@@ -368,11 +649,19 @@ async function loadItemSchedules(
   const employeeSchedule =
     (emp?.schedules as unknown as ScheduleLike | null) ?? null;
 
-  const { data: logs, error: logsErr } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("id, schedule_id")
-    .in("id", items.map((i) => i.attendance_log_id));
+  // CREATE items have no row, so no row-level pin to look up — resolution for
+  // them falls through to the employee's schedule (or the org default).
+  const logIds = items
+    .map((i) => i.attendance_log_id)
+    .filter((v): v is string => !!v);
+  const { data: logs, error: logsErr } =
+    logIds.length === 0
+      ? { data: [], error: null }
+      : await supabase
+          .schema("hris")
+          .from("attendance_logs")
+          .select("id, schedule_id")
+          .in("id", logIds);
   if (logsErr) throw logsErr;
   const rowScheduleIdByLogId = new Map(
     (logs ?? []).map((l) => [l.id as string, l.schedule_id as string | null]),
@@ -408,34 +697,31 @@ async function loadItemSchedules(
   );
 }
 
-export async function approveCorrectionRequest(id: string) {
-  const user = await getCurrentUser();
-  if (!user || !canReviewAttendanceCorrection(user.role)) {
-    throw new Error("Unauthorized");
-  }
-  const supabase = createAdminClient();
-
-  const { data: request, error: reqErr } = await supabase
-    .schema("hris")
-    .from("attendance_correction_requests")
-    .select("id, employee_id, status")
-    .eq("id", id)
-    .single();
-  if (reqErr) throw reqErr;
-  if (!["pending", "needs_rebase"].includes(request.status)) {
-    throw new Error("Only a live request can be approved");
-  }
-
+// Builds every day's finished attendance row and commits them through the
+// transactional RPC. Extracted so the two ways a correction can reach a DTR —
+// an HR reviewer approving a department's request, and a reviewer-level role
+// filing one that applies on submit — run the SAME code. They must not become
+// two re-derivations of "what does this correction write": that class of drift
+// already produced one bug here, where the review summary and approval
+// resolved schedules differently (see loadItemSchedules).
+//
+// Assumes the caller has checked authority and that the request is live.
+async function applyCorrectionItems(
+  supabase: ReturnType<typeof createAdminClient>,
+  requestId: string,
+  employeeId: string,
+  reviewer: { id: string; email: string },
+): Promise<"applied" | "needs_rebase"> {
   const { data: items, error: itemErr } = await supabase
     .schema("hris")
     .from("attendance_correction_items")
     .select("*")
-    .eq("request_id", id)
+    .eq("request_id", requestId)
     .order("duty_date");
   if (itemErr) throw itemErr;
   if (!items || items.length === 0) throw new Error("This request has no days");
 
-  const resolved = await loadItemSchedules(supabase, request.employee_id, items);
+  const resolved = await loadItemSchedules(supabase, employeeId, items);
 
   // A schedule deleted between submit and approval must not silently revert
   // the day to the inherited schedule — send the request back instead.
@@ -451,22 +737,18 @@ export async function approveCorrectionRequest(id: string) {
       .schema("hris")
       .from("attendance_correction_requests")
       .update({ status: "needs_rebase", updated_at: new Date().toISOString() })
-      .eq("id", id);
-    await logAudit({
-      userId: user.id,
-      userEmail: user.email,
-      action: "attendance_correction_needs_rebase",
-      tableName: "attendance_correction_requests",
-      recordId: id,
-      newValues: { reason: "a pinned schedule was deleted before approval" },
-    });
-    revalidatePath("/attendance-corrections");
-    return { outcome: "needs_rebase" as const };
+      .eq("id", requestId);
+    return "needs_rebase";
   }
 
+  // duty_date is the key the RPC looks items up by (migration 067) —
+  // attendance_log_id is nullable now and several items can share NULL, so it
+  // no longer identifies a row. It is still sent for readability of the payload
+  // in the audit log; the function reads the item's own value, not this one.
   const rows = items.map((item, i) => ({
+    duty_date: item.duty_date,
     attendance_log_id: item.attendance_log_id,
-    record: buildCorrectionRecord(request.employee_id, {
+    record: buildCorrectionRecord(employeeId, {
       duty_date: item.duty_date,
       disposition: item.disposition,
       schedule: resolved[i].schedule,
@@ -485,12 +767,39 @@ export async function approveCorrectionRequest(id: string) {
   const { data: outcome, error: rpcError } = await supabase
     .schema("hris")
     .rpc("apply_attendance_correction", {
-      p_request_id: id,
-      p_reviewer_id: user.id,
-      p_reviewer_email: user.email,
+      p_request_id: requestId,
+      p_reviewer_id: reviewer.id,
+      p_reviewer_email: reviewer.email,
       p_rows: rows,
     });
   if (rpcError) throw rpcError;
+  return outcome as "applied" | "needs_rebase";
+}
+
+export async function approveCorrectionRequest(id: string) {
+  const user = await getCurrentUser();
+  if (!user || !canReviewAttendanceCorrection(user.role)) {
+    throw new Error("Unauthorized");
+  }
+  const supabase = createAdminClient();
+
+  const { data: request, error: reqErr } = await supabase
+    .schema("hris")
+    .from("attendance_correction_requests")
+    .select("id, employee_id, status")
+    .eq("id", id)
+    .single();
+  if (reqErr) throw reqErr;
+  if (!["pending", "needs_rebase"].includes(request.status)) {
+    throw new Error("Only a live request can be approved");
+  }
+
+  const outcome = await applyCorrectionItems(
+    supabase,
+    id,
+    request.employee_id,
+    { id: user.id, email: user.email },
+  );
 
   await logAudit({
     userId: user.id,
@@ -501,12 +810,12 @@ export async function approveCorrectionRequest(id: string) {
         : "attendance_correction_needs_rebase",
     tableName: "attendance_correction_requests",
     recordId: id,
-    newValues: { days: rows.length, outcome },
+    newValues: { outcome },
   });
 
   revalidatePath("/attendance-corrections");
   revalidatePath("/attendance");
-  return { outcome: outcome as "applied" | "needs_rebase" };
+  return { outcome };
 }
 
 export async function rejectCorrectionRequest(id: string, notes: string) {
@@ -568,11 +877,20 @@ export async function getCorrectionReviewSummary(id: string) {
   const { request, items } = await getCorrectionRequest(id);
   const supabase = createAdminClient();
 
-  const { data: logs, error: logsErr } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("id, date, late_minutes, undertime_minutes")
-    .in("id", items.map((i) => i.attendance_log_id));
+  // CREATE items have no existing row, so nothing to read "before" from — they
+  // contribute 0 forgiven minutes, which is right: a day that was never
+  // recorded was never charging anything.
+  const logIds = items
+    .map((i) => i.attendance_log_id)
+    .filter((v): v is string => !!v);
+  const { data: logs, error: logsErr } =
+    logIds.length === 0
+      ? { data: [], error: null }
+      : await supabase
+          .schema("hris")
+          .from("attendance_logs")
+          .select("id, date, late_minutes, undertime_minutes")
+          .in("id", logIds);
   if (logsErr) throw logsErr;
   const byId = new Map((logs ?? []).map((l) => [l.id, l]));
 
@@ -608,7 +926,9 @@ export async function getCorrectionReviewSummary(id: string) {
       reason_in_pm: item.proposed_in_pm_reason as CorrectionReason | null,
       reason_out_pm: item.proposed_out_pm_reason as CorrectionReason | null,
     });
-    const current = byId.get(item.attendance_log_id);
+    const current = item.attendance_log_id
+      ? byId.get(item.attendance_log_id)
+      : undefined;
     const beforeLate = current?.late_minutes ?? 0;
     const beforeUndertime = current?.undertime_minutes ?? 0;
     const afterLate = after.late_minutes as number;

@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CORRECTION_REASONS,
   NO_TIME_REASONS,
   NO_TIME_REASON_LABELS,
   NO_TIME_REASON_SHORT,
@@ -40,6 +41,8 @@ import {
   canReviewAttendanceCorrection,
   canFlagCorrectionEligible,
   canAccessAttendance,
+  canDirectApplyAttendanceCorrection,
+  canFileAttendanceCorrection,
 } from "../../src/lib/auth-helpers.ts";
 
 test("department admins may request corrections", () => {
@@ -82,9 +85,12 @@ test("null and undefined roles are denied everywhere", () => {
 
 import {
   buildCorrectionRecord,
+  datesInRange,
+  dayOfWeekFor,
   resolveCorrectionSchedule,
   resolveItemSchedules,
   trailingDutyDate,
+  weekendReasonFor,
   type CorrectionItemInput,
 } from "../../src/lib/attendance-corrections.ts";
 import type { ScheduleLike } from "../../src/lib/attendance-schedule.ts";
@@ -236,4 +242,172 @@ test("resolveItemSchedules: an item pin id that resolves to no schedule is flagg
 test("a night-shift range reaches one day past its end", () => {
   assert.equal(trailingDutyDate("2026-06-20", NIGHT), "2026-06-21");
   assert.equal(trailingDutyDate("2026-06-20", REGULAR), null);
+});
+
+// --- Migration 067: weekend / leave reasons and the calendar helpers ----------
+
+test("saturday, sunday and leave are available reasons with printable labels", () => {
+  for (const r of ["saturday", "sunday", "leave"] as const) {
+    assert.ok(NO_TIME_REASONS.includes(r), `${r} must be an attendance reason`);
+    assert.ok(CORRECTION_REASONS.includes(r), `${r} must be selectable on a correction`);
+    assert.ok(NO_TIME_REASON_LABELS[r], `${r} needs a DTR label`);
+    assert.ok(NO_TIME_REASON_SHORT[r], `${r} needs a short label`);
+  }
+  assert.equal(NO_TIME_REASON_LABELS.saturday, "SATURDAY");
+  assert.equal(NO_TIME_REASON_LABELS.sunday, "SUNDAY");
+  assert.equal(NO_TIME_REASON_LABELS.leave, "LEAVE");
+});
+
+// 'holiday' stays out of the correction list: holidays are org-wide and live in
+// hris.holidays, so one department declaring one per-employee would contradict
+// that table. The weekend/leave codes carry no such conflict.
+test("holiday remains excluded from the correction reasons", () => {
+  assert.ok(NO_TIME_REASONS.includes("holiday"));
+  assert.ok(!(CORRECTION_REASONS as readonly string[]).includes("holiday"));
+});
+
+// Computed via Date.UTC, so the weekday never shifts with the caller's zone —
+// this value is produced on the server and read in the browser.
+test("dayOfWeekFor is timezone-independent", () => {
+  assert.equal(dayOfWeekFor("2026-09-19"), 6); // Saturday
+  assert.equal(dayOfWeekFor("2026-09-20"), 0); // Sunday
+  assert.equal(dayOfWeekFor("2026-09-21"), 1); // Monday
+});
+
+test("weekendReasonFor labels weekends and leaves weekdays alone", () => {
+  assert.equal(weekendReasonFor("2026-09-19"), "saturday");
+  assert.equal(weekendReasonFor("2026-09-20"), "sunday");
+  // A blank WEEKDAY is a real absence until somebody says otherwise —
+  // defaulting a reason onto it would quietly erase that.
+  assert.equal(weekendReasonFor("2026-09-21"), null);
+});
+
+test("datesInRange is inclusive at both ends and crosses month boundaries", () => {
+  assert.deepEqual(datesInRange("2026-09-19", "2026-09-21"), [
+    "2026-09-19", "2026-09-20", "2026-09-21",
+  ]);
+  assert.deepEqual(datesInRange("2026-09-30", "2026-10-01"), [
+    "2026-09-30", "2026-10-01",
+  ]);
+  assert.deepEqual(datesInRange("2026-09-19", "2026-09-19"), ["2026-09-19"]);
+  // A leap day must survive the walk.
+  assert.ok(datesInRange("2028-02-27", "2028-03-01").includes("2028-02-29"));
+});
+
+// A CREATE item has no attendance row, so no row-level pin to inherit from —
+// resolution has to fall through to the employee's schedule rather than throw
+// or silently pick the org default.
+test("resolveItemSchedules handles a null attendance_log_id", () => {
+  const employeeSched: ScheduleLike = { ...NIGHT, id: "emp" };
+  const [resolved] = resolveItemSchedules(
+    [{ attendance_log_id: null, proposed_schedule_id: null }],
+    new Map(),
+    new Map(),
+    employeeSched,
+    { ...REGULAR, id: "org" },
+  );
+  assert.equal(resolved.schedule.id, "emp");
+  assert.equal(resolved.itemPinMissing, false);
+});
+
+// The reason is what stops a blank rest day being counted as an absence.
+test("a blank weekend day tagged SATURDAY is not absent", () => {
+  const record = buildCorrectionRecord("emp-1", {
+    duty_date: "2026-09-19",
+    disposition: "update",
+    schedule: REGULAR,
+    scheduleId: null,
+    time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+    reason_in_am: "saturday", reason_out_am: "saturday",
+    reason_in_pm: "saturday", reason_out_pm: "saturday",
+  } as CorrectionItemInput);
+  assert.equal(record.is_absent, false);
+  assert.equal(record.late_minutes, 0);
+  assert.equal(record.undertime_minutes, 0);
+  assert.equal(record.correction_locked, true);
+});
+
+// --- Migration 068: direct-apply role boundaries ------------------------------
+
+test("HR, super admin, DTR manager and OCM admin may apply directly", () => {
+  for (const role of ["super_admin", "hr_admin", "dtr_manager", "ocm_admin"] as const) {
+    assert.equal(canDirectApplyAttendanceCorrection(role), true, role);
+  }
+});
+
+// The invariant the whole two-party control rests on. A department admin filing
+// a request must never be able to make it take effect: if this ever returns
+// true, a correction reaches a DTR with nobody but its author having seen it.
+test("department admins can NEVER apply directly", () => {
+  assert.equal(canDirectApplyAttendanceCorrection("department_admin"), false);
+  assert.equal(
+    canDirectApplyAttendanceCorrection("department_admin_and_department_head"),
+    false,
+  );
+  assert.equal(canDirectApplyAttendanceCorrection("department_head"), false);
+  assert.equal(canDirectApplyAttendanceCorrection("employee"), false);
+});
+
+// Direct-apply is NOT a widening of the requester set — the two must stay
+// disjoint so "filed by" and "approved by" can never be the same person on a
+// department request.
+test("the requester and direct-apply sets remain disjoint", () => {
+  for (const role of ["department_admin", "department_admin_and_department_head"] as const) {
+    assert.equal(canRequestAttendanceCorrection(role), true, role);
+    assert.equal(canDirectApplyAttendanceCorrection(role), false, role);
+  }
+  for (const role of ["super_admin", "hr_admin", "dtr_manager"] as const) {
+    assert.equal(canDirectApplyAttendanceCorrection(role), true, role);
+    assert.equal(canRequestAttendanceCorrection(role), false, role);
+  }
+});
+
+test("canFileAttendanceCorrection admits both routes and nobody else", () => {
+  for (const role of [
+    "department_admin", "department_admin_and_department_head",
+    "super_admin", "hr_admin", "dtr_manager", "ocm_admin",
+  ] as const) {
+    assert.equal(canFileAttendanceCorrection(role), true, role);
+  }
+  for (const role of ["employee", "department_head", "jo_manager", "cos_manager"] as const) {
+    assert.equal(canFileAttendanceCorrection(role), false, role);
+  }
+  assert.equal(canFileAttendanceCorrection(null), false);
+  assert.equal(canFileAttendanceCorrection(undefined), false);
+});
+
+// OCM Admin records attendance across departments through Manual Attendance
+// Entry today. It is in neither the requester nor the reviewer set, so without
+// an explicit place in the direct-apply set it would lose that reach entirely
+// once manual entry is retired.
+test("OCM Admin keeps cross-department attendance reach", () => {
+  assert.equal(canRequestAttendanceCorrection("ocm_admin"), false);
+  assert.equal(canReviewAttendanceCorrection("ocm_admin"), false);
+  assert.equal(canDirectApplyAttendanceCorrection("ocm_admin"), true);
+  assert.equal(canFileAttendanceCorrection("ocm_admin"), true);
+});
+
+// --- clear_as_off must read as OFF on the DTR, never HOLIDAY ------------------
+
+test("clear_as_off states the reason at DAY level, not only per slot", () => {
+  const rec = buildCorrectionRecord(EMP2, item({
+    disposition: "clear_as_off",
+    schedule: NIGHT,
+    time_in_am: "21:55", time_out_pm: "06:05", // discarded by clear_as_off
+  }));
+  // The four slot reasons alone gave the DTR no day-level label, so a cleared
+  // day that fell on a declared holiday printed HOLIDAY instead of OFF.
+  assert.equal(rec.no_time_reason, "off");
+  assert.equal(rec.time_in_am_reason, "off");
+  assert.equal(rec.time_out_pm_reason, "off");
+  assert.equal(rec.is_absent, false);
+});
+
+// A day the employee actually worked must keep its punches, so no_time_reason
+// stays clear and the DTR shows times rather than a span.
+test("an ordinary update does not set a day-level reason", () => {
+  const rec = buildCorrectionRecord(EMP2, item({
+    time_in_am: "08:00", time_out_pm: "17:00",
+  }));
+  assert.equal(rec.no_time_reason, null);
 });
