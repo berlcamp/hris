@@ -4,7 +4,10 @@ import { ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { getCorrectableEmployees } from "@/lib/actions/attendance-correction-actions";
+import {
+  getCorrectableEmployees,
+  getCorrectionWindow,
+} from "@/lib/actions/attendance-correction-actions";
 import { getSchedules } from "@/lib/actions/schedule-actions";
 import {
   canDirectApplyAttendanceCorrection,
@@ -39,9 +42,13 @@ export default async function NewCorrectionRequestPage({
   // re-derives it from the role and never trusts this.
   const directApply = canDirectApplyAttendanceCorrection(user.role);
 
-  const [employees, schedules] = await Promise.all([
+  // Null for a direct-apply role — they have no date limit. For a department
+  // admin it is the payroll month still being closed, derived from the server's
+  // Manila clock so it cannot move with the filer's machine.
+  const [employees, schedules, correctionWindow] = await Promise.all([
     getCorrectableEmployees(),
     getSchedules(),
+    getCorrectionWindow(),
   ]);
 
   return (
@@ -59,7 +66,7 @@ export default async function NewCorrectionRequestPage({
           <p className="text-sm text-muted-foreground">
             {directApply
               ? "Record or correct attendance for any active employee. Changes apply as soon as you save."
-              : "Fix misread or incomplete attendance days. HR reviews every request before anything reaches the DTR."}
+              : "Fix misread or incomplete attendance days for anyone in your department. HR reviews every request before anything reaches the DTR."}
           </p>
         </div>
       </div>
@@ -67,11 +74,13 @@ export default async function NewCorrectionRequestPage({
       {employees.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center">
           <p className="text-sm font-medium">
-            No employees in your department are correction-eligible yet.
+            No active employees are assigned or detailed to your department.
           </p>
           <p className="text-sm text-muted-foreground mt-1">
-            HR flags who can be corrected, from the employee record. Ask them to
-            enable it for the employees you need to file for.
+            Corrections are filed against the department that supervises the
+            duty. If someone is missing here, ask HR to check their department —
+            or their &ldquo;detailed to&rdquo; department, which takes
+            precedence.
           </p>
         </div>
       ) : (
@@ -79,6 +88,7 @@ export default async function NewCorrectionRequestPage({
           employees={employees}
           schedules={schedules}
           directApply={directApply}
+          correctionWindow={correctionWindow}
           prefill={prefill}
         />
       )}

@@ -25,7 +25,14 @@ import {
   DEFAULT_SCHEDULE,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
+import {
+  correctionWindow,
+  correctionWindowError,
+  type CorrectionWindow,
+} from "@/lib/correction-window";
+import { manilaToday } from "@/lib/format-date";
 import type { CorrectionReason } from "@/lib/constants";
+import type { UserRole } from "@/lib/types";
 
 const PROOF_BUCKET = "attendance-proofs";
 const MAX_PROOF_BYTES = 10 * 1024 * 1024;
@@ -54,15 +61,19 @@ export interface CorrectableEmployee {
 // Employees this user may correct.
 //
 // Direct-apply roles (HR / DTR / OCM) reach every ACTIVE employee, with no
-// eligibility flag and no department scoping — they are the authority that sets
-// the flag in the first place, and this call replaces the manual-entry picker,
-// which has always reached everyone.
+// department scoping — this call replaces the manual-entry picker, which has
+// always reached everyone.
 //
-// Department Admins are scoped twice over: the employee must be flagged
-// eligible AND their EFFECTIVE department (detailed_department_id ??
-// department_id) must be the caller's own. Exclusive, not additive — an
-// employee detailed away belongs to the department that supervises the duty,
-// which is also who signs their DTR.
+// Department Admins reach every ACTIVE employee whose EFFECTIVE department
+// (detailed_department_id ?? department_id) is their own. Effective, not
+// additive — an employee detailed away belongs to the department that
+// supervises the duty, which is also who signs their DTR.
+//
+// There is no per-employee eligibility flag any more. It was a second gate on
+// top of this one, and in practice a department needs to fix whoever's punch
+// the biometric misread; the constraint that matters is not WHO but WHEN, and
+// that is enforced by correctionWindow (see assertCorrectionWindow) — a
+// department can only reach into the payroll month still being closed.
 export async function getCorrectableEmployees(): Promise<CorrectableEmployee[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
@@ -81,12 +92,10 @@ export async function getCorrectableEmployees(): Promise<CorrectableEmployee[]> 
     .order("last_name");
 
   if (!direct) {
-    query = query
-      .eq("attendance_correction_eligible", true)
-      .or(
-        `detailed_department_id.eq.${user.departmentId},` +
-          `and(detailed_department_id.is.null,department_id.eq.${user.departmentId})`,
-      );
+    query = query.or(
+      `detailed_department_id.eq.${user.departmentId},` +
+        `and(detailed_department_id.is.null,department_id.eq.${user.departmentId})`,
+    );
   }
 
   const { data, error } = await query;
@@ -106,6 +115,35 @@ async function assertReach(employeeId: string) {
   if (!allowed.some((e) => e.id === employeeId)) {
     throw new Error("Unauthorized");
   }
+}
+
+// Throws unless every date is inside the payroll month a DEPARTMENT may still
+// correct. A no-op for the direct-apply roles, whose date reach is unrestricted.
+//
+// `today` comes from the server clock in Asia/Manila, never from the request:
+// a window derived from the filer's browser would move with their machine's
+// timezone (and could be set by hand), and the whole point of the rule is that
+// it is the same for everybody.
+function assertCorrectionWindow(
+  role: UserRole | null | undefined,
+  dates: string[],
+) {
+  if (canDirectApplyAttendanceCorrection(role)) return;
+  const window = correctionWindow(manilaToday());
+  for (const date of dates) {
+    const error = correctionWindowError(date, window);
+    if (error) throw new Error(error);
+  }
+}
+
+/** The open window for the CURRENT user, or null when they have no limit. */
+export async function getCorrectionWindow(): Promise<CorrectionWindow | null> {
+  const user = await getCurrentUser();
+  if (!user || !canFileAttendanceCorrection(user.role)) {
+    throw new Error("Unauthorized");
+  }
+  if (canDirectApplyAttendanceCorrection(user.role)) return null;
+  return correctionWindow(manilaToday());
 }
 
 export interface CorrectionDraftDay {
@@ -151,7 +189,13 @@ export async function getCorrectionDraftDays(
   dateFrom: string,
   dateTo: string,
 ): Promise<CorrectionDraftDay[]> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Unauthorized");
   await assertReach(employeeId);
+  // Refuse the range here as well as at submit, so a department admin never
+  // fills in a grid of days it turns out they cannot file. createCorrectionRequest
+  // re-checks every duty_date — this one is a courtesy, that one is the rule.
+  assertCorrectionWindow(user.role, [dateFrom, dateTo]);
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .schema("hris")
@@ -248,6 +292,15 @@ export async function createCorrectionRequest(
   const directApply = canDirectApplyAttendanceCorrection(user.role);
   const parsed = correctionRequestSchema.parse(input);
   await assertReach(parsed.employee_id);
+  // The authoritative window check. Every duty_date is tested, not just the
+  // declared range: the schema already requires items to fall inside
+  // date_from..date_to, but this action must not depend on that refinement
+  // staying in place to keep a department out of a closed payroll month.
+  assertCorrectionWindow(user.role, [
+    parsed.date_from,
+    parsed.date_to,
+    ...parsed.items.map((i) => i.duty_date),
+  ]);
 
   // Proof is mandatory for a department filing and optional for direct-apply:
   // the document is what lets HR trust an assertion it cannot verify, and a

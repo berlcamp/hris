@@ -39,7 +39,6 @@ test("every reason code has both a full and a short label", () => {
 import {
   canRequestAttendanceCorrection,
   canReviewAttendanceCorrection,
-  canFlagCorrectionEligible,
   canAccessAttendance,
   canDirectApplyAttendanceCorrection,
   canFileAttendanceCorrection,
@@ -61,7 +60,6 @@ test("requesters cannot review their own corrections", () => {
 test("HR admin, super admin and DTR manager review corrections", () => {
   for (const role of ["super_admin", "hr_admin", "dtr_manager"] as const) {
     assert.equal(canReviewAttendanceCorrection(role), true, role);
-    assert.equal(canFlagCorrectionEligible(role), true, role);
   }
 });
 
@@ -76,7 +74,7 @@ test("null and undefined roles are denied everywhere", () => {
   for (const fn of [
     canRequestAttendanceCorrection,
     canReviewAttendanceCorrection,
-    canFlagCorrectionEligible,
+    canDirectApplyAttendanceCorrection,
   ]) {
     assert.equal(fn(null), false);
     assert.equal(fn(undefined), false);

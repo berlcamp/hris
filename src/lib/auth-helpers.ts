@@ -218,9 +218,10 @@ export function canManageCosTemplates(
 // Roles that may FILE an attendance correction request. Deliberately narrow:
 // department-scoped roles stay out of ATTENDANCE_ACCESS_ROLES, so filing a
 // correction grants no access to the Dahua importer, bulk DTR generation or
-// entry deletion. Their reach is further limited to employees whose EFFECTIVE
-// department (detailed_department_id ?? department_id) is their own AND who
-// carry employees.attendance_correction_eligible.
+// entry deletion. Their reach is limited to employees whose EFFECTIVE
+// department (detailed_department_id ?? department_id) is their own, and to
+// duty dates inside the payroll month still being closed (see
+// src/lib/correction-window.ts).
 const CORRECTION_REQUESTER_ROLES: readonly UserRole[] = [
   "department_admin",
   "department_admin_and_department_head",
@@ -247,14 +248,11 @@ export function canReviewAttendanceCorrection(
   return !!role && CORRECTION_REVIEWER_ROLES.includes(role);
 }
 
-// Roles that may flag an employee as correction-eligible. Same set as the
-// reviewers: deciding WHO can be corrected is the same authority as deciding
-// WHAT gets corrected.
-export function canFlagCorrectionEligible(
-  role: UserRole | null | undefined,
-): boolean {
-  return !!role && CORRECTION_REVIEWER_ROLES.includes(role);
-}
+// canFlagCorrectionEligible lived here. The per-employee
+// attendance_correction_eligible flag it gated is gone (migration 069): a
+// Department Admin now reaches every active employee in their effective
+// department, bounded by the payroll-month window in
+// src/lib/correction-window.ts rather than by a whitelist HR had to maintain.
 
 // Roles that may file a correction that applies IMMEDIATELY — no second party,
 // no proof, any active employee. The reviewers, plus OCM Admin, which records

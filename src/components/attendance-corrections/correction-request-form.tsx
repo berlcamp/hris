@@ -53,6 +53,12 @@ import {
   weekendReasonFor,
 } from "@/lib/attendance-corrections";
 import {
+  correctionWindowError,
+  describeCorrectionWindow,
+  isDateInCorrectionWindow,
+  type CorrectionWindow,
+} from "@/lib/correction-window";
+import {
   CORRECTION_REASONS,
   NO_TIME_REASON_LABELS,
   type CorrectionReason,
@@ -140,6 +146,7 @@ export function CorrectionRequestForm({
   employees,
   schedules,
   directApply = false,
+  correctionWindow = null,
   prefill,
 }: {
   employees: CorrectableEmployee[];
@@ -148,6 +155,11 @@ export function CorrectionRequestForm({
    *  no approval step. Presentational only — createCorrectionRequest re-derives
    *  this from the caller's role and ignores anything the client claims. */
   directApply?: boolean;
+  /** The payroll month a department may still correct, or null for a role with
+   *  no date limit. Computed on the server from the Manila clock — the browser's
+   *  own clock never decides this. Presentational, like directApply: both
+   *  server actions re-derive the window and refuse anything outside it. */
+  correctionWindow?: CorrectionWindow | null;
   /** Preselects employee and date, for the "Correct entry" action on the
    *  attendance table. Server-validated; only preselects, never authorises. */
   prefill?: { employeeId: string | null; date: string | null };
@@ -161,9 +173,17 @@ export function CorrectionRequestForm({
     prefill?.employeeId && employees.some((e) => e.id === prefill.employeeId)
       ? prefill.employeeId
       : "";
+  // Same for the date: "Correct entry" on the attendance table can point at a
+  // day the caller's window has closed over, and prefilling it would put the
+  // form in a state whose only outcome is an error on Load days.
+  const prefilledDate =
+    prefill?.date &&
+    (!correctionWindow || isDateInCorrectionWindow(prefill.date, correctionWindow))
+      ? prefill.date
+      : "";
   const [employeeId, setEmployeeId] = useState(prefilledEmployee);
-  const [dateFrom, setDateFrom] = useState(prefill?.date ?? "");
-  const [dateTo, setDateTo] = useState(prefill?.date ?? "");
+  const [dateFrom, setDateFrom] = useState(prefilledDate);
+  const [dateTo, setDateTo] = useState(prefilledDate);
 
   const [days, setDays] = useState<CorrectionDraftDay[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DayDraft>>({});
@@ -204,6 +224,18 @@ export function CorrectionRequestForm({
     if (dateTo < dateFrom) {
       toast.error("The end date must not precede the start date.");
       return;
+    }
+    // Catch an out-of-window range before the round trip. The server checks it
+    // again — this only saves the user a failed request when they typed a date
+    // past the input's min/max rather than picking one.
+    if (correctionWindow) {
+      const windowError =
+        correctionWindowError(dateFrom, correctionWindow) ??
+        correctionWindowError(dateTo, correctionWindow);
+      if (windowError) {
+        toast.error(windowError);
+        return;
+      }
     }
     setLoadingDays(true);
     try {
@@ -376,6 +408,16 @@ export function CorrectionRequestForm({
           <CardTitle className="text-base">1. Employee and period</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {correctionWindow && (
+            <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+              You can correct{" "}
+              <span className="font-medium text-foreground">
+                {describeCorrectionWindow(correctionWindow)}
+              </span>
+              . The payroll month stays open through the first 7 days of the
+              month after it — ask HR to correct anything older.
+            </p>
+          )}
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
               <Label htmlFor="employee">Employee</Label>
@@ -436,9 +478,17 @@ export function CorrectionRequestForm({
             </div>
             <div className="space-y-2">
               <Label htmlFor="date_from">From</Label>
+              {/* min/max keep the picker inside the payroll month a department
+                  may still correct. Convenience only — the browser will happily
+                  accept a typed-in date outside them, so getCorrectionDraftDays
+                  and createCorrectionRequest both re-derive the window from the
+                  server clock and refuse. Absent for direct-apply roles, whose
+                  date reach is unrestricted. */}
               <Input
                 id="date_from"
                 type="date"
+                min={correctionWindow?.from}
+                max={correctionWindow?.to}
                 value={dateFrom}
                 onChange={(e) => {
                   setDateFrom(e.target.value);
@@ -451,6 +501,8 @@ export function CorrectionRequestForm({
               <Input
                 id="date_to"
                 type="date"
+                min={correctionWindow?.from}
+                max={correctionWindow?.to}
                 value={dateTo}
                 onChange={(e) => {
                   setDateTo(e.target.value);

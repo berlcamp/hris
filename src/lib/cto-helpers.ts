@@ -56,15 +56,11 @@ export interface CtoBalanceResult {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Today's date as YYYY-MM-DD in Asia/Manila, regardless of runtime timezone. */
-export function manilaToday(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
+// Today's date as YYYY-MM-DD in Asia/Manila. Moved to format-date.ts, which is
+// where the other Manila-timezone date helpers live, once a second domain
+// (attendance corrections) needed the same answer. Re-exported so the CTO
+// modules that import it from here keep working.
+export { manilaToday } from "./format-date.ts";
 
 /** YYYY-MM-DD + n days, computed in UTC to avoid DST/timezone drift. */
 export function addDaysToDateString(date: string, days: number): string {
