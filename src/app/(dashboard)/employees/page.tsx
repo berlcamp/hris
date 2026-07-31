@@ -7,6 +7,7 @@ import { getDepartments } from "@/lib/actions/user-actions";
 import {
   canEditDetailedDepartment,
   canEditDetailedDepartmentAnyDept,
+  canFlagCorrectionEligible,
   canManageHrRecords,
 } from "@/lib/auth-helpers";
 import { EmployeesTable } from "@/components/employees/employees-table";
@@ -70,6 +71,7 @@ export default async function EmployeesPage() {
         canEdit={canCreate}
         canEditDetailedDept={canEditDetailedDept}
         canEditDetailedDeptAnyDept={canEditDetailedDeptAnyDept}
+        canFlagCorrectionEligible={canFlagCorrectionEligible(user.role)}
         userDepartmentId={user.departmentId}
         departments={departments ?? []}
       />

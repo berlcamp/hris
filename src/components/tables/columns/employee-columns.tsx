@@ -25,6 +25,7 @@ export type EmployeeRow = {
   detailed_department_id: string | null;
   schedule_id: string | null;
   vl_sl_needs_manual_entry: boolean;
+  attendance_correction_eligible: boolean;
   departments: { name: string; code: string } | null;
   detailed_departments: { name: string; code: string } | null;
   positions: { title: string; item_number: string | null } | null;
@@ -62,12 +63,14 @@ export function getEmployeeColumns({
   canEdit,
   canEditDetailedDept = false,
   canEditDetailedDeptAnyDept = false,
+  canFlagCorrectionEligible = false,
   userDepartmentId = null,
   departments = [],
 }: {
   canEdit: boolean;
   canEditDetailedDept?: boolean;
   canEditDetailedDeptAnyDept?: boolean;
+  canFlagCorrectionEligible?: boolean;
   userDepartmentId?: string | null;
   departments?: DetailedDeptOption[];
 }): ColumnDef<EmployeeRow>[] {
@@ -256,6 +259,27 @@ export function getEmployeeColumns({
     },
   },
   {
+    // Hidden by default (see EmployeesTable's initialColumnVisibility) — the
+    // flag matters to the roles that grant it, not to everyone reading the
+    // list. Exposed mainly so HR can filter down to "who did we make
+    // correctable", which is otherwise invisible until a request shows up.
+    id: "correction_eligible",
+    accessorFn: (row) =>
+      row.attendance_correction_eligible ? "eligible" : "not_eligible",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Corrections" />
+    ),
+    cell: ({ row }) =>
+      row.original.attendance_correction_eligible ? (
+        <Badge variant="secondary">Eligible</Badge>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
+    filterFn: (row, id, value) => {
+      return value.includes(row.getValue(id));
+    },
+  },
+  {
     id: "actions",
     cell: ({ row }) => (
       <EmployeeActionsCell
@@ -263,6 +287,7 @@ export function getEmployeeColumns({
         canEdit={canEdit}
         canEditDetailedDept={canEditDetailedDept}
         canEditDetailedDeptAnyDept={canEditDetailedDeptAnyDept}
+        canFlagCorrectionEligible={canFlagCorrectionEligible}
         userDepartmentId={userDepartmentId}
         departments={departments}
       />
