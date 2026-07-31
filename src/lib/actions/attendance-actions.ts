@@ -10,16 +10,30 @@ import {
 } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
-  DEFAULT_SCHEDULE,
   bucketPunchesForDuty,
   dutyDateFor,
-  hasBreak,
   lateMinutesFor,
-  pmLateMinutesFor,
-  trimTimeStr,
   undertimeMinutesFor,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
+// The DTR page builder and the time/rule helpers it shares with the biometric
+// importer live in a plain module: a "use server" file may only export async
+// functions, and an exported builder that skips authorization would be a
+// network-reachable endpoint. See the note at the top of dtr-builder.ts.
+import {
+  DTR_EMPLOYEE_SELECT,
+  applyUndertimeAbsenceRule,
+  buildDtrResults,
+  employeesWithAttendance,
+  extractTime,
+  loadDtrEmployeesForDepartment,
+  loadOverrideSchedules,
+  resolveDefaultSchedule,
+  timestampOnNextDay,
+  type BulkDtrResult,
+  type DtrEmployeeRow,
+  type DtrSignatoryDeptRow,
+} from "@/lib/dtr-builder";
 // buildAttendanceRecord is no longer reached from here: manual entry was the
 // only caller and now lives in the corrections module, which goes through
 // buildCorrectionRecord. The biometric importer still needs the flag maths.
@@ -28,18 +42,6 @@ import {
   recomputeAttendanceDeductionFor,
   recomputeAttendanceDeductionsBatch,
 } from "@/lib/actions/attendance-deduction-actions";
-import { getHolidayMap } from "@/lib/holiday-helpers";
-import {
-  resolveSignatories,
-  type DtrSignatory,
-  type SignatoryInput,
-} from "@/lib/dtr-signatory";
-import type { HolidayType } from "@/lib/validations/holiday-schema";
-import {
-  NO_TIME_REASON_LABELS,
-  NO_TIME_REASON_SHORT,
-  type NoTimeReason,
-} from "@/lib/constants";
 import type { DahuaParsedRow } from "@/lib/dahua-parse";
 
 // --- Types ---
@@ -74,48 +76,17 @@ export interface AttendanceLogRow {
   } | null;
 }
 
-export interface DtrEntry {
-  date: string;
-  day_of_week: string;
-  time_in_am: string | null;
-  time_out_am: string | null;
-  time_in_pm: string | null;
-  time_out_pm: string | null;
-  is_late: boolean;
-  late_minutes: number;
-  // True when the return from lunch (time_in_pm) was past break_end — the PM
-  // arrival prints red like a late AM arrival. Absent on non-worked rows.
-  is_pm_late?: boolean;
-  is_undertime: boolean;
-  undertime_minutes: number;
-  is_absent: boolean;
-  remarks: string | null;
-  leave_type: string | null;
-  // Declared holiday overlay for this date, if any. "full" replaces the whole
-  // row with HOLIDAY; "half_am"/"half_pm" label only that half of the day.
-  holiday: "full" | "half_am" | "half_pm" | null;
-  holiday_name: string | null;
-  // Official-duty reason a manual entry has no punches (TRAVEL / FIELD WORK /
-  // OFFICIAL BUSINESS). Printed across the row like ON LEAVE when there are no
-  // time entries. Legacy day-level field (migration 041).
-  no_time_reason_label: string | null;
-  // Per-slot official-duty reasons (migration 042) as the DTR shortcut (FW/OB/
-  // TRAVEL). When set, the cell prints the shortcut instead of a time.
-  reason_in_am: string | null;
-  reason_out_am: string | null;
-  reason_in_pm: string | null;
-  reason_out_pm: string | null;
-}
-
-export interface DtrSummary {
-  total_days_present: number;
-  total_days_absent: number;
-  total_days_on_leave: number;
-  total_late_count: number;
-  total_late_minutes: number;
-  total_undertime_count: number;
-  total_undertime_minutes: number;
-}
+// The DTR page shapes now live with the builder that produces them. Re-exported
+// here so existing importers (the PDF components) keep working — `export type`
+// is erased at compile time, so it does not violate the "use server" rule that
+// every runtime export be an async function.
+export type {
+  BulkDtrEmployee,
+  BulkDtrResult,
+  DtrEntry,
+  DtrScheduleInfo,
+  DtrSummary,
+} from "@/lib/dtr-builder";
 
 export interface ImportPreviewRow extends DahuaParsedRow {
   hasConflict: boolean;
@@ -140,21 +111,10 @@ function toTimestamp(date: string, time: string | null): string | null {
   return `${date}T${time}:00`;
 }
 
-/** Extract HH:MM from a TIMESTAMPTZ or ISO string */
-function extractTime(timestamp: string | null): string | null {
-  if (!timestamp) return null;
-  const match = timestamp.match(/(\d{2}:\d{2})/);
-  return match ? match[1] : null;
-}
-
-/** True if a stored TIMESTAMPTZ's calendar date is after the row's duty date. */
-function timestampOnNextDay(
-  timestamp: string | null,
-  dutyDate: string,
-): boolean {
-  if (!timestamp) return false;
-  return timestamp.slice(0, 10) > dutyDate;
-}
+// extractTime, timestampOnNextDay, resolveDefaultSchedule, loadOverrideSchedules,
+// applyUndertimeAbsenceRule and UNDERTIME_ABSENT_MINUTES moved to
+// @/lib/dtr-builder, which the biometric importer below imports them back from.
+// They are shared with the DTR builder and only one copy may define the rules.
 
 /**
  * Dahua face devices fire the same event 2–3 times within seconds (e.g. one
@@ -191,88 +151,6 @@ function dedupePunches(
     out.push(p);
   }
   return out;
-}
-
-/**
- * The org-wide default work schedule — the schedules row flagged is_default
- * (migration 036) — applied to employees with no schedule assigned. Falls back
- * to the hardcoded 8:00–17:00 / 12:00–13:00 constant only if no default row
- * exists at all.
- */
-async function resolveDefaultSchedule(
-  supabase: ReturnType<typeof createAdminClient>,
-): Promise<ScheduleLike> {
-  const { data } = await supabase
-    .schema("hris")
-    .from("schedules")
-    .select("id, time_in, time_out, break_start, break_end")
-    .eq("is_default", true)
-    .maybeSingle();
-  return (data as unknown as ScheduleLike | null) ?? DEFAULT_SCHEDULE;
-}
-
-// Spread into DtrEntry pushes for days with no per-slot official-duty reasons.
-const EMPTY_SLOT_REASONS = {
-  reason_in_am: null,
-  reason_out_am: null,
-  reason_in_pm: null,
-  reason_out_pm: null,
-} as const;
-
-/** Map a stored per-slot reason code to its DTR shortcut (FW / OB / TRAVEL). */
-function slotReasonShort(code: unknown): string | null {
-  return code ? NO_TIME_REASON_SHORT[code as NoTimeReason] ?? null : null;
-}
-
-// DTR undertime ceiling. A standard workday is 8 hours, so undertime is capped
-// at 7 hours: anything from 8 hours up means the employee rendered no
-// meaningful service that day and the day is counted ABSENT instead of as a
-// near-full-day undertime.
-const UNDERTIME_CAP_MINUTES = 7 * 60; // 420
-const UNDERTIME_ABSENT_MINUTES = 8 * 60; // 480
-
-// Applies the cap/absence rule to a day's already-excused late + undertime
-// minutes. When undertime reaches 8 hours the day is reclassified absent and
-// both late and undertime are zeroed; otherwise undertime is clamped to 7 hours.
-function applyUndertimeAbsenceRule(
-  lateMins: number,
-  undertimeMins: number,
-  alreadyAbsent: boolean,
-): { lateMins: number; undertimeMins: number; absent: boolean } {
-  if (undertimeMins >= UNDERTIME_ABSENT_MINUTES) {
-    return { lateMins: 0, undertimeMins: 0, absent: true };
-  }
-  return {
-    lateMins,
-    undertimeMins: Math.min(undertimeMins, UNDERTIME_CAP_MINUTES),
-    absent: alreadyAbsent,
-  };
-}
-
-// Fetches every per-day override schedule referenced by a set of attendance logs
-// in one query, keyed by schedule id. The DTR builders use it to recompute
-// late / undertime for a day against its pinned schedule instead of the
-// employee's assigned one.
-async function loadOverrideSchedules(
-  supabase: ReturnType<typeof createAdminClient>,
-  logs: { schedule_id?: string | null }[],
-): Promise<Map<string, ScheduleLike>> {
-  const ids = [
-    ...new Set(
-      logs.map((l) => l.schedule_id).filter((id): id is string => !!id),
-    ),
-  ];
-  const map = new Map<string, ScheduleLike>();
-  if (ids.length === 0) return map;
-  const { data } = await supabase
-    .schema("hris")
-    .from("schedules")
-    .select("id, time_in, time_out, break_start, break_end")
-    .in("id", ids);
-  for (const s of (data ?? []) as unknown as ScheduleLike[]) {
-    map.set(s.id, s);
-  }
-  return map;
 }
 
 // --- Data Fetching ---
@@ -1080,47 +958,10 @@ export async function runImportReplay(batchId: string): Promise<{
 }
 
 // --- Bulk DTR (department + date range) ---
-
-export interface BulkDtrEmployee {
-  id: string;
-  first_name: string;
-  last_name: string;
-  middle_name: string | null;
-  departments: { name: string } | null;
-  positions: { title: string } | null;
-  plantilla: { position_title: string | null }[] | null;
-}
-
-export interface DtrScheduleInfo {
-  name: string;
-  time_in: string;
-  time_out: string;
-  break_start: string | null;
-  break_end: string | null;
-  has_break: boolean;
-}
-
-export interface BulkDtrResult {
-  employee: BulkDtrEmployee;
-  entries: DtrEntry[];
-  summary: DtrSummary;
-  schedule: DtrScheduleInfo;
-  signatory: DtrSignatory;
-}
-
-// Department shape (id/name/code) selected alongside DTR employees so the
-// signatory can be resolved. Both home and detailed departments use this.
-interface DtrSignatoryDeptRow {
-  id: string;
-  name: string;
-  code: string;
-}
-
-// Extra columns selected on employees purely to compute the DTR signatory.
-interface DtrSignatoryFields {
-  is_department_head: boolean;
-  detailed_department: DtrSignatoryDeptRow | null;
-}
+//
+// The ~200-line day loop these two functions used to each carry a copy of now
+// lives in buildDtrResults (@/lib/dtr-builder). What is left here is the part
+// that differs and must not be shared: who is allowed to ask.
 
 export async function getDepartmentDtrBulk(
   departmentId: string,
@@ -1148,391 +989,28 @@ export async function getDepartmentDtrBulk(
     .eq("id", departmentId)
     .maybeSingle();
 
-  // Filter by EFFECTIVE department: an employee detailed to another office is
-  // exported under that detailed office, not their home one. So include
-  // employees detailed to this department, plus employees whose home is this
-  // department and who are not detailed elsewhere.
-  const { data: employees } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select(
-      "id, first_name, last_name, middle_name, is_department_head, departments!employees_department_id_fkey(name), detailed_department:departments!employees_detailed_department_id_fkey(id, name, code), positions(title), plantilla(position_title), schedules(id, name, time_in, time_out, break_start, break_end)",
-    )
-    .or(
-      `detailed_department_id.eq.${departmentId},and(detailed_department_id.is.null,department_id.eq.${departmentId})`,
-    )
-    .eq("status", "active")
-    .eq("employment_type", "plantilla")
-    .order("last_name", { ascending: true })
-    .order("first_name", { ascending: true });
-
-  const employeeRowsAll = (employees ?? []) as unknown as (BulkDtrEmployee &
-    DtrSignatoryFields & {
-      schedules: (ScheduleLike & { name: string }) | null;
-    })[];
-  if (employeeRowsAll.length === 0) {
-    return { department: department ?? null, results: [] };
-  }
+  const employeeRowsAll = await loadDtrEmployeesForDepartment(
+    supabase,
+    departmentId,
+  );
 
   // Restrict to employees who actually have attendance_logs in the range —
   // "inclusion" is implicit by the presence of records.
-  const { data: withLogs } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("employee_id")
-    .in("employee_id", employeeRowsAll.map((e) => e.id))
-    .gte("date", startDate)
-    .lte("date", endDate);
-  const withLogsSet = new Set(
-    (withLogs ?? []).map((r) => r.employee_id as string),
-  );
-  const employeeRows = employeeRowsAll.filter((e) => withLogsSet.has(e.id));
-  if (employeeRows.length === 0) {
-    return { department: department ?? null, results: [] };
-  }
-
-  const empIds = employeeRows.map((e) => e.id);
-
-  const [{ data: logs }, { data: leaves }] = await Promise.all([
-    supabase
-      .schema("hris")
-      .from("attendance_logs")
-      .select(
-        "employee_id, date, schedule_id, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
-      )
-      .in("employee_id", empIds)
-      .gte("date", startDate)
-      .lte("date", endDate),
-    supabase
-      .schema("hris")
-      .from("leave_applications")
-      .select("employee_id, start_date, end_date, leave_dates, leave_types(code)")
-      .in("employee_id", empIds)
-      .eq("status", "approved")
-      .lte("start_date", endDate)
-      .gte("end_date", startDate),
-  ]);
-
-  // Index logs and leaves per employee
-  const logsByEmp = new Map<string, Map<string, Record<string, unknown>>>();
-  for (const log of (logs ?? []) as Record<string, unknown>[]) {
-    const empId = log.employee_id as string;
-    if (!logsByEmp.has(empId)) logsByEmp.set(empId, new Map());
-    logsByEmp.get(empId)!.set(log.date as string, log);
-  }
-
-  const leavesByEmp = new Map<string, Map<string, string>>();
-  for (const leave of (leaves ?? []) as unknown as {
-    employee_id: string;
-    start_date: string;
-    end_date: string;
-    leave_dates: string[] | null;
-    leave_types: { code: string } | null;
-  }[]) {
-    if (!leavesByEmp.has(leave.employee_id)) leavesByEmp.set(leave.employee_id, new Map());
-    const map = leavesByEmp.get(leave.employee_id)!;
-    const code = leave.leave_types?.code ?? "Leave";
-    const dates = leave.leave_dates;
-    if (dates && dates.length > 0) {
-      for (const d of dates) map.set(d, code);
-    } else {
-      const d = new Date(leave.start_date + "T00:00:00");
-      const end = new Date(leave.end_date + "T00:00:00");
-      while (d <= end) {
-        const dow = d.getDay();
-        if (dow !== 0 && dow !== 6) {
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-          map.set(key, code);
-        }
-        d.setDate(d.getDate() + 1);
-      }
-    }
-  }
-
-  // Build the calendar between startDate and endDate inclusive
-  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const calendar: { date: string; dayOfWeek: string; isWeekend: boolean }[] = [];
-  {
-    const d = new Date(startDate + "T00:00:00");
-    const end = new Date(endDate + "T00:00:00");
-    while (d <= end) {
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      const dow = d.getDay();
-      calendar.push({
-        date: dateStr,
-        dayOfWeek: dayNames[dow],
-        isWeekend: dow === 0 || dow === 6,
-      });
-      d.setDate(d.getDate() + 1);
-    }
-  }
-
-  const defaultSched = await resolveDefaultSchedule(supabase);
-  const overrideSchedMap = await loadOverrideSchedules(supabase, logs ?? []);
-  const holidayMap = await getHolidayMap(supabase, startDate, endDate);
-
-  // Resolve the DTR signatory for every employee in one batched query. Every
-  // employee here shares the same EFFECTIVE department (the one being exported):
-  // either it is their home department, or they are detailed into it. Passing
-  // the exported department as homeDept is therefore safe — for the detailed
-  // employees their detailedDept (the same department) takes precedence anyway.
-  const effectiveDept = (department as DtrSignatoryDeptRow | null) ?? null;
-  const signatoryMap = await resolveSignatories(
+  const withLogs = await employeesWithAttendance(
     supabase,
-    employeeRows.map<SignatoryInput>((emp) => ({
-      id: emp.id,
-      is_department_head: emp.is_department_head ?? false,
-      homeDept: effectiveDept,
-      detailedDept: emp.detailed_department,
-    })),
+    employeeRowsAll.map((e) => e.id),
+    startDate,
+    endDate,
   );
+  const employeeRows = employeeRowsAll.filter((e) => withLogs.has(e.id));
 
-  const results: BulkDtrResult[] = employeeRows.map((emp) => {
-    const logMap = logsByEmp.get(emp.id) ?? new Map<string, Record<string, unknown>>();
-    const leaveMap = leavesByEmp.get(emp.id) ?? new Map<string, string>();
-    const sched = emp.schedules ?? defaultSched;
-
-    const entries: DtrEntry[] = [];
-    let totalPresent = 0;
-    let totalAbsent = 0;
-    let totalOnLeave = 0;
-    let totalLateCount = 0;
-    let totalLateMinutes = 0;
-    let totalUndertimeCount = 0;
-    let totalUndertimeMinutes = 0;
-
-    for (const day of calendar) {
-      const log = logMap.get(day.date);
-      const leaveCode = leaveMap.get(day.date) ?? null;
-      const holiday = holidayMap.get(day.date) ?? null;
-      const holidayType: HolidayType | null = holiday?.type ?? null;
-      const holidayName = holiday?.name ?? null;
-      const isHalfHoliday =
-        holidayType === "half_am" || holidayType === "half_pm";
-      const hasPunch =
-        !!log &&
-        !!(log.time_in_am || log.time_out_am || log.time_in_pm || log.time_out_pm);
-
-      // Full-day holiday with no punches prints HOLIDAY across the row. If the
-      // employee actually worked the holiday, fall through so the times show.
-      //
-      // An explicit no_time_reason also falls through: somebody stated what
-      // that day was (OFF via a clear_as_off correction, LEAVE, TRAVEL...), and
-      // a recorded statement about a specific employee's day beats the
-      // calendar's default classification. Without this the short-circuit
-      // discarded the log entirely — `continue` below — so the reason never
-      // reached the DTR and a day cleared as OFF printed HOLIDAY.
-      if (holidayType === "full" && !hasPunch && !log?.no_time_reason) {
-        entries.push({
-          date: day.date,
-          day_of_week: day.dayOfWeek,
-          time_in_am: null,
-          time_out_am: null,
-          time_in_pm: null,
-          time_out_pm: null,
-          is_late: false,
-          late_minutes: 0,
-          is_undertime: false,
-          undertime_minutes: 0,
-          is_absent: false,
-          remarks: holidayName,
-          leave_type: null,
-          holiday: "full",
-          holiday_name: holidayName,
-          no_time_reason_label: null,
-          ...EMPTY_SLOT_REASONS,
-        });
-        continue;
-      }
-
-      if (log) {
-        const isAbsent = (log.is_absent as boolean) ?? false;
-        const noTimeReasonLabel = log.no_time_reason
-          ? NO_TIME_REASON_LABELS[log.no_time_reason as NoTimeReason] ?? null
-          : null;
-        const tInAmRaw = log.time_in_am as string | null;
-        const tInPmRaw = log.time_in_pm as string | null;
-        const tOutPmRaw = log.time_out_pm as string | null;
-        // A day pinned to an override schedule is scored against that schedule;
-        // otherwise against the employee's current assigned schedule. Either way
-        // late/undertime are recomputed (not read from the stored flags) so the
-        // numbers stay correct even after a schedule change.
-        const daySched =
-          (log.schedule_id
-            ? overrideSchedMap.get(log.schedule_id as string)
-            : null) ?? sched;
-        const lateMins = lateMinutesFor(
-          day.date,
-          daySched,
-          extractTime(tInAmRaw),
-          timestampOnNextDay(tInAmRaw, day.date),
-        );
-        const undertimeMins = undertimeMinutesFor(
-          day.date,
-          daySched,
-          extractTime(tOutPmRaw),
-          timestampOnNextDay(tOutPmRaw, day.date),
-          !!tInAmRaw,
-          extractTime(tInPmRaw),
-          timestampOnNextDay(tInPmRaw, day.date),
-        );
-        const reasonInAm = slotReasonShort(log.time_in_am_reason);
-        const reasonOutAm = slotReasonShort(log.time_out_am_reason);
-        const reasonInPm = slotReasonShort(log.time_in_pm_reason);
-        const reasonOutPm = slotReasonShort(log.time_out_pm_reason);
-        // An excused slot — or the holiday portion of a worked holiday — drops
-        // the tardiness/undertime tied to it.
-        const holidayExcusesLate =
-          holidayType === "full" || holidayType === "half_am";
-        const holidayExcusesUndertime =
-          holidayType === "full" || holidayType === "half_pm";
-        const effLateMins = reasonInAm || holidayExcusesLate ? 0 : lateMins;
-        const effUndertimeMins =
-          reasonOutPm || holidayExcusesUndertime ? 0 : undertimeMins;
-        // Cap undertime at 7h; 8h+ reclassifies the day as absent.
-        const {
-          lateMins: finalLateMins,
-          undertimeMins: cappedUndertimeMins,
-          absent: dayAbsent,
-        } = applyUndertimeAbsenceRule(effLateMins, effUndertimeMins, isAbsent);
-        // An absent day is charged a full 8-hour undertime on the DTR.
-        const finalUndertimeMins = dayAbsent
-          ? UNDERTIME_ABSENT_MINUTES
-          : cappedUndertimeMins;
-        const isLate = finalLateMins > 0;
-        const isUndertime = finalUndertimeMins > 0;
-        // A late return from lunch (unexcused, non-holiday) prints the PM
-        // arrival red.
-        const pmLateMins = pmLateMinutesFor(
-          day.date,
-          daySched,
-          extractTime(tInPmRaw),
-          timestampOnNextDay(tInPmRaw, day.date),
-        );
-        const isPmLate =
-          !reasonInPm && !holidayExcusesUndertime && pmLateMins > 0;
-        // An absent day (already absent, or reclassified by the 8h rule) prints
-        // ABSENT across the row, so any partial punches are not shown.
-        const showTimes = !dayAbsent;
-
-        entries.push({
-          date: day.date,
-          day_of_week: day.dayOfWeek,
-          time_in_am: showTimes ? extractTime(tInAmRaw) : null,
-          time_out_am: showTimes ? extractTime(log.time_out_am as string | null) : null,
-          time_in_pm: showTimes ? extractTime(log.time_in_pm as string | null) : null,
-          time_out_pm: showTimes ? extractTime(tOutPmRaw) : null,
-          is_late: isLate,
-          late_minutes: finalLateMins,
-          is_pm_late: showTimes && isPmLate,
-          is_undertime: isUndertime,
-          undertime_minutes: finalUndertimeMins,
-          is_absent: dayAbsent,
-          remarks: (log.remarks as string | null) ?? null,
-          leave_type: leaveCode,
-          holiday: holidayType,
-          holiday_name: holidayName,
-          no_time_reason_label: noTimeReasonLabel,
-          reason_in_am: showTimes ? reasonInAm : null,
-          reason_out_am: showTimes ? reasonOutAm : null,
-          reason_in_pm: showTimes ? reasonInPm : null,
-          reason_out_pm: showTimes ? reasonOutPm : null,
-        });
-
-        if (!dayAbsent) totalPresent++;
-        else totalAbsent++;
-        if (isLate) {
-          totalLateCount++;
-          totalLateMinutes += finalLateMins;
-        }
-        if (isUndertime) {
-          totalUndertimeCount++;
-          totalUndertimeMinutes += finalUndertimeMins;
-        }
-      } else if (!day.isWeekend && leaveCode) {
-        entries.push({
-          date: day.date,
-          day_of_week: day.dayOfWeek,
-          time_in_am: null,
-          time_out_am: null,
-          time_in_pm: null,
-          time_out_pm: null,
-          is_late: false,
-          late_minutes: 0,
-          is_undertime: false,
-          undertime_minutes: 0,
-          is_absent: false,
-          remarks: leaveCode,
-          leave_type: leaveCode,
-          holiday: holidayType,
-          holiday_name: holidayName,
-          no_time_reason_label: null,
-          ...EMPTY_SLOT_REASONS,
-        });
-        totalOnLeave++;
-      } else {
-        // A half-day holiday with no punches is not counted as an absence.
-        const absent = !day.isWeekend && !isHalfHoliday;
-        // An absent day is charged a full 8-hour undertime on the DTR.
-        const absentUndertime = absent ? UNDERTIME_ABSENT_MINUTES : 0;
-        entries.push({
-          date: day.date,
-          day_of_week: day.dayOfWeek,
-          time_in_am: null,
-          time_out_am: null,
-          time_in_pm: null,
-          time_out_pm: null,
-          is_late: false,
-          late_minutes: 0,
-          is_undertime: absent,
-          undertime_minutes: absentUndertime,
-          is_absent: absent,
-          remarks: day.isWeekend ? "Weekend" : isHalfHoliday ? holidayName : null,
-          leave_type: null,
-          holiday: holidayType,
-          holiday_name: holidayName,
-          no_time_reason_label: null,
-          ...EMPTY_SLOT_REASONS,
-        });
-        if (absent) {
-          totalAbsent++;
-          totalUndertimeCount++;
-          totalUndertimeMinutes += absentUndertime;
-        }
-      }
-    }
-
-    return {
-      employee: {
-        id: emp.id,
-        first_name: emp.first_name,
-        last_name: emp.last_name,
-        middle_name: emp.middle_name,
-        departments: emp.departments,
-        positions: emp.positions,
-        plantilla: emp.plantilla,
-      },
-      entries,
-      summary: {
-        total_days_present: totalPresent,
-        total_days_absent: totalAbsent,
-        total_days_on_leave: totalOnLeave,
-        total_late_count: totalLateCount,
-        total_late_minutes: totalLateMinutes,
-        total_undertime_count: totalUndertimeCount,
-        total_undertime_minutes: totalUndertimeMinutes,
-      },
-      schedule: {
-        name: emp.schedules?.name ?? "Default 8:00–17:00",
-        time_in: trimTimeStr(sched.time_in)!,
-        time_out: trimTimeStr(sched.time_out)!,
-        break_start: trimTimeStr(sched.break_start),
-        break_end: trimTimeStr(sched.break_end),
-        has_break: hasBreak(sched),
-      },
-      signatory: signatoryMap.get(emp.id) ?? { name: "", title: "" },
-    };
-  });
+  const results = await buildDtrResults(
+    supabase,
+    employeeRows,
+    startDate,
+    endDate,
+    (department as DtrSignatoryDeptRow | null) ?? null,
+  );
 
   return { department: department ?? null, results };
 }
@@ -1559,16 +1037,15 @@ export async function getEmployeeDtrRange(
   const { data: employee } = await supabase
     .schema("hris")
     .from("employees")
-    .select(
-      "id, first_name, last_name, middle_name, department_id, user_profile_id, is_department_head, departments!employees_department_id_fkey(id, name, code), detailed_department:departments!employees_detailed_department_id_fkey(id, name, code), positions(title), plantilla(position_title), schedules(id, name, time_in, time_out, break_start, break_end)",
-    )
+    .select(DTR_EMPLOYEE_SELECT)
     .eq("id", employeeId)
     .maybeSingle();
 
   if (!employee) return null;
+  const emp = employee as unknown as DtrEmployeeRow;
 
   // Employees may only fetch their own DTR.
-  if (user.role === "employee" && (employee as { user_profile_id: string | null }).user_profile_id !== user.id) {
+  if (user.role === "employee" && emp.user_profile_id !== user.id) {
     throw new Error("Unauthorized");
   }
 
@@ -1578,334 +1055,21 @@ export async function getEmployeeDtrRange(
     isDeptScoped(user.role) &&
     user.role !== "department_admin_and_department_head" &&
     user.departmentId &&
-    (employee as { department_id: string | null }).department_id !== user.departmentId
+    emp.department_id !== user.departmentId
   ) {
     throw new Error("Unauthorized");
   }
 
-  const [{ data: logs }, { data: leaves }] = await Promise.all([
-    supabase
-      .schema("hris")
-      .from("attendance_logs")
-      .select(
-        "date, schedule_id, time_in_am, time_out_am, time_in_pm, time_out_pm, is_late, late_minutes, is_undertime, undertime_minutes, is_absent, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
-      )
-      .eq("employee_id", employeeId)
-      .gte("date", startDate)
-      .lte("date", endDate),
-    supabase
-      .schema("hris")
-      .from("leave_applications")
-      .select("start_date, end_date, leave_dates, leave_types(code)")
-      .eq("employee_id", employeeId)
-      .eq("status", "approved")
-      .lte("start_date", endDate)
-      .gte("end_date", startDate),
-  ]);
-
-  const logMap = new Map<string, Record<string, unknown>>();
-  for (const log of (logs ?? []) as Record<string, unknown>[]) {
-    logMap.set(log.date as string, log);
-  }
-
-  const leaveMap = new Map<string, string>();
-  for (const leave of (leaves ?? []) as unknown as {
-    start_date: string;
-    end_date: string;
-    leave_dates: string[] | null;
-    leave_types: { code: string } | null;
-  }[]) {
-    const code = leave.leave_types?.code ?? "Leave";
-    const dates = leave.leave_dates;
-    if (dates && dates.length > 0) {
-      for (const d of dates) leaveMap.set(d, code);
-    } else {
-      const d = new Date(leave.start_date + "T00:00:00");
-      const end = new Date(leave.end_date + "T00:00:00");
-      while (d <= end) {
-        const dow = d.getDay();
-        if (dow !== 0 && dow !== 6) {
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-          leaveMap.set(key, code);
-        }
-        d.setDate(d.getDate() + 1);
-      }
-    }
-  }
-
-  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const entries: DtrEntry[] = [];
-  let totalPresent = 0;
-  let totalAbsent = 0;
-  let totalOnLeave = 0;
-  let totalLateCount = 0;
-  let totalLateMinutes = 0;
-  let totalUndertimeCount = 0;
-  let totalUndertimeMinutes = 0;
-
-  // Resolve current schedule once so late/undertime per row reflect the
-  // schedule the employee is assigned to *now* (not whatever was stamped at
-  // import time).
-  const empSchedule =
-    ((employee as unknown) as { schedules: ScheduleLike | null }).schedules ??
-    (await resolveDefaultSchedule(supabase));
-
-  const overrideSchedMap = await loadOverrideSchedules(supabase, logs ?? []);
-  const holidayMap = await getHolidayMap(supabase, startDate, endDate);
-
-  const cursor = new Date(startDate + "T00:00:00");
-  const end = new Date(endDate + "T00:00:00");
-  while (cursor <= end) {
-    const dateStr = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
-    const dow = cursor.getDay();
-    const dayOfWeek = dayNames[dow];
-    const isWeekend = dow === 0 || dow === 6;
-    const log = logMap.get(dateStr);
-    const leaveCode = leaveMap.get(dateStr) ?? null;
-    const holiday = holidayMap.get(dateStr) ?? null;
-    const holidayType: HolidayType | null = holiday?.type ?? null;
-    const holidayName = holiday?.name ?? null;
-    const isHalfHoliday =
-      holidayType === "half_am" || holidayType === "half_pm";
-    const hasPunch =
-      !!log &&
-      !!(log.time_in_am || log.time_out_am || log.time_in_pm || log.time_out_pm);
-
-    // Full-day holiday with no punches prints HOLIDAY across the row. If the
-    // employee actually worked the holiday, fall through so the times show.
-    //
-    // An explicit no_time_reason also falls through: somebody stated what that
-    // day was (OFF via a clear_as_off correction, LEAVE, TRAVEL...), and a
-    // recorded statement about a specific employee's day beats the calendar's
-    // default classification. Without this the short-circuit discarded the log
-    // entirely — `continue` below — so the reason never reached the DTR and a
-    // day cleared as OFF printed HOLIDAY.
-    if (holidayType === "full" && !hasPunch && !log?.no_time_reason) {
-      entries.push({
-        date: dateStr,
-        day_of_week: dayOfWeek,
-        time_in_am: null,
-        time_out_am: null,
-        time_in_pm: null,
-        time_out_pm: null,
-        is_late: false,
-        late_minutes: 0,
-        is_undertime: false,
-        undertime_minutes: 0,
-        is_absent: false,
-        remarks: holidayName,
-        leave_type: null,
-        holiday: "full",
-        holiday_name: holidayName,
-        no_time_reason_label: null,
-        ...EMPTY_SLOT_REASONS,
-      });
-      cursor.setDate(cursor.getDate() + 1);
-      continue;
-    }
-
-    if (log) {
-      const isAbsent = (log.is_absent as boolean) ?? false;
-      const noTimeReasonLabel = log.no_time_reason
-        ? NO_TIME_REASON_LABELS[log.no_time_reason as NoTimeReason] ?? null
-        : null;
-      const tInAmRaw = log.time_in_am as string | null;
-      const tInPmRaw = log.time_in_pm as string | null;
-      const tOutPmRaw = log.time_out_pm as string | null;
-      // Score the day against its pinned override schedule when one is set,
-      // otherwise the employee's current assigned schedule.
-      const daySched =
-        (log.schedule_id
-          ? overrideSchedMap.get(log.schedule_id as string)
-          : null) ?? empSchedule;
-      const lateMins = lateMinutesFor(
-        dateStr,
-        daySched,
-        extractTime(tInAmRaw),
-        timestampOnNextDay(tInAmRaw, dateStr),
-      );
-      const undertimeMins = undertimeMinutesFor(
-        dateStr,
-        daySched,
-        extractTime(tOutPmRaw),
-        timestampOnNextDay(tOutPmRaw, dateStr),
-        !!tInAmRaw,
-        extractTime(tInPmRaw),
-        timestampOnNextDay(tInPmRaw, dateStr),
-      );
-      const reasonInAm = slotReasonShort(log.time_in_am_reason);
-      const reasonOutAm = slotReasonShort(log.time_out_am_reason);
-      const reasonInPm = slotReasonShort(log.time_in_pm_reason);
-      const reasonOutPm = slotReasonShort(log.time_out_pm_reason);
-      // An excused slot — or the holiday portion of a worked holiday — drops
-      // the tardiness/undertime tied to it.
-      const holidayExcusesLate =
-        holidayType === "full" || holidayType === "half_am";
-      const holidayExcusesUndertime =
-        holidayType === "full" || holidayType === "half_pm";
-      const effLateMins = reasonInAm || holidayExcusesLate ? 0 : lateMins;
-      const effUndertimeMins =
-        reasonOutPm || holidayExcusesUndertime ? 0 : undertimeMins;
-      // Cap undertime at 7h; 8h+ reclassifies the day as absent.
-      const {
-        lateMins: finalLateMins,
-        undertimeMins: cappedUndertimeMins,
-        absent: dayAbsent,
-      } = applyUndertimeAbsenceRule(effLateMins, effUndertimeMins, isAbsent);
-      // An absent day is charged a full 8-hour undertime on the DTR.
-      const finalUndertimeMins = dayAbsent
-        ? UNDERTIME_ABSENT_MINUTES
-        : cappedUndertimeMins;
-      const isLate = finalLateMins > 0;
-      const isUndertime = finalUndertimeMins > 0;
-      // A late return from lunch (unexcused, non-holiday) prints the PM
-      // arrival red.
-      const pmLateMins = pmLateMinutesFor(
-        dateStr,
-        daySched,
-        extractTime(tInPmRaw),
-        timestampOnNextDay(tInPmRaw, dateStr),
-      );
-      const isPmLate =
-        !reasonInPm && !holidayExcusesUndertime && pmLateMins > 0;
-      // An absent day (already absent, or reclassified by the 8h rule) prints
-      // ABSENT across the row, so any partial punches are not shown.
-      const showTimes = !dayAbsent;
-
-      entries.push({
-        date: dateStr,
-        day_of_week: dayOfWeek,
-        time_in_am: showTimes ? extractTime(tInAmRaw) : null,
-        time_out_am: showTimes ? extractTime(log.time_out_am as string | null) : null,
-        time_in_pm: showTimes ? extractTime(log.time_in_pm as string | null) : null,
-        time_out_pm: showTimes ? extractTime(tOutPmRaw) : null,
-        is_late: isLate,
-        late_minutes: finalLateMins,
-        is_pm_late: showTimes && isPmLate,
-        is_undertime: isUndertime,
-        undertime_minutes: finalUndertimeMins,
-        is_absent: dayAbsent,
-        remarks: (log.remarks as string | null) ?? null,
-        leave_type: leaveCode,
-        holiday: holidayType,
-        holiday_name: holidayName,
-        no_time_reason_label: noTimeReasonLabel,
-        reason_in_am: showTimes ? reasonInAm : null,
-        reason_out_am: showTimes ? reasonOutAm : null,
-        reason_in_pm: showTimes ? reasonInPm : null,
-        reason_out_pm: showTimes ? reasonOutPm : null,
-      });
-
-      if (!dayAbsent) totalPresent++;
-      else totalAbsent++;
-      if (isLate) {
-        totalLateCount++;
-        totalLateMinutes += finalLateMins;
-      }
-      if (isUndertime) {
-        totalUndertimeCount++;
-        totalUndertimeMinutes += finalUndertimeMins;
-      }
-    } else if (!isWeekend && leaveCode) {
-      entries.push({
-        date: dateStr,
-        day_of_week: dayOfWeek,
-        time_in_am: null,
-        time_out_am: null,
-        time_in_pm: null,
-        time_out_pm: null,
-        is_late: false,
-        late_minutes: 0,
-        is_undertime: false,
-        undertime_minutes: 0,
-        is_absent: false,
-        remarks: leaveCode,
-        leave_type: leaveCode,
-        holiday: holidayType,
-        holiday_name: holidayName,
-        no_time_reason_label: null,
-        ...EMPTY_SLOT_REASONS,
-      });
-      totalOnLeave++;
-    } else {
-      // A half-day holiday with no punches is not counted as an absence.
-      const absent = !isWeekend && !isHalfHoliday;
-      // An absent day is charged a full 8-hour undertime on the DTR.
-      const absentUndertime = absent ? UNDERTIME_ABSENT_MINUTES : 0;
-      entries.push({
-        date: dateStr,
-        day_of_week: dayOfWeek,
-        time_in_am: null,
-        time_out_am: null,
-        time_in_pm: null,
-        time_out_pm: null,
-        is_late: false,
-        late_minutes: 0,
-        is_undertime: absent,
-        undertime_minutes: absentUndertime,
-        is_absent: absent,
-        remarks: isWeekend ? "Weekend" : isHalfHoliday ? holidayName : null,
-        leave_type: null,
-        holiday: holidayType,
-        holiday_name: holidayName,
-        no_time_reason_label: null,
-        ...EMPTY_SLOT_REASONS,
-      });
-      if (absent) {
-        totalAbsent++;
-        totalUndertimeCount++;
-        totalUndertimeMinutes += absentUndertime;
-      }
-    }
-
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  const emp = employee as unknown as BulkDtrEmployee &
-    DtrSignatoryFields & {
-      departments: DtrSignatoryDeptRow | null;
-      schedules: (ScheduleLike & { name: string }) | null;
-    };
-
-  const signatoryMap = await resolveSignatories(supabase, [
-    {
-      id: emp.id,
-      is_department_head: emp.is_department_head ?? false,
-      homeDept: emp.departments,
-      detailedDept: emp.detailed_department,
-    },
-  ]);
-
-  return {
-    employee: {
-      id: emp.id,
-      first_name: emp.first_name,
-      last_name: emp.last_name,
-      middle_name: emp.middle_name,
-      departments: emp.departments,
-      positions: emp.positions,
-      plantilla: emp.plantilla,
-    },
-    entries,
-    summary: {
-      total_days_present: totalPresent,
-      total_days_absent: totalAbsent,
-      total_days_on_leave: totalOnLeave,
-      total_late_count: totalLateCount,
-      total_late_minutes: totalLateMinutes,
-      total_undertime_count: totalUndertimeCount,
-      total_undertime_minutes: totalUndertimeMinutes,
-    },
-    schedule: {
-      name: emp.schedules?.name ?? "Default 8:00–17:00",
-      time_in: trimTimeStr(empSchedule.time_in)!,
-      time_out: trimTimeStr(empSchedule.time_out)!,
-      break_start: trimTimeStr(empSchedule.break_start),
-      break_end: trimTimeStr(empSchedule.break_end),
-      has_break: hasBreak(empSchedule),
-    },
-    signatory: signatoryMap.get(emp.id) ?? { name: "", title: "" },
-  };
+  // No signatory override: an individual export is not tied to a department
+  // being printed, so the employee's own home department stands.
+  const [result] = await buildDtrResults(
+    supabase,
+    [emp],
+    startDate,
+    endDate,
+    null,
+  );
+  return result ?? null;
 }
 
 

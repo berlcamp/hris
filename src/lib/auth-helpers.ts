@@ -278,6 +278,33 @@ export function canDirectApplyAttendanceCorrection(
   return !!role && CORRECTION_DIRECT_APPLY_ROLES.includes(role);
 }
 
+// Roles that may open the Weekly DTR module — download a completed week's DTR
+// for the employees their department is accountable for.
+//
+// This is deliberately a separate power from canAccessAttendance and
+// canPrintDtr, which the department-scoped roles are excluded from and stay
+// excluded from. Weekly DTR grants exactly one verb, download, over one unit,
+// a finished week, and only where attendance was actually recorded. It carries
+// no reach into the Dahua importer, entry deletion, schedules, or arbitrary
+// date ranges — the things those two helpers gate.
+//
+// hr_admin and super_admin are included because they already reach every DTR
+// through canPrintDtr; having them here means one page serves both audiences
+// rather than HR being told to go use a different module.
+const WEEKLY_DTR_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "department_head",
+  "department_admin",
+  "department_admin_and_department_head",
+] as const;
+
+export function canDownloadWeeklyDtr(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && WEEKLY_DTR_ROLES.includes(role);
+}
+
 // Anyone who may open the correction wizard at all, by either route. Use this
 // for route/nav gating; use the two specific helpers to decide what the filing
 // actually DOES.

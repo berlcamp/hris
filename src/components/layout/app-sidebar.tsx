@@ -37,6 +37,7 @@ import {
   LayoutTemplate,
   Hammer,
   ClipboardCheck,
+  CalendarRange,
 } from "lucide-react";
 
 import {
@@ -168,6 +169,17 @@ const correctionRoles: UserRole[] = [
   // has today through Manual Attendance Entry.
   "ocm_admin",
 ];
+// Weekly DTR. Like the corrections route above, this deliberately reaches the
+// department-scoped roles that attendanceRoles excludes: downloading a finished
+// week's DTR for your own department is not attendance access, and the module
+// has no write path. Mirrors canDownloadWeeklyDtr in src/lib/auth-helpers.ts.
+const weeklyDtrRoles: UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "department_head",
+  "department_admin",
+  "department_admin_and_department_head",
+];
 
 const navGroups: NavGroup[] = [
   {
@@ -228,6 +240,12 @@ const navGroups: NavGroup[] = [
         roles: ["super_admin", "hr_admin"],
       },
       { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: attendanceRoles },
+      {
+        title: "Weekly DTR",
+        href: "/weekly-dtr",
+        icon: CalendarRange,
+        roles: weeklyDtrRoles,
+      },
       {
         title: "Attendance Corrections",
         href: "/attendance-corrections",
