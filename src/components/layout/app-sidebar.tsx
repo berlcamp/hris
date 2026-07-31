@@ -175,6 +175,9 @@ const correctionRoles: UserRole[] = [
 // has no write path. Mirrors canDownloadWeeklyDtr in src/lib/auth-helpers.ts.
 const weeklyDtrRoles: UserRole[] = [
   "super_admin",
+  // Same reach as HR here: OCM Admin already prints DTRs across departments
+  // (canPrintDtr), so it picks the department rather than being pinned to one.
+  "ocm_admin",
   "hr_admin",
   "department_head",
   "department_admin",

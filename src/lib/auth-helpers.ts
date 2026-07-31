@@ -286,11 +286,14 @@ export function canDirectApplyAttendanceCorrection(
 // no reach into the Dahua importer, entry deletion, schedules, or arbitrary
 // date ranges — the things those two helpers gate.
 //
-// hr_admin and super_admin are included because they already reach every DTR
-// through canPrintDtr; having them here means one page serves both audiences
-// rather than HR being told to go use a different module.
+// hr_admin, super_admin and ocm_admin are included because they already reach
+// every DTR through canPrintDtr; having them here means one page serves both
+// audiences rather than HR being told to go use a different module. OCM Admin
+// is not department-scoped, so like HR it picks the department (see
+// resolveScope in weekly-dtr-actions).
 const WEEKLY_DTR_ROLES: readonly UserRole[] = [
   "super_admin",
+  "ocm_admin",
   "hr_admin",
   "department_head",
   "department_admin",
