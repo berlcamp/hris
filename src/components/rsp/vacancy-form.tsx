@@ -29,6 +29,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { commandSubstringFilter } from "@/lib/command-filter";
 import { createVacancy, updateVacancy } from "@/lib/actions/rsp-actions";
 import type {
   VacantPlantillaItem,
@@ -172,7 +173,7 @@ export function VacancyForm({ plantillaItems, vacancy }: VacancyFormProps) {
                   <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                 </PopoverTrigger>
                 <PopoverContent className="w-full p-0" align="start">
-                  <Command>
+                  <Command filter={commandSubstringFilter}>
                     <CommandInput placeholder="Search by item number or position..." />
                     <CommandList>
                       <CommandEmpty>

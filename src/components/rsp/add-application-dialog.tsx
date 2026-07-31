@@ -31,6 +31,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { commandSubstringFilter } from "@/lib/command-filter";
+import { employeeSearchKeywords } from "@/lib/employee-name-match";
 import { createApplication, getApplicants } from "@/lib/actions/rsp-actions";
 import type { RspApplicant } from "@/lib/types";
 import { applicationFormSchema } from "@/lib/validations/rsp-schema";
@@ -152,7 +154,7 @@ export function AddApplicationDialog({
                   <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                 </PopoverTrigger>
                 <PopoverContent className="w-full p-0" align="start">
-                  <Command>
+                  <Command filter={commandSubstringFilter}>
                     <CommandInput placeholder="Search applicants..." />
                     <CommandList>
                       <CommandEmpty>
@@ -163,6 +165,7 @@ export function AddApplicationDialog({
                           <CommandItem
                             key={a.id}
                             value={`${a.last_name} ${a.first_name}`}
+                            keywords={employeeSearchKeywords(a)}
                             onSelect={() => {
                               setApplicantId(a.id);
                               setPickerOpen(false);

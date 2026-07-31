@@ -21,6 +21,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { employeeSearchKeywords } from "@/lib/employee-name-match";
+import { commandSubstringFilter } from "@/lib/command-filter";
 import { createIpcrRecord } from "@/lib/actions/ipcr-actions";
 import { getAdjectivalRating, getRatingColor } from "@/lib/ipcr-utils";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
@@ -117,7 +119,7 @@ export function IpcrForm({ employees, activePeriod }: IpcrFormProps) {
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </PopoverTrigger>
               <PopoverContent className="w-[400px] p-0" align="start">
-                <Command>
+                <Command filter={commandSubstringFilter}>
                   <CommandInput placeholder="Search employee..." />
                   <CommandList>
                     <CommandEmpty>No employee found.</CommandEmpty>
@@ -126,6 +128,7 @@ export function IpcrForm({ employees, activePeriod }: IpcrFormProps) {
                         <CommandItem
                           key={emp.id}
                           value={`${emp.last_name} ${emp.first_name}`}
+                          keywords={employeeSearchKeywords(emp)}
                           onSelect={() => {
                             setEmployeeId(emp.id);
                             setEmpOpen(false);
