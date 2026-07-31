@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
   canEditDetailedDepartment,
   canEditDetailedDepartmentAnyDept,
+  canFlagCorrectionEligible,
   canManageHrRecords,
   isCompositeDeptAdminHead,
   isDeptHead,
@@ -47,6 +48,7 @@ export interface EmployeeWithRelations {
   status_remarks: string | null;
   user_profile_id: string | null;
   vl_sl_needs_manual_entry: boolean;
+  attendance_correction_eligible: boolean;
   created_at: string;
   updated_at: string;
   schedule_id: string | null;
@@ -336,6 +338,66 @@ export async function updateEmployeeDetailedDepartment(
 
   revalidatePath("/employees");
   revalidatePath(`/employees/${employeeId}`);
+  return { success: true };
+}
+
+// Flags an employee as correctable by their Department Admin. Deliberately
+// lives here, next to updateEmployeeDetailedDepartment, rather than in
+// attendance-correction-actions.ts: it is a single-field edit on the employee
+// RECORD, made from the employees list, and shares that action's
+// `{ success } | { error }` return shape because both are called from the same
+// EmployeeActionsCell.
+//
+// Authority is canFlagCorrectionEligible — the same set that reviews
+// corrections (super_admin, hr_admin, dtr_manager). Deciding WHO can be
+// corrected is the same authority as deciding WHAT gets corrected, so this is
+// intentionally NOT delegated to the department. No department scoping either:
+// every role in that set already has cross-department reach.
+export async function setAttendanceCorrectionEligible(
+  employeeId: string,
+  eligible: boolean,
+) {
+  const user = await getCurrentUser();
+  if (!user || !canFlagCorrectionEligible(user.role)) {
+    return { error: "You are not allowed to change correction eligibility." };
+  }
+
+  const supabase = createAdminClient();
+
+  const { data: employee, error: fetchError } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select("id, attendance_correction_eligible")
+    .eq("id", employeeId)
+    .single();
+  if (fetchError || !employee) return { error: "Employee not found." };
+
+  const { error } = await supabase
+    .schema("hris")
+    .from("employees")
+    .update({ attendance_correction_eligible: eligible })
+    .eq("id", employeeId);
+  if (error) return { error: error.message };
+
+  await logAudit({
+    userId: user.id,
+    userEmail: user.email,
+    action: "update",
+    tableName: "employees",
+    recordId: employeeId,
+    oldValues: {
+      attendance_correction_eligible: employee.attendance_correction_eligible,
+    },
+    newValues: { attendance_correction_eligible: eligible },
+  });
+
+  // Turning the flag OFF does not touch requests already filed for this
+  // employee: a live request was authorised when it was filed and stays
+  // reviewable. The flag gates who can be PICKED for a new request
+  // (getCorrectableEmployees), not what happens to existing ones.
+  revalidatePath("/employees");
+  revalidatePath(`/employees/${employeeId}`);
+  revalidatePath("/attendance-corrections");
   return { success: true };
 }
 

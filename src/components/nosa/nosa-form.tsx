@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/select";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { employeeSearchKeywords } from "@/lib/employee-name-match";
+import { commandSubstringFilter } from "@/lib/command-filter";
 import { createNosa } from "@/lib/actions/nosa-actions";
 import { getSalaryAmount } from "@/lib/actions/nosi-actions";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
@@ -121,7 +123,7 @@ export function NosaForm({ employees }: NosaFormProps) {
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </PopoverTrigger>
               <PopoverContent className="w-full p-0" align="start">
-                <Command>
+                <Command filter={commandSubstringFilter}>
                   <CommandInput placeholder="Search by name or employee no..." />
                   <CommandList>
                     <CommandEmpty>No employees found.</CommandEmpty>
@@ -130,6 +132,7 @@ export function NosaForm({ employees }: NosaFormProps) {
                         <CommandItem
                           key={emp.id}
                           value={`${emp.last_name} ${emp.first_name}`}
+                          keywords={employeeSearchKeywords(emp)}
                           onSelect={() => handleSelectEmployee(emp)}
                         >
                           <Check className={cn("mr-2 h-4 w-4", selectedEmp?.id === emp.id ? "opacity-100" : "opacity-0")} />

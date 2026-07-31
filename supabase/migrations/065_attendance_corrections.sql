@@ -1,0 +1,289 @@
+-- Migration 065: Attendance corrections
+--
+-- A Department Admin can file a proof-backed request to correct an employee's
+-- attendance over a date range; nothing reaches hris.attendance_logs until an
+-- HR admin / DTR Manager approves it.
+--
+-- Three parts:
+--   1. employees.attendance_correction_eligible — HR flags who is correctable.
+--   2. The 'no_break' reason code, for a day worked straight through lunch.
+--      Without it the DTR's two middle cells print blank and read as missed
+--      punches. The late/undertime math for such a day is already correct.
+--   3. attendance_logs.correction_locked — an applied correction must survive a
+--      later biometric import, including one run with "overwrite existing" ON.
+
+SET search_path TO hris, public, auth, extensions;
+
+-- daterange overlap exclusion below needs GiST over a scalar (employee_id).
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+-- 1. Eligibility -------------------------------------------------------------
+
+ALTER TABLE hris.employees
+  ADD COLUMN IF NOT EXISTS attendance_correction_eligible BOOLEAN NOT NULL
+    DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS idx_employees_correction_eligible
+  ON hris.employees(attendance_correction_eligible)
+  WHERE attendance_correction_eligible;
+
+-- 2. The 'no_break' reason code ----------------------------------------------
+-- Widens the CHECK on all five reason columns. Same re-runnable DO-block
+-- pattern as migrations 053 and 054: drop both the auto-named inline CHECK and
+-- the previous named one, then re-add with the widened list.
+
+DO $$
+DECLARE
+  col TEXT;
+  allowed CONSTANT TEXT :=
+    '''travel'', ''field_work'', ''official_business'', ''holiday'', ''off'', ''no_break''';
+BEGIN
+  FOREACH col IN ARRAY ARRAY[
+    'no_time_reason',
+    'time_in_am_reason',
+    'time_out_am_reason',
+    'time_in_pm_reason',
+    'time_out_pm_reason'
+  ] LOOP
+    EXECUTE format(
+      'ALTER TABLE hris.attendance_logs DROP CONSTRAINT IF EXISTS %I',
+      'attendance_logs_' || col || '_check'
+    );
+    EXECUTE format(
+      'ALTER TABLE hris.attendance_logs DROP CONSTRAINT IF EXISTS %I',
+      'attendance_logs_' || col || '_allowed'
+    );
+    EXECUTE format(
+      'ALTER TABLE hris.attendance_logs ADD CONSTRAINT %I CHECK (%I IN (%s))',
+      'attendance_logs_' || col || '_allowed', col, allowed
+    );
+  END LOOP;
+END $$;
+
+-- 3. Import protection --------------------------------------------------------
+-- runImportReplay already skips days whose source is no longer 'biometric', but
+-- importDahuaAttendance with overwrite ON upserts unconditionally. An explicit
+-- flag is used rather than relying on `source`, which other flows may reset.
+
+ALTER TABLE hris.attendance_logs
+  ADD COLUMN IF NOT EXISTS correction_locked BOOLEAN NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS idx_attendance_logs_correction_locked
+  ON hris.attendance_logs(correction_locked)
+  WHERE correction_locked;
+
+-- 4. Requests -----------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS hris.attendance_correction_requests (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id        UUID NOT NULL REFERENCES hris.employees(id),
+  -- Effective department (detailed_department_id ?? department_id), snapshot at
+  -- submit time so a later re-detail does not orphan a pending request.
+  department_id      UUID REFERENCES hris.departments(id),
+  date_from          DATE NOT NULL,
+  date_to            DATE NOT NULL,
+  reason             TEXT NOT NULL,
+  proof_path         TEXT NOT NULL,
+  proof_filename     TEXT NOT NULL,
+  proof_mime         TEXT,
+  proof_size         INT,
+  status             TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','needs_rebase','approved','rejected','cancelled')),
+  requested_by       UUID,
+  requested_by_email TEXT,
+  requested_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_by        UUID,
+  reviewed_by_email  TEXT,
+  reviewed_at        TIMESTAMPTZ,
+  review_notes       TEXT,
+  applied_at         TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT acr_range_chk CHECK (date_to >= date_from)
+);
+
+CREATE INDEX IF NOT EXISTS idx_acr_status ON hris.attendance_correction_requests(status);
+CREATE INDEX IF NOT EXISTS idx_acr_department ON hris.attendance_correction_requests(department_id);
+CREATE INDEX IF NOT EXISTS idx_acr_employee ON hris.attendance_correction_requests(employee_id);
+
+-- Deliberately unconstrained: this is a free-text narrative the requester
+-- types ("Assigned to night rotation per Office Order 2026-114"), not a code.
+-- Contrast with the proposed_*_reason columns on attendance_correction_items
+-- below, which hold one of the five fixed CORRECTION_REASONS codes and are
+-- CHECK-constrained accordingly. Do not add a CHECK here.
+COMMENT ON COLUMN hris.attendance_correction_requests.reason IS
+  'Free-text narrative for the whole request, not a reason code. See '
+  'attendance_correction_items.proposed_*_reason for the constrained codes.';
+
+-- At most one LIVE request per employee per overlapping date range.
+-- 'needs_rebase' counts as live: the requester is expected to re-base it, so it
+-- keeps its claim on those dates.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'acr_no_overlapping_pending'
+  ) THEN
+    ALTER TABLE hris.attendance_correction_requests
+      ADD CONSTRAINT acr_no_overlapping_pending
+      EXCLUDE USING gist (
+        employee_id WITH =,
+        daterange(date_from, date_to, '[]') WITH &&
+      ) WHERE (status IN ('pending','needs_rebase'));
+  END IF;
+END $$;
+
+-- 5. Items ---------------------------------------------------------------------
+-- attendance_log_id is NOT NULL on purpose: an item can only exist for a date
+-- that ALREADY has an attendance row. This enforces in the schema that this
+-- workflow corrects misread and incomplete days, and never invents a day that
+-- was never recorded.
+
+CREATE TABLE IF NOT EXISTS hris.attendance_correction_items (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id             UUID NOT NULL
+                           REFERENCES hris.attendance_correction_requests(id) ON DELETE CASCADE,
+  duty_date              DATE NOT NULL,
+  attendance_log_id      UUID NOT NULL REFERENCES hris.attendance_logs(id),
+  disposition            TEXT NOT NULL DEFAULT 'update'
+                           CHECK (disposition IN ('update','clear_as_off')),
+  -- Deliberately the default ON DELETE NO ACTION, unlike
+  -- attendance_logs.schedule_id (ON DELETE SET NULL, migration 047's
+  -- attendance_logs_schedule_id_fkey). A row-level override on an APPLIED
+  -- attendance_logs row is fine to drop to "inherit" if its schedule goes
+  -- away — nothing further reviews that row. A PENDING correction item's pin
+  -- is a proposal an HR reviewer has not yet approved: silently rewriting it
+  -- to "inherit" would change the forgiven late/undertime minutes to numbers
+  -- nobody reviewed. NO ACTION instead makes Postgres refuse to delete a
+  -- schedule any live item still references, which is the safer failure mode
+  -- here. attendance-correction-actions.ts's approveCorrectionRequest also
+  -- checks for a missing item pin and flips the request to needs_rebase as
+  -- defense-in-depth on top of this FK, not as the primary guarantee.
+  proposed_schedule_id   UUID REFERENCES hris.schedules(id),
+  -- Wall-clock times only (TIME, not TIMESTAMPTZ): these are proposed
+  -- HH:MM values off the correction wizard's grid, not calendar timestamps.
+  -- The calendar date — including the night-shift next-day rollover for a PM
+  -- clock-out like 06:05 belonging to the PREVIOUS duty date — is derived at
+  -- apply time by buildCorrectionRecord from the pinned schedule (Task 4).
+  -- Storing TIMESTAMPTZ here would force this table to duplicate that
+  -- schedule resolution just to pick a date, and would store a misleading
+  -- date for every night shift.
+  proposed_time_in_am    TIME,
+  proposed_time_out_am   TIME,
+  proposed_time_in_pm    TIME,
+  proposed_time_out_pm   TIME,
+  -- Narrower than the column these feed: attendance_logs accepts 'holiday',
+  -- correction items do not.
+  proposed_in_am_reason  TEXT CHECK (proposed_in_am_reason  IN ('travel','field_work','official_business','off','no_break')),
+  proposed_out_am_reason TEXT CHECK (proposed_out_am_reason IN ('travel','field_work','official_business','off','no_break')),
+  proposed_in_pm_reason  TEXT CHECK (proposed_in_pm_reason  IN ('travel','field_work','official_business','off','no_break')),
+  proposed_out_pm_reason TEXT CHECK (proposed_out_pm_reason IN ('travel','field_work','official_business','off','no_break')),
+  -- Snapshot of the attendance row at request time: drives the reviewer's
+  -- before/after diff and the drift check at apply time.
+  before                 JSONB NOT NULL,
+  UNIQUE (request_id, duty_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_aci_request ON hris.attendance_correction_items(request_id);
+CREATE INDEX IF NOT EXISTS idx_aci_log ON hris.attendance_correction_items(attendance_log_id);
+
+COMMENT ON COLUMN hris.attendance_correction_items.proposed_schedule_id IS
+  'ON DELETE NO ACTION is deliberate, unlike attendance_logs.schedule_id '
+  '(ON DELETE SET NULL). A pending item''s pin is an unreviewed proposal; '
+  'silently falling back to "inherit" if it is deleted would change the '
+  'forgiven late/undertime minutes to numbers nobody reviewed, so Postgres '
+  'blocks the delete instead. See the column definition above for detail.';
+
+-- CREATE TABLE IF NOT EXISTS above does not retroactively fix the column
+-- type on a database where this table already exists with the original
+-- TIMESTAMPTZ columns. Convert in place, guarded on the current type so this
+-- block is a no-op (and re-runnable) once converted. USING ...::time keeps
+-- only the wall-clock portion — no data existed in these columns pre-launch,
+-- so there is nothing meaningful to lose in the cast.
+DO $$
+DECLARE
+  col TEXT;
+BEGIN
+  FOREACH col IN ARRAY ARRAY[
+    'proposed_time_in_am',
+    'proposed_time_out_am',
+    'proposed_time_in_pm',
+    'proposed_time_out_pm'
+  ] LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'hris'
+        AND table_name = 'attendance_correction_items'
+        AND column_name = col
+        AND data_type = 'timestamp with time zone'
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE hris.attendance_correction_items ALTER COLUMN %I TYPE TIME USING %I::time',
+        col, col
+      );
+    END IF;
+  END LOOP;
+END $$;
+
+-- 6. RLS ------------------------------------------------------------------------
+-- Mandatory. Migration 020 installed ALTER DEFAULT PRIVILEGES IN SCHEMA hris
+-- granting ALL on every new hris table to `authenticated` and SELECT to
+-- `anon` — and the anon key ships in the browser bundle. Without RLS here,
+-- applying this migration makes both tables world-readable, including
+-- proof_path/proof_filename (a signed-URL-backed document naming an
+-- employee and their hours), review_notes, and the `before` JSONB
+-- attendance snapshot. This exact omission has already shipped PII twice
+-- for Job Orders (see 064_job_order_payrolls.sql:120-124) — do not repeat it
+-- a third time.
+--
+-- All server actions for this feature use the ADMIN client, which bypasses
+-- RLS entirely. These policies are defense-in-depth against direct
+-- PostgREST access, not the app's authorization mechanism — kept broad
+-- (FOR ALL, one predicate) so a future user-scoped read isn't silently
+-- blocked by a policy nobody remembered narrowing.
+--
+-- Roles: department_admin and department_admin_and_department_head file and
+-- track requests; super_admin, hr_admin and dtr_manager review/approve them.
+-- CREATE POLICY has no IF NOT EXISTS, so each is preceded by a DROP POLICY
+-- IF EXISTS to keep this migration re-runnable, same as the rest of 065.
+
+ALTER TABLE hris.attendance_correction_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hris.attendance_correction_items    ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "admin_all_attendance_correction_requests"
+  ON hris.attendance_correction_requests;
+CREATE POLICY "admin_all_attendance_correction_requests"
+  ON hris.attendance_correction_requests
+  FOR ALL USING (
+    hris.get_user_role() IN (
+      'super_admin', 'hr_admin', 'dtr_manager',
+      'department_admin', 'department_admin_and_department_head'
+    )
+  );
+
+DROP POLICY IF EXISTS "admin_all_attendance_correction_items"
+  ON hris.attendance_correction_items;
+CREATE POLICY "admin_all_attendance_correction_items"
+  ON hris.attendance_correction_items
+  FOR ALL USING (
+    hris.get_user_role() IN (
+      'super_admin', 'hr_admin', 'dtr_manager',
+      'department_admin', 'department_admin_and_department_head'
+    )
+  );
+
+-- 7. Proof storage bucket -------------------------------------------------------
+-- Private, unlike the public `201-files` bucket: a document naming an employee
+-- and their hours should not sit behind a guessable URL. Served via signed URL.
+-- Guarded because Storage is disabled in the local config.toml (see CLAUDE.md),
+-- so storage.buckets does not exist on a local stack.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'storage' AND table_name = 'buckets'
+  ) THEN
+    INSERT INTO storage.buckets (id, name, public)
+    VALUES ('attendance-proofs', 'attendance-proofs', false)
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+END $$;

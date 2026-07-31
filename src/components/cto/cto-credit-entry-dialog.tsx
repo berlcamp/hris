@@ -35,6 +35,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { employeeSearchKeywords } from "@/lib/employee-name-match";
+import { commandSubstringFilter } from "@/lib/command-filter";
 import { createCtoCredit, previewCtoCreditClamp } from "@/lib/actions/cto-actions";
 import {
   suggestDayType,
@@ -190,7 +192,7 @@ export function CtoCreditEntryDialog({
                   <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                 </PopoverTrigger>
                 <PopoverContent className="w-full p-0" align="start">
-                  <Command>
+                  <Command filter={commandSubstringFilter}>
                     <CommandInput placeholder="Search by name..." />
                     <CommandList>
                       <CommandEmpty>No employees found.</CommandEmpty>
@@ -199,6 +201,7 @@ export function CtoCreditEntryDialog({
                           <CommandItem
                             key={emp.id}
                             value={`${emp.last_name} ${emp.first_name}`}
+                            keywords={employeeSearchKeywords(emp)}
                             onSelect={() => {
                               setEmployeeId(emp.id);
                               setEmpOpen(false);

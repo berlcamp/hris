@@ -1,4 +1,5 @@
 import { Image, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { dtrSpanFor, isWeekendDayName } from "@/lib/dtr-span-label";
 import type {
   DtrEntry,
   DtrScheduleInfo,
@@ -390,8 +391,7 @@ export function DtrFormColumn({
   const credits = convertMinsToLeaveCredits(totalUtMins);
 
   const renderRow = (entry: DtrEntry) => {
-    const isWeekend =
-      entry.day_of_week === "Saturday" || entry.day_of_week === "Sunday";
+    const isWeekend = isWeekendDayName(entry.day_of_week);
     const dayLabel = dayLabelFor(entry);
 
     const amBlank = !entry.time_in_am && !entry.time_out_am;
@@ -403,25 +403,14 @@ export function DtrFormColumn({
     const showAmHoliday = entry.holiday === "half_am" && amBlank;
     const showPmHoliday = entry.holiday === "half_pm" && pmBlank;
 
-    // Spanning row for full holiday / weekend / approved leave /
-    // official-duty reason (TRAVEL, FIELD WORK, OFFICIAL BUSINESS) / absent.
-    // A full holiday only spans the row when the employee did not work it;
-    // otherwise the times below are shown.
-    let spanLabel: string | null = null;
-    let spanColor: string | undefined;
-    if (entry.holiday === "full" && hasNoPunch) {
-      spanLabel = "HOLIDAY";
-    } else if (isWeekend) {
-      spanLabel = entry.day_of_week.toUpperCase();
-    } else if (entry.leave_type && !entry.is_absent) {
-      spanLabel = "ON LEAVE";
-    } else if (entry.no_time_reason_label && hasNoPunch) {
-      spanLabel = entry.no_time_reason_label;
-      spanColor = GREEN;
-    } else if (entry.is_absent && hasNoPunch) {
-      spanLabel = "ABSENT";
-      spanColor = RED;
-    }
+    // Spanning row for an explicit reason / full holiday / weekend / approved
+    // leave / absence. The branch ORDER is the rule and lives in dtrSpanFor
+    // (src/lib/dtr-span-label.ts) so it is unit-testable — it has regressed
+    // twice while buried in this JSX.
+    const span = dtrSpanFor(entry, hasNoPunch);
+    const spanLabel = span?.label ?? null;
+    const spanColor =
+      span?.kind === "reason" ? GREEN : span?.kind === "absent" ? RED : undefined;
 
     const totalUtForDay = entry.late_minutes + entry.undertime_minutes;
     const utH = Math.floor(totalUtForDay / 60);

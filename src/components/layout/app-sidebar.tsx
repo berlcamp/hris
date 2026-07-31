@@ -36,6 +36,7 @@ import {
   MapPin,
   LayoutTemplate,
   Hammer,
+  ClipboardCheck,
 } from "lucide-react";
 
 import {
@@ -147,6 +148,26 @@ const cosTemplateRoles: UserRole[] = ["super_admin", "hr_admin"];
 // Assignments today; payrolls, memos and special orders join in later specs.
 // Mirrors canManageJobOrders in src/lib/auth-helpers.ts.
 const jobOrderRoles: UserRole[] = ["super_admin", "hr_admin", "jo_manager"];
+// Attendance corrections. The union of the two sides of the workflow —
+// requesters (department-scoped admins) and reviewers — because both land on
+// the same /attendance-corrections route, which branches on role. Mirrors
+// canRequestAttendanceCorrection + canReviewAttendanceCorrection in
+// src/lib/auth-helpers.ts; keep the three in sync.
+//
+// Note the department-scoped roles here are NOT in attendanceRoles above: they
+// can file a correction without gaining any other attendance reach, which is
+// why this route sits at the top level and not under /attendance.
+const correctionRoles: UserRole[] = [
+  "department_admin",
+  "department_admin_and_department_head",
+  "super_admin",
+  "hr_admin",
+  "dtr_manager",
+  // Records attendance across departments through direct-apply — see
+  // canDirectApplyAttendanceCorrection. Without this it would lose the reach it
+  // has today through Manual Attendance Entry.
+  "ocm_admin",
+];
 
 const navGroups: NavGroup[] = [
   {
@@ -207,6 +228,12 @@ const navGroups: NavGroup[] = [
         roles: ["super_admin", "hr_admin"],
       },
       { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: attendanceRoles },
+      {
+        title: "Attendance Corrections",
+        href: "/attendance-corrections",
+        icon: ClipboardCheck,
+        roles: correctionRoles,
+      },
     ],
   },
   {
@@ -390,11 +417,15 @@ export function AppSidebar() {
                 {group.items.map((item) => {
                   const isActive =
                     pathname === item.href ||
+                    // The "/" boundary matters: a bare startsWith would light
+                    // up "Attendance & DTR" (/attendance) while viewing
+                    // "Attendance Corrections" (/attendance-corrections),
+                    // which is a different section, not a page under it.
                     (item.href !== "/dashboard" &&
                       item.href !== "/leaves" &&
                       item.href !== "/cto" &&
                       item.href !== "/job-orders" &&
-                      pathname.startsWith(item.href)) ||
+                      pathname.startsWith(`${item.href}/`)) ||
                     (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits")))) ||
                     (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits")))) ||
                     // "/job-orders/areas" and "/job-orders/payroll" are

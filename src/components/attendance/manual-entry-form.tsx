@@ -29,6 +29,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { employeeSearchKeywords } from "@/lib/employee-name-match";
+import { commandSubstringFilter } from "@/lib/command-filter";
 import {
   createAttendanceEntry,
   createAttendanceEntriesBulk,
@@ -43,14 +45,34 @@ import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import { addDays, format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 
-// One editable row in date-range mode: the four punch times for a single date.
+// One editable row in the per-date grid: four punch times, a reason per slot,
+// and an optional schedule pin for that single date. The reasons matter on
+// their own — a day with a reason and no times is a deliberate non-duty day
+// (SATURDAY, LEAVE, OFF), not a blank row, and must still be saved.
 interface RangeRow {
   amIn: string;
   amOut: string;
   pmIn: string;
   pmOut: string;
+  reasonAmIn: string;
+  reasonAmOut: string;
+  reasonPmIn: string;
+  reasonPmOut: string;
+  /** INHERIT_SCHEDULE, or a schedule id pinned to this date alone. */
+  scheduleId: string;
 }
-const EMPTY_RANGE_ROW: RangeRow = { amIn: "", amOut: "", pmIn: "", pmOut: "" };
+
+/** The time input and reason select that make up one slot of a grid row. */
+const SLOTS = [
+  { time: "amIn", reason: "reasonAmIn", label: "AM In" },
+  { time: "amOut", reason: "reasonAmOut", label: "AM Out" },
+  { time: "pmIn", reason: "reasonPmIn", label: "PM In" },
+  { time: "pmOut", reason: "reasonPmOut", label: "PM Out" },
+] as const satisfies readonly {
+  time: keyof RangeRow;
+  reason: keyof RangeRow;
+  label: string;
+}[];
 
 interface ManualEntryInitialValues {
   employeeId: string;
@@ -75,6 +97,34 @@ const INHERIT_SCHEDULE = "inherit";
 
 const toScheduleId = (v: string): string | null =>
   v === INHERIT_SCHEDULE ? null : v;
+
+// Declared after the two sentinels it uses — a const initialiser cannot reach
+// forward past its own temporal dead zone.
+const EMPTY_RANGE_ROW: RangeRow = {
+  amIn: "",
+  amOut: "",
+  pmIn: "",
+  pmOut: "",
+  reasonAmIn: NO_REASON,
+  reasonAmOut: NO_REASON,
+  reasonPmIn: NO_REASON,
+  reasonPmOut: NO_REASON,
+  scheduleId: INHERIT_SCHEDULE,
+};
+
+/** True if the row says anything at all — a time, a reason, or a schedule pin. */
+function rowHasContent(row: RangeRow): boolean {
+  return (
+    !!row.amIn ||
+    !!row.amOut ||
+    !!row.pmIn ||
+    !!row.pmOut ||
+    // A reason with no times is the whole point of tagging a rest day, so it
+    // has to count as content or the row would be silently skipped.
+    SLOTS.some((s) => row[s.reason] !== NO_REASON) ||
+    row.scheduleId !== INHERIT_SCHEDULE
+  );
+}
 
 // "Regular 8:00 AM – 5:00 PM (08:00–17:00)" — name plus the shift window.
 function scheduleLabel(s: ScheduleRow): string {
@@ -137,33 +187,89 @@ function TimeReasonField({
   );
 }
 
-// One grid row in date-range mode: a date label plus its four punch-time inputs.
+// One grid row: a date label, four time+reason slots, and an optional schedule
+// pin for this date alone. The reason under each time is what makes a day with
+// no punches meaningful — buildAttendanceRecord clears is_absent as soon as any
+// reason is set, so a tagged rest day stops counting as an absence.
 function RangeDateRow({
   dateStr,
   row,
   onCell,
+  scheduleItems,
 }: {
   dateStr: string;
   row: RangeRow;
   onCell: (d: string, key: keyof RangeRow, value: string) => void;
+  scheduleItems: Record<string, string>;
 }) {
   const labelDate = new Date(dateStr + "T00:00:00");
+  const dow = labelDate.getDay();
+  const isWeekend = dow === 0 || dow === 6;
+  const cell = cn("border-t px-2 py-1.5", isWeekend && "bg-muted/30");
   return (
     <>
-      <div className="flex items-center border-t px-3 py-1.5">
+      <div
+        className={cn(
+          "flex flex-col justify-center border-t px-3 py-1.5",
+          isWeekend && "bg-muted/30",
+        )}
+      >
         <span className="font-medium">{format(labelDate, "EEE, MMM d")}</span>
       </div>
-      {(["amIn", "amOut", "pmIn", "pmOut"] as const).map((key) => (
-        <div key={key} className="border-t px-2 py-1.5">
-          <Input
-            type="time"
-            aria-label={`${format(labelDate, "MMM d")} ${key}`}
-            value={row[key]}
-            onChange={(e) => onCell(dateStr, key, e.target.value)}
-            className="h-8"
-          />
+      {SLOTS.map((slot) => (
+        <div key={slot.time} className={cell}>
+          <div className="space-y-1">
+            <Input
+              type="time"
+              aria-label={`${format(labelDate, "MMM d")} ${slot.label}`}
+              value={row[slot.time]}
+              onChange={(e) => onCell(dateStr, slot.time, e.target.value)}
+              className="h-8"
+            />
+            <Select
+              items={REASON_ITEMS}
+              value={row[slot.reason]}
+              onValueChange={(v) => v && onCell(dateStr, slot.reason, v)}
+            >
+              <SelectTrigger
+                className="h-7 w-full text-xs"
+                aria-label={`${format(labelDate, "MMM d")} ${slot.label} reason`}
+              >
+                <SelectValue placeholder="No reason" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_REASON}>No reason</SelectItem>
+                {NO_TIME_REASONS.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {NO_TIME_REASON_LABELS[r]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       ))}
+      <div className={cell}>
+        <Select
+          items={scheduleItems}
+          value={row.scheduleId}
+          onValueChange={(v) => v && onCell(dateStr, "scheduleId", v)}
+        >
+          <SelectTrigger
+            className="h-8 w-full text-xs"
+            aria-label={`${format(labelDate, "MMM d")} schedule`}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(scheduleItems).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </>
   );
 }
@@ -195,11 +301,16 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
   const [date, setDate] = useState<Date | undefined>(
     initialValues?.date ? new Date(initialValues.date + "T00:00:00") : new Date(),
   );
-  // Date-range mode (create only) shows a row per date so each day's punch
-  // times can be entered quickly in one grid.
-  const [rangeMode, setRangeMode] = useState(false);
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
-  const [skipWeekends, setSkipWeekends] = useState(true);
+  // Creating always uses the per-date grid; there is no single-date mode. The
+  // end date defaults to the start date, so filing one day stays a two-click
+  // job — that case used to be the single-date form.
+  const [endDate, setEndDate] = useState<Date | undefined>(
+    initialValues?.date ? new Date(initialValues.date + "T00:00:00") : new Date(),
+  );
+  // Off by default: with the single-date form gone, a lone Saturday is entered
+  // by setting start = end, and skipping weekends would silently empty the grid
+  // for exactly that case. Weekend duty is a real thing this form has to record.
+  const [skipWeekends, setSkipWeekends] = useState(false);
   const [endDateOpen, setEndDateOpen] = useState(false);
   // Per-date punch times, keyed by yyyy-MM-dd.
   const [rangeRows, setRangeRows] = useState<Record<string, RangeRow>>({});
@@ -225,7 +336,9 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
 
   const selectedEmployee = employees.find((e) => e.id === employeeId);
 
-  const useRange = rangeMode && !isEdit;
+  // Editing targets one existing attendance row, so it keeps the single-date
+  // fields; creating is always a range.
+  const useRange = !isEdit;
 
   // The dates the grid renders a row for, respecting the weekend filter.
   const rangeDates = useMemo(() => {
@@ -277,17 +390,25 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
       }
       bulkEntries = rangeDates
         .map((d) => ({ d, row: getRow(d) }))
-        .filter(({ row }) => row.amIn || row.amOut || row.pmIn || row.pmOut)
+        .filter(({ row }) => rowHasContent(row))
         .map(({ d, row }) => ({
           date: d,
           time_in_am: row.amIn || null,
           time_out_am: row.amOut || null,
           time_in_pm: row.pmIn || null,
           time_out_pm: row.pmOut || null,
-          schedule_id: toScheduleId(scheduleId),
+          reason_in_am: toReason(row.reasonAmIn),
+          reason_out_am: toReason(row.reasonAmOut),
+          reason_in_pm: toReason(row.reasonPmIn),
+          reason_out_pm: toReason(row.reasonPmOut),
+          // The row is the only source of a schedule when creating — there is
+          // no range-level select any more. Left on "inherit" this is null, and
+          // createAttendanceEntriesBulk falls back to the employee's assigned
+          // schedule for that entry.
+          schedule_id: toScheduleId(row.scheduleId),
         }));
       if (bulkEntries.length === 0) {
-        toast.error("Enter at least one time on one of the dates");
+        toast.error("Enter a time or a reason on at least one date");
         return;
       }
     }
@@ -346,7 +467,7 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </PopoverTrigger>
               <PopoverContent className="w-[400px] p-0" align="start">
-                <Command>
+                <Command filter={commandSubstringFilter}>
                   <CommandInput placeholder="Search employee..." />
                   <CommandList>
                     <CommandEmpty>No employee found.</CommandEmpty>
@@ -355,6 +476,7 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
                         <CommandItem
                           key={emp.id}
                           value={`${emp.last_name} ${emp.first_name}`}
+                          keywords={employeeSearchKeywords(emp)}
                           onSelect={() => {
                             setEmployeeId(emp.id);
                             setEmpOpen(false);
@@ -385,20 +507,6 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
             </Popover>
           </div>
 
-          {/* Date mode toggle (create only) */}
-          {!isEdit && (
-            <div className="flex items-center gap-2 rounded-md border p-3">
-              <Checkbox
-                id="range_mode"
-                checked={rangeMode}
-                onCheckedChange={(v) => setRangeMode(v === true)}
-              />
-              <Label htmlFor="range_mode" className="font-normal">
-                Apply to a date range
-              </Label>
-            </div>
-          )}
-
           {/* Date */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -426,6 +534,11 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
                     selected={date}
                     onSelect={(d) => {
                       setDate(d);
+                      // The end-date calendar blocks anything before the start,
+                      // but the start can still be moved PAST the end, which
+                      // would empty the grid with no visible cause. Carry the
+                      // end along instead.
+                      if (d && (!endDate || endDate < d)) setEndDate(d);
                       setDateOpen(false);
                     }}
                     initialFocus
@@ -482,46 +595,62 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
             </div>
           )}
 
-          {/* Schedule override */}
-          <div className="space-y-2">
-            <Label>Schedule</Label>
-            <Select
-              items={scheduleItems}
-              value={scheduleId}
-              onValueChange={(v) => v && setScheduleId(v)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Use employee's assigned schedule" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={INHERIT_SCHEDULE}>
-                  Use employee&apos;s assigned schedule
-                </SelectItem>
-                {schedules.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {scheduleLabel(s)}
+          {/* Schedule override — editing only. When creating, the schedule
+              lives on each row of the grid below instead, so a range that
+              spans a rotation can be entered in one pass. */}
+          {!useRange && (
+            <div className="space-y-2">
+              <Label>Schedule</Label>
+              <Select
+                items={scheduleItems}
+                value={scheduleId}
+                onValueChange={(v) => v && setScheduleId(v)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Use employee's assigned schedule" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={INHERIT_SCHEDULE}>
+                    Use employee&apos;s assigned schedule
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              {useRange
-                ? "Applied to every date in this range. Pick a specific shift for employees who rotate schedules, or leave as the employee's assigned schedule."
-                : "Pin a specific shift for this day (for employees who change schedules daily or weekly). Late and undertime are computed against the chosen schedule."}
-            </p>
-          </div>
+                  {schedules.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {scheduleLabel(s)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Pin a specific shift for this day (for employees who change
+                schedules daily or weekly). Late and undertime are computed
+                against the chosen schedule.
+              </p>
+            </div>
+          )}
 
           {/* Per-date grid (range mode) */}
           {useRange ? (
             <div className="space-y-2">
               <Label>Daily times</Label>
               <div className="overflow-x-auto rounded-md border">
-                <div className="grid grid-cols-[minmax(8rem,1.4fr)_repeat(4,minmax(5rem,1fr))] text-sm">
+                {/* min-w is the sum of the column minimums (7 + 4x6.5 + 8rem),
+                    so the grid asks for no more space than it actually needs.
+                    overflow-x-auto on the parent stays as the fallback for
+                    genuinely narrow viewports — without it the PAGE would
+                    scroll sideways instead, which is worse. */}
+                <div className="grid min-w-[41rem] grid-cols-[minmax(7rem,1.1fr)_repeat(4,minmax(6.5rem,1fr))_minmax(8rem,1.2fr)] text-sm">
                   <div className="bg-muted/50 px-3 py-2 font-medium">Date</div>
-                  <div className="bg-muted/50 px-3 py-2 font-medium">AM In</div>
-                  <div className="bg-muted/50 px-3 py-2 font-medium">AM Out</div>
-                  <div className="bg-muted/50 px-3 py-2 font-medium">PM In</div>
-                  <div className="bg-muted/50 px-3 py-2 font-medium">PM Out</div>
+                  {SLOTS.map((s) => (
+                    <div
+                      key={s.time}
+                      className="bg-muted/50 px-3 py-2 font-medium"
+                    >
+                      {s.label}
+                    </div>
+                  ))}
+                  <div className="bg-muted/50 px-3 py-2 font-medium">
+                    Schedule
+                  </div>
                   {rangeDates.map((d) => {
                     const row = getRow(d);
                     return (
@@ -530,14 +659,20 @@ export function ManualEntryForm({ employees, schedules, initialValues }: ManualE
                         dateStr={d}
                         row={row}
                         onCell={setCell}
+                        scheduleItems={scheduleItems}
                       />
                     );
                   })}
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Enter the punch times for each day. Dates left completely blank
-                are skipped (existing logs are not overwritten).
+                Enter the punch times for each day. The reason under a time
+                prints in that slot on the DTR and stops the day counting as an
+                absence — use it for days with no punches (SATURDAY, LEAVE,
+                OFF). Set Schedule on a row only for a day that ran on a
+                different shift; left alone, each day uses the employee&apos;s
+                assigned schedule. Dates left entirely blank are skipped
+                (existing logs are not overwritten).
               </p>
             </div>
           ) : (

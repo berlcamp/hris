@@ -136,9 +136,25 @@ export const NO_TIME_REASONS = [
   "official_business",
   "holiday",
   "off",
+  "no_break",
+  "saturday",
+  "sunday",
+  "leave",
 ] as const;
 
 export type NoTimeReason = (typeof NO_TIME_REASONS)[number];
+
+// Reasons that mark a day as non-working rather than on-duty. They still clear
+// `is_absent` (buildAttendanceRecord treats any reason that way), but unlike
+// TRAVEL / FIELD WORK / OFFICIAL BUSINESS they do not assert the employee was
+// out on official business — a rest day is simply not a duty day.
+export const NON_DUTY_REASONS = [
+  "off",
+  "saturday",
+  "sunday",
+  "leave",
+  "holiday",
+] as const;
 
 export const NO_TIME_REASON_LABELS: Record<NoTimeReason, string> = {
   travel: "TRAVEL",
@@ -146,6 +162,10 @@ export const NO_TIME_REASON_LABELS: Record<NoTimeReason, string> = {
   official_business: "OFFICIAL BUSINESS",
   holiday: "HOLIDAY",
   off: "OFF",
+  no_break: "NO BREAK",
+  saturday: "SATURDAY",
+  sunday: "SUNDAY",
+  leave: "LEAVE",
 };
 
 // Short labels printed inside a single DTR time cell.
@@ -155,7 +175,28 @@ export const NO_TIME_REASON_SHORT: Record<NoTimeReason, string> = {
   official_business: "OB",
   holiday: "HOLIDAY",
   off: "OFF",
+  no_break: "NB",
+  saturday: "SAT",
+  sunday: "SUN",
+  leave: "LEAVE",
 };
+
+// Reason codes a Department Admin may choose on a correction request.
+// `holiday` is deliberately excluded: holidays are org-wide and managed
+// centrally in hris.holidays (migration 040), so a per-employee holiday
+// declared by one department would contradict that table.
+export const CORRECTION_REASONS = [
+  "travel",
+  "field_work",
+  "official_business",
+  "off",
+  "no_break",
+  "saturday",
+  "sunday",
+  "leave",
+] as const;
+
+export type CorrectionReason = (typeof CORRECTION_REASONS)[number];
 
 export const EMPLOYEE_NO_PREFIX = "LGU";
 

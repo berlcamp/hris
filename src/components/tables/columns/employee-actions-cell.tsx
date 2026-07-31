@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { MoreHorizontal, Eye, Pencil, UserCog, Building2 } from "lucide-react";
+import {
+  MoreHorizontal,
+  Eye,
+  Pencil,
+  UserCog,
+  Building2,
+  ClipboardCheck,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -34,6 +41,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   changeEmployeeStatus,
+  setAttendanceCorrectionEligible,
   updateEmployeeDetailedDepartment,
 } from "@/lib/actions/employee-actions";
 import {
@@ -62,6 +70,7 @@ export function EmployeeActionsCell({
   canEdit,
   canEditDetailedDept = false,
   canEditDetailedDeptAnyDept = false,
+  canFlagCorrectionEligible = false,
   userDepartmentId = null,
   departments = [],
 }: {
@@ -69,12 +78,15 @@ export function EmployeeActionsCell({
   canEdit: boolean;
   canEditDetailedDept?: boolean;
   canEditDetailedDeptAnyDept?: boolean;
+  canFlagCorrectionEligible?: boolean;
   userDepartmentId?: string | null;
   departments?: DetailedDeptOption[];
 }) {
   const router = useRouter();
   const [showStatus, setShowStatus] = useState(false);
   const [showDetailedDept, setShowDetailedDept] = useState(false);
+  const [showEligible, setShowEligible] = useState(false);
+  const [savingEligible, setSavingEligible] = useState(false);
   const [detailedDept, setDetailedDept] = useState<string>(
     employee.detailed_department_id ?? NOT_DETAILED
   );
@@ -150,6 +162,26 @@ export function EmployeeActionsCell({
     setSavingDetailedDept(false);
   };
 
+  const eligible = employee.attendance_correction_eligible;
+
+  const handleToggleEligible = async () => {
+    setSavingEligible(true);
+    const result = await setAttendanceCorrectionEligible(employee.id, !eligible);
+
+    if ("error" in result) {
+      toast.error(result.error);
+    } else {
+      toast.success(
+        eligible
+          ? `${fullName} can no longer be picked for new attendance corrections.`
+          : `${fullName} can now be corrected by their Department Admin.`
+      );
+      setShowEligible(false);
+      router.refresh();
+    }
+    setSavingEligible(false);
+  };
+
   return (
     <>
       <DropdownMenu>
@@ -187,8 +219,62 @@ export function EmployeeActionsCell({
               Set detailed department
             </DropdownMenuItem>
           )}
+          {canFlagCorrectionEligible && (
+            <DropdownMenuItem onClick={() => setShowEligible(true)}>
+              <ClipboardCheck className="h-4 w-4" />
+              {eligible
+                ? "Disallow attendance corrections"
+                : "Allow attendance corrections"}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Dialog open={showEligible} onOpenChange={setShowEligible}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {eligible
+                ? "Disallow attendance corrections"
+                : "Allow attendance corrections"}
+            </DialogTitle>
+            <DialogDescription>
+              {eligible ? (
+                <>
+                  <strong>{fullName}</strong> will no longer appear in the
+                  Department Admin&apos;s employee list when filing a new
+                  attendance correction. Requests already filed stay reviewable,
+                  and corrections already applied are untouched.
+                </>
+              ) : (
+                <>
+                  Their Department Admin will be able to file proof-backed
+                  corrections to <strong>{fullName}</strong>&apos;s attendance —
+                  for rotating shifts and days worked straight through lunch.
+                  Nothing they file reaches the DTR until HR approves it.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>
+              Cancel
+            </DialogClose>
+            <Button
+              variant={eligible ? "destructive" : "default"}
+              onClick={handleToggleEligible}
+              disabled={savingEligible}
+            >
+              {savingEligible
+                ? "Saving..."
+                : eligible
+                  ? "Disallow"
+                  : "Allow"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showStatus} onOpenChange={setShowStatus}>
         <DialogContent className="sm:max-w-md">

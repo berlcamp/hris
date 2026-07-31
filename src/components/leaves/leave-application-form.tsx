@@ -23,6 +23,8 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { employeeSearchKeywords } from "@/lib/employee-name-match";
+import { commandSubstringFilter } from "@/lib/command-filter";
 import { createLeaveApplication } from "@/lib/actions/leave-actions";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import type { LeaveTypeRow, LeaveCreditRow } from "@/lib/actions/leave-actions";
@@ -204,7 +206,7 @@ export function LeaveApplicationForm({
                       <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
                     </PopoverTrigger>
                     <PopoverContent className="w-full p-0" align="start">
-                      <Command>
+                      <Command filter={commandSubstringFilter}>
                         <CommandInput placeholder="Search by name or employee no..." />
                         <CommandList>
                           <CommandEmpty>No employees found.</CommandEmpty>
@@ -213,6 +215,7 @@ export function LeaveApplicationForm({
                               <CommandItem
                                 key={emp.id}
                                 value={`${emp.last_name} ${emp.first_name}`}
+                                keywords={employeeSearchKeywords(emp)}
                                 onSelect={() => {
                                   setSelectedEmpId(emp.id);
                                   setEmpOpen(false);

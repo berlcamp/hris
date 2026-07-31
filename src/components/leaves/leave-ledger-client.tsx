@@ -24,6 +24,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { employeeSearchKeywords } from "@/lib/employee-name-match";
+import { commandSubstringFilter } from "@/lib/command-filter";
 import { ExportCsvButton } from "@/components/tables/export-csv-button";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 
@@ -83,7 +85,7 @@ export function LeaveLedgerClient({
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </PopoverTrigger>
               <PopoverContent className="w-full p-0" align="start">
-                <Command>
+                <Command filter={commandSubstringFilter}>
                   <CommandInput placeholder="Search by name or no..." />
                   <CommandList>
                     <CommandEmpty>No employees found.</CommandEmpty>
@@ -92,6 +94,7 @@ export function LeaveLedgerClient({
                         <CommandItem
                           key={emp.id}
                           value={`${emp.last_name} ${emp.first_name}`}
+                          keywords={employeeSearchKeywords(emp)}
                           onSelect={() => {
                             setEmpId(emp.id);
                             setEmpOpen(false);

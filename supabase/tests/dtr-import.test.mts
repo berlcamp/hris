@@ -311,3 +311,87 @@ test("replay re-buckets a biometric day but never a manually-edited one", async 
 test.after(async () => {
   await admin.from("attendance_logs").delete().eq("employee_id", HALFDAY).eq("date", D);
 });
+
+test("a fresh import with overwrite ON keeps every human-authored day", async () => {
+  // Until now this was the one path that discarded a person's work: with
+  // "overwrite existing" ON, importDahuaAttendance upserted unconditionally,
+  // replacing manual entries, hand-edits and their per-slot reasons with
+  // whatever the device reported. The skip rule is now the same one replay
+  // uses — overwrite a day only if it is absent or still source = 'biometric'.
+  const BIO = "2026-06-20";   // device's own row: fair game
+  const MAN = "2026-06-21";   // typed by a manager
+  const REST = "2026-06-22";  // blank rest day tagged SATURDAY
+  const LOCKED = "2026-06-23"; // an approved correction
+  const days = [BIO, MAN, REST, LOCKED];
+
+  await admin.from("attendance_logs").delete().eq("employee_id", HALFDAY).in("date", days);
+  // Every object needs the SAME keys: PostgREST builds one INSERT for a bulk
+  // payload, so a key missing from any single object is sent as an explicit
+  // NULL rather than falling back to the column DEFAULT — which fails
+  // attendance_logs.correction_locked (NOT NULL DEFAULT false).
+  const seed = (over: Record<string, unknown>) => ({
+    employee_id: HALFDAY,
+    time_in_am: null, time_out_pm: null,
+    time_in_am_reason: null, time_out_pm_reason: null,
+    is_absent: false, correction_locked: false,
+    ...over,
+  });
+  const { error: seedErr } = await admin.from("attendance_logs").insert([
+    seed({ date: BIO, time_in_am: toTimestamp(BIO, "08:00"), source: "biometric" }),
+    seed({ date: MAN, time_in_am: toTimestamp(MAN, "07:45"),
+           time_out_pm: toTimestamp(MAN, "17:30"), source: "manual" }),
+    // No punches at all — the reason is the entire content of the row.
+    seed({ date: REST, source: "manual",
+           time_in_am_reason: "saturday", time_out_pm_reason: "saturday" }),
+    seed({ date: LOCKED, time_in_am: toTimestamp(LOCKED, "21:55"),
+           source: "manual", correction_locked: true }),
+  ]);
+  assert.equal(seedErr, null, `seeding failed: ${seedErr?.message}`);
+
+  const { data: existing } = await admin
+    .from("attendance_logs")
+    .select("date, source, correction_locked")
+    .eq("employee_id", HALFDAY)
+    .in("date", days);
+  const byDate = new Map(
+    (existing ?? []).map((r) => [r.date as string, r as { source: string | null; correction_locked: boolean | null }]),
+  );
+
+  // The exact partition importDahuaAttendance now applies.
+  const toWrite = days.filter((d) => {
+    const row = byDate.get(d);
+    if (!row) return true;
+    const humanAuthored = row.source !== null && row.source !== "biometric";
+    return !humanAuthored && !row.correction_locked;
+  });
+  assert.deepEqual(toWrite, [BIO], "only the device's own row may be rewritten");
+
+  // Overwrite ON: upsert the device's version of every day it thinks it has.
+  await admin.from("attendance_logs").upsert(
+    toWrite.map((d) => ({
+      employee_id: HALFDAY, date: d,
+      time_in_am: toTimestamp(d, "09:15"), source: "biometric",
+    })),
+    { onConflict: "employee_id,date" },
+  );
+
+  const { data: after } = await admin
+    .from("attendance_logs")
+    .select("date, time_in_am, time_out_pm, time_in_am_reason, source, correction_locked")
+    .eq("employee_id", HALFDAY).in("date", days).order("date");
+  const rows = new Map((after ?? []).map((r) => [r.date as string, r]));
+
+  // The biometric day took the device's fresher punch.
+  assert.match(rows.get(BIO)!.time_in_am as string, /09:15/);
+
+  // Everything a person authored is byte-for-byte intact.
+  assert.match(rows.get(MAN)!.time_in_am as string, /07:45/, "a manual entry must survive");
+  assert.match(rows.get(MAN)!.time_out_pm as string, /17:30/);
+  assert.equal(rows.get(REST)!.time_in_am_reason, "saturday",
+    "a reason-only rest day must survive, or it reverts to reading as an absence");
+  assert.equal(rows.get(REST)!.time_in_am, null);
+  assert.match(rows.get(LOCKED)!.time_in_am as string, /21:55/, "an approved correction must survive");
+  assert.equal(rows.get(LOCKED)!.correction_locked, true);
+
+  await admin.from("attendance_logs").delete().eq("employee_id", HALFDAY).in("date", days);
+});

@@ -16,6 +16,7 @@ interface EmployeesTableProps {
   canEdit: boolean;
   canEditDetailedDept?: boolean;
   canEditDetailedDeptAnyDept?: boolean;
+  canFlagCorrectionEligible?: boolean;
   userDepartmentId?: string | null;
   departments?: DetailedDeptOption[];
 }
@@ -26,6 +27,7 @@ export function EmployeesTable({
   canEdit,
   canEditDetailedDept = false,
   canEditDetailedDeptAnyDept = false,
+  canFlagCorrectionEligible = false,
   userDepartmentId = null,
   departments = [],
 }: EmployeesTableProps) {
@@ -35,6 +37,7 @@ export function EmployeesTable({
         canEdit,
         canEditDetailedDept,
         canEditDetailedDeptAnyDept,
+        canFlagCorrectionEligible,
         userDepartmentId,
         departments,
       }),
@@ -42,6 +45,7 @@ export function EmployeesTable({
       canEdit,
       canEditDetailedDept,
       canEditDetailedDeptAnyDept,
+      canFlagCorrectionEligible,
       userDepartmentId,
       departments,
     ]
@@ -50,6 +54,7 @@ export function EmployeesTable({
     <DataTable
       columns={columns}
       data={data}
+      initialColumnVisibility={{ correction_eligible: false }}
       searchableColumns={[{ id: "full_name", title: "name" }]}
       filterableColumns={[
         {
@@ -92,6 +97,20 @@ export function EmployeesTable({
             { label: "OK", value: "ok" },
           ],
         },
+        // Only offered to the roles that can actually grant the flag — for
+        // everyone else it filters on a value they cannot see or change.
+        ...(canFlagCorrectionEligible
+          ? [
+              {
+                id: "correction_eligible",
+                title: "Corrections",
+                options: [
+                  { label: "Eligible", value: "eligible" },
+                  { label: "Not eligible", value: "not_eligible" },
+                ],
+              },
+            ]
+          : []),
       ]}
       toolbar={(table) => (
         <ExportCsvButton

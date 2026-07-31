@@ -221,3 +221,78 @@ export function canManageCosTemplates(
 ): boolean {
   return !!role && COS_TEMPLATE_EDITOR_ROLES.includes(role);
 }
+
+// Roles that may FILE an attendance correction request. Deliberately narrow:
+// department-scoped roles stay out of ATTENDANCE_ACCESS_ROLES, so filing a
+// correction grants no access to the Dahua importer, bulk DTR generation or
+// entry deletion. Their reach is further limited to employees whose EFFECTIVE
+// department (detailed_department_id ?? department_id) is their own AND who
+// carry employees.attendance_correction_eligible.
+const CORRECTION_REQUESTER_ROLES: readonly UserRole[] = [
+  "department_admin",
+  "department_admin_and_department_head",
+] as const;
+
+export function canRequestAttendanceCorrection(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && CORRECTION_REQUESTER_ROLES.includes(role);
+}
+
+// Roles that approve or reject a correction. Nothing a requester files reaches
+// a DTR without one of these roles approving it, so the two sets must not
+// overlap.
+const CORRECTION_REVIEWER_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "dtr_manager",
+] as const;
+
+export function canReviewAttendanceCorrection(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && CORRECTION_REVIEWER_ROLES.includes(role);
+}
+
+// Roles that may flag an employee as correction-eligible. Same set as the
+// reviewers: deciding WHO can be corrected is the same authority as deciding
+// WHAT gets corrected.
+export function canFlagCorrectionEligible(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && CORRECTION_REVIEWER_ROLES.includes(role);
+}
+
+// Roles that may file a correction that applies IMMEDIATELY — no second party,
+// no proof, any active employee. The reviewers, plus OCM Admin, which records
+// attendance across departments and would otherwise have no way to do so once
+// the Manual Attendance Entry module is retired.
+//
+// This is deliberately a THIRD set rather than a widening of
+// CORRECTION_REQUESTER_ROLES. Those two sets must stay disjoint: a department
+// admin filing a request must never be able to approve it. Direct-apply is not
+// self-approval — it is the same authority that would have approved the request
+// choosing to skip a step it was always allowed to take, and it is exactly the
+// authority those roles already exercise through manual attendance entry.
+const CORRECTION_DIRECT_APPLY_ROLES: readonly UserRole[] = [
+  ...CORRECTION_REVIEWER_ROLES,
+  "ocm_admin",
+] as const;
+
+export function canDirectApplyAttendanceCorrection(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && CORRECTION_DIRECT_APPLY_ROLES.includes(role);
+}
+
+// Anyone who may open the correction wizard at all, by either route. Use this
+// for route/nav gating; use the two specific helpers to decide what the filing
+// actually DOES.
+export function canFileAttendanceCorrection(
+  role: UserRole | null | undefined,
+): boolean {
+  return (
+    canRequestAttendanceCorrection(role) ||
+    canDirectApplyAttendanceCorrection(role)
+  );
+}
