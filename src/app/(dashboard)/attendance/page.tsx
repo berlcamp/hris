@@ -7,7 +7,7 @@ import { getAttendanceLogs } from "@/lib/actions/attendance-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
   canAccessAttendance,
-  canManualEntry,
+  canDirectApplyAttendanceCorrection,
   canPrintDtr,
   isAttendanceManager,
   canManageSchedules,
@@ -23,7 +23,7 @@ export default async function AttendancePage() {
   const logs = await getAttendanceLogs();
   const isAdmin = isAttendanceManager(user.role);
   const canBulkDtr = canPrintDtr(user.role);
-  const canEnterManually = canManualEntry(user.role);
+  const canEnterManually = canDirectApplyAttendanceCorrection(user.role);
   const canManageHolidays = canManageSchedules(user.role);
 
   return (
@@ -62,11 +62,15 @@ export default async function AttendancePage() {
             </Link>
           )}
           {isAdmin && <DahuaImportDialog />}
+          {/* Recording attendance by hand lives in the corrections module now:
+              one screen, one audit trail, and rows protected from a later
+              biometric overwrite. The role set is unchanged — the direct-apply
+              roles are exactly the old MANUAL_ENTRY_ROLES. */}
           {canEnterManually && (
-            <Link href="/attendance/entry">
+            <Link href="/attendance-corrections/new">
               <Button size="sm">
                 <Plus className="h-4 w-4" />
-                Manual Entry
+                Record Attendance
               </Button>
             </Link>
           )}

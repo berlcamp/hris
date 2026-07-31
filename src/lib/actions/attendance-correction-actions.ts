@@ -417,10 +417,13 @@ export async function createCorrectionRequest(
   // with the days silently unwritten.
   let outcome: "applied" | "needs_rebase" | null = null;
   if (directApply) {
-    outcome = await applyCorrectionItems(supabase, requestId, parsed.employee_id, {
-      id: user.id,
-      email: user.email,
-    });
+    outcome = await applyCorrectionItems(
+      supabase,
+      requestId,
+      parsed.employee_id,
+      { id: user.id, email: user.email },
+      parsed.reason,
+    );
   }
 
   await logAudit({
@@ -711,6 +714,8 @@ async function applyCorrectionItems(
   requestId: string,
   employeeId: string,
   reviewer: { id: string; email: string },
+  /** The request's narrative, written onto each day's `remarks`. */
+  narrative: string | null,
 ): Promise<"applied" | "needs_rebase"> {
   const { data: items, error: itemErr } = await supabase
     .schema("hris")
@@ -761,6 +766,7 @@ async function applyCorrectionItems(
       reason_out_am: item.proposed_out_am_reason as CorrectionReason | null,
       reason_in_pm: item.proposed_in_pm_reason as CorrectionReason | null,
       reason_out_pm: item.proposed_out_pm_reason as CorrectionReason | null,
+      remarks: narrative,
     }),
   }));
 
@@ -786,7 +792,7 @@ export async function approveCorrectionRequest(id: string) {
   const { data: request, error: reqErr } = await supabase
     .schema("hris")
     .from("attendance_correction_requests")
-    .select("id, employee_id, status")
+    .select("id, employee_id, status, reason")
     .eq("id", id)
     .single();
   if (reqErr) throw reqErr;
@@ -799,6 +805,7 @@ export async function approveCorrectionRequest(id: string) {
     id,
     request.employee_id,
     { id: user.id, email: user.email },
+    request.reason as string | null,
   );
 
   await logAudit({

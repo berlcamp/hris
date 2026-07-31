@@ -25,6 +25,17 @@ export interface CorrectionItemInput {
   reason_out_am: CorrectionReason | null;
   reason_in_pm: CorrectionReason | null;
   reason_out_pm: CorrectionReason | null;
+  /**
+   * Free-text note written onto the attendance row itself — the request's
+   * narrative, repeated per day.
+   *
+   * attendance_logs.remarks is not otherwise reachable through this workflow,
+   * so without it applying a correction blanked whatever remark the day carried
+   * (buildAttendanceRecord writes `fields.remarks || null`). Manual entry had a
+   * remarks box; corrections now carry the same information, sourced from the
+   * one field that already explains why the day is being changed.
+   */
+  remarks?: string | null;
 }
 
 // Which schedule a corrected day is measured against, most specific first.
@@ -184,7 +195,12 @@ export function buildCorrectionRecord(
         };
 
   return {
-    ...buildAttendanceRecord(employeeId, item.duty_date, fields, item.schedule),
+    ...buildAttendanceRecord(
+      employeeId,
+      item.duty_date,
+      { ...fields, remarks: item.remarks ?? null },
+      item.schedule,
+    ),
     // Excluded from both import paths even with "overwrite existing" ON.
     correction_locked: true,
   };

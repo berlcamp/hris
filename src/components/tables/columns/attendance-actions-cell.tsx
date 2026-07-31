@@ -94,8 +94,16 @@ export function AttendanceActionsCell({
           <span className="sr-only">Open menu</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {/* Opens the corrections wizard prefilled with this employee and
+              date. The single-entry form this used to open is gone: every
+              attendance write now goes through corrections, so one audit trail
+              and one re-import protection rule cover all of them. */}
           <DropdownMenuItem
-            onClick={() => router.push(`/attendance/entry?id=${row.id}`)}
+            onClick={() =>
+              router.push(
+                `/attendance-corrections/new?employee=${row.employee_id}&date=${row.date}`,
+              )
+            }
           >
             <Pencil className="h-4 w-4" />
             Correct entry

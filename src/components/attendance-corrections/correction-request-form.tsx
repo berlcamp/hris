@@ -140,6 +140,7 @@ export function CorrectionRequestForm({
   employees,
   schedules,
   directApply = false,
+  prefill,
 }: {
   employees: CorrectableEmployee[];
   schedules: ScheduleRow[];
@@ -147,13 +148,22 @@ export function CorrectionRequestForm({
    *  no approval step. Presentational only — createCorrectionRequest re-derives
    *  this from the caller's role and ignores anything the client claims. */
   directApply?: boolean;
+  /** Preselects employee and date, for the "Correct entry" action on the
+   *  attendance table. Server-validated; only preselects, never authorises. */
+  prefill?: { employeeId: string | null; date: string | null };
 }) {
   const router = useRouter();
   const [empOpen, setEmpOpen] = useState(false);
 
-  const [employeeId, setEmployeeId] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // Only honour a prefilled employee that is actually in reach — otherwise the
+  // picker would show a selection the grid can never load.
+  const prefilledEmployee =
+    prefill?.employeeId && employees.some((e) => e.id === prefill.employeeId)
+      ? prefill.employeeId
+      : "";
+  const [employeeId, setEmployeeId] = useState(prefilledEmployee);
+  const [dateFrom, setDateFrom] = useState(prefill?.date ?? "");
+  const [dateTo, setDateTo] = useState(prefill?.date ?? "");
 
   const [days, setDays] = useState<CorrectionDraftDay[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DayDraft>>({});

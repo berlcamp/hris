@@ -411,3 +411,34 @@ test("an ordinary update does not set a day-level reason", () => {
   }));
   assert.equal(rec.no_time_reason, null);
 });
+
+// --- The request narrative reaches the attendance row --------------------------
+
+// attendance_logs.remarks is not otherwise reachable through corrections, and
+// buildAttendanceRecord writes `fields.remarks || null` — so before this,
+// applying a correction BLANKED whatever remark the day carried. That was
+// tolerable while Manual Attendance Entry still had a remarks box; once
+// corrections became the only way to write attendance it would have been a
+// silent data loss on every apply.
+test("a correction writes the request narrative onto the day", () => {
+  const narrative = "Assigned to night rotation per Office Order 2026-114";
+  const rec = buildCorrectionRecord(EMP2, item({
+    time_in_am: "21:55", time_out_pm: "06:05", schedule: NIGHT,
+    remarks: narrative,
+  }));
+  assert.equal(rec.remarks, narrative);
+});
+
+test("a cleared day carries the narrative too", () => {
+  const rec = buildCorrectionRecord(EMP2, item({
+    disposition: "clear_as_off",
+    remarks: "Rest day per duty roster",
+  }));
+  assert.equal(rec.remarks, "Rest day per duty roster");
+  assert.equal(rec.no_time_reason, "off");
+});
+
+test("no narrative leaves remarks null rather than an empty string", () => {
+  const rec = buildCorrectionRecord(EMP2, item({ time_in_am: "08:00" }));
+  assert.equal(rec.remarks, null);
+});

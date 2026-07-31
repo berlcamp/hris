@@ -12,12 +12,27 @@ import {
 } from "@/lib/auth-helpers";
 import { CorrectionRequestForm } from "@/components/attendance-corrections/correction-request-form";
 
-export default async function NewCorrectionRequestPage() {
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export default async function NewCorrectionRequestPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ employee?: string; date?: string }>;
+}) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (!canFileAttendanceCorrection(user.role)) {
     redirect("/attendance-corrections");
   }
+  // Prefill for "Correct entry" on the attendance table, which used to open the
+  // single-entry form. Keeps that a one-click path. Validated here rather than
+  // trusted: these only preselect a picker, and the actions re-authorise the
+  // employee independently, but a bad date would put the grid in a broken state.
+  const { employee, date } = await searchParams;
+  const prefill = {
+    employeeId: employee ?? null,
+    date: date && ISO_DATE.test(date) ? date : null,
+  };
   // Reviewer-level roles file corrections that apply on submit; a department
   // admin files a request that a reviewer must approve. Decided on the server
   // and passed down purely so the form can say which it is — the action
@@ -64,6 +79,7 @@ export default async function NewCorrectionRequestPage() {
           employees={employees}
           schedules={schedules}
           directApply={directApply}
+          prefill={prefill}
         />
       )}
     </div>

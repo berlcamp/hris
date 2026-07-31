@@ -6,7 +6,6 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
   isDeptScoped,
   isAttendanceManager,
-  canManualEntry,
   canPrintDtr,
 } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
@@ -21,10 +20,10 @@ import {
   undertimeMinutesFor,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
-import {
-  buildAttendanceRecord,
-  computeAttendanceFlags,
-} from "@/lib/attendance-record";
+// buildAttendanceRecord is no longer reached from here: manual entry was the
+// only caller and now lives in the corrections module, which goes through
+// buildCorrectionRecord. The biometric importer still needs the flag maths.
+import { computeAttendanceFlags } from "@/lib/attendance-record";
 import {
   recomputeAttendanceDeductionFor,
   recomputeAttendanceDeductionsBatch,
@@ -250,6 +249,32 @@ function applyUndertimeAbsenceRule(
   };
 }
 
+// Fetches every per-day override schedule referenced by a set of attendance logs
+// in one query, keyed by schedule id. The DTR builders use it to recompute
+// late / undertime for a day against its pinned schedule instead of the
+// employee's assigned one.
+async function loadOverrideSchedules(
+  supabase: ReturnType<typeof createAdminClient>,
+  logs: { schedule_id?: string | null }[],
+): Promise<Map<string, ScheduleLike>> {
+  const ids = [
+    ...new Set(
+      logs.map((l) => l.schedule_id).filter((id): id is string => !!id),
+    ),
+  ];
+  const map = new Map<string, ScheduleLike>();
+  if (ids.length === 0) return map;
+  const { data } = await supabase
+    .schema("hris")
+    .from("schedules")
+    .select("id, time_in, time_out, break_start, break_end")
+    .in("id", ids);
+  for (const s of (data ?? []) as unknown as ScheduleLike[]) {
+    map.set(s.id, s);
+  }
+  return map;
+}
+
 // --- Data Fetching ---
 
 export async function getAttendanceLogs(filters?: {
@@ -320,290 +345,6 @@ export async function getAttendanceLogs(filters?: {
   })) as AttendanceLogRow[];
 }
 
-// --- Manual Attendance Entry ---
-
-// The HH:MM time + per-slot official-duty reason fields shared by single-date
-// and date-range manual entry.
-interface ManualEntryTimeFields {
-  time_in_am: string | null;
-  time_out_am: string | null;
-  time_in_pm: string | null;
-  time_out_pm: string | null;
-  remarks?: string;
-  no_time_reason?: NoTimeReason | null;
-  reason_in_am?: NoTimeReason | null;
-  reason_out_am?: NoTimeReason | null;
-  reason_in_pm?: NoTimeReason | null;
-  reason_out_pm?: NoTimeReason | null;
-  // Per-day schedule override (migration 047). NULL/undefined => inherit the
-  // employee's assigned schedule.
-  schedule_id?: string | null;
-}
-
-// Builds the attendance_logs row for one duty date from the manual-entry
-// fields. Thin wrapper over the shared builder in attendance-record.ts, which
-// the correction apply path also uses so both produce identical rows.
-function buildManualEntryRecord(
-  employeeId: string,
-  date: string,
-  fields: ManualEntryTimeFields,
-  sched: ScheduleLike,
-) {
-  return buildAttendanceRecord(employeeId, date, fields, sched);
-}
-
-// Resolves the employee's schedule (falling back to the default) so manual entry
-// uses the same late / undertime baseline as the importer.
-async function resolveEmployeeSchedule(
-  supabase: ReturnType<typeof createAdminClient>,
-  employeeId: string,
-): Promise<ScheduleLike> {
-  const { data: emp } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select("schedules(id, time_in, time_out, break_start, break_end)")
-    .eq("id", employeeId)
-    .maybeSingle();
-  return (
-    (emp?.schedules as unknown as ScheduleLike | null) ??
-    (await resolveDefaultSchedule(supabase))
-  );
-}
-
-// Loads a specific schedule by id for a per-day override. Returns null if the id
-// doesn't resolve (e.g. the schedule was deleted) so the caller can fall back to
-// the employee's assigned schedule.
-async function resolveScheduleById(
-  supabase: ReturnType<typeof createAdminClient>,
-  scheduleId: string,
-): Promise<ScheduleLike | null> {
-  const { data } = await supabase
-    .schema("hris")
-    .from("schedules")
-    .select("id, time_in, time_out, break_start, break_end")
-    .eq("id", scheduleId)
-    .maybeSingle();
-  return (data as unknown as ScheduleLike | null) ?? null;
-}
-
-// Fetches every per-day override schedule referenced by a set of attendance logs
-// in one query, keyed by schedule id. The DTR builders use it to recompute
-// late / undertime for a day against its pinned schedule instead of the
-// employee's assigned one.
-async function loadOverrideSchedules(
-  supabase: ReturnType<typeof createAdminClient>,
-  logs: { schedule_id?: string | null }[],
-): Promise<Map<string, ScheduleLike>> {
-  const ids = [
-    ...new Set(
-      logs.map((l) => l.schedule_id).filter((id): id is string => !!id),
-    ),
-  ];
-  const map = new Map<string, ScheduleLike>();
-  if (ids.length === 0) return map;
-  const { data } = await supabase
-    .schema("hris")
-    .from("schedules")
-    .select("id, time_in, time_out, break_start, break_end")
-    .in("id", ids);
-  for (const s of (data ?? []) as unknown as ScheduleLike[]) {
-    map.set(s.id, s);
-  }
-  return map;
-}
-
-// Audit columns for an attendance_logs upsert. On a fresh row the signed-in user
-// is the creator and the updated_* fields stay null; on an edit the original
-// creator is preserved and the editor is stamped.
-function auditFields(
-  existing: { created_by: string | null; created_by_email: string | null } | null | undefined,
-  user: { id: string; email: string },
-  now: string,
-) {
-  if (!existing) {
-    return {
-      created_by: user.id,
-      created_by_email: user.email,
-      updated_by: null as string | null,
-      updated_by_email: null as string | null,
-      updated_at: null as string | null,
-    };
-  }
-  return {
-    created_by: existing.created_by,
-    created_by_email: existing.created_by_email,
-    updated_by: user.id,
-    updated_by_email: user.email,
-    updated_at: now,
-  };
-}
-
-export async function createAttendanceEntry(input: {
-  employee_id: string;
-  date: string;
-  time_in_am: string | null;
-  time_out_am: string | null;
-  time_in_pm: string | null;
-  time_out_pm: string | null;
-  remarks?: string;
-  no_time_reason?: NoTimeReason | null;
-  reason_in_am?: NoTimeReason | null;
-  reason_out_am?: NoTimeReason | null;
-  reason_in_pm?: NoTimeReason | null;
-  reason_out_pm?: NoTimeReason | null;
-  schedule_id?: string | null;
-}) {
-  const user = await getCurrentUser();
-  if (!user || !canManualEntry(user.role)) {
-    throw new Error("Unauthorized");
-  }
-
-  const supabase = createAdminClient();
-  // A per-day override schedule (if picked and still valid) takes precedence over
-  // the employee's assigned schedule for late/undertime and night-shift handling.
-  const overrideSched = input.schedule_id
-    ? await resolveScheduleById(supabase, input.schedule_id)
-    : null;
-  const sched =
-    overrideSched ?? (await resolveEmployeeSchedule(supabase, input.employee_id));
-  const scheduleId = overrideSched ? input.schedule_id! : null;
-
-  // Preserve the original creator across edits.
-  const { data: existing } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("created_by, created_by_email")
-    .eq("employee_id", input.employee_id)
-    .eq("date", input.date)
-    .maybeSingle();
-
-  const record = {
-    ...buildManualEntryRecord(
-      input.employee_id,
-      input.date,
-      { ...input, schedule_id: scheduleId },
-      sched,
-    ),
-    ...auditFields(
-      existing as { created_by: string | null; created_by_email: string | null } | null,
-      { id: user.id, email: user.email },
-      new Date().toISOString(),
-    ),
-  };
-
-  // (employee_id, date) is unique; upsert so re-entering a date overwrites.
-  const { error } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .upsert(record, { onConflict: "employee_id,date" });
-  if (error) throw error;
-
-  // Keep the VL ledger in sync with the (possibly mid-month) edit.
-  const [y, m] = input.date.split("-").map(Number);
-  await recomputeAttendanceDeductionFor(input.employee_id, y, m);
-
-  revalidatePath("/attendance");
-  return { success: true };
-}
-
-// Saves several manual entries for one employee in a single call — each with its
-// own date and times — so a stretch of days can be filled from a per-date grid.
-export async function createAttendanceEntriesBulk(input: {
-  employee_id: string;
-  entries: Array<
-    ManualEntryTimeFields & {
-      date: string;
-    }
-  >;
-}) {
-  const user = await getCurrentUser();
-  if (!user || !canManualEntry(user.role)) {
-    throw new Error("Unauthorized");
-  }
-
-  if (!input.entries || input.entries.length === 0) {
-    return { success: true, count: 0 };
-  }
-  // Guard against an unbounded payload.
-  if (input.entries.length > 366) {
-    throw new Error("Too many dates in one save (max 366).");
-  }
-
-  const supabase = createAdminClient();
-  const employeeSched = await resolveEmployeeSchedule(supabase, input.employee_id);
-
-  // Resolve any per-day override schedules referenced across the batch in one
-  // query. Entries with no (or an invalid) override fall back to the employee's
-  // assigned schedule, exactly like single-entry create.
-  const overrideIds = [
-    ...new Set(
-      input.entries
-        .map((e) => e.schedule_id)
-        .filter((id): id is string => !!id),
-    ),
-  ];
-  const overrideSchedById = new Map<string, ScheduleLike>();
-  if (overrideIds.length > 0) {
-    const { data: schedRows } = await supabase
-      .schema("hris")
-      .from("schedules")
-      .select("id, time_in, time_out, break_start, break_end")
-      .in("id", overrideIds);
-    for (const s of (schedRows ?? []) as unknown as ScheduleLike[]) {
-      overrideSchedById.set(s.id, s);
-    }
-  }
-
-  // Preserve the original creator of any dates that already exist.
-  const { data: existingRows } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select("date, created_by, created_by_email")
-    .eq("employee_id", input.employee_id)
-    .in("date", input.entries.map((e) => e.date));
-  const existingByDate = new Map(
-    ((existingRows ?? []) as Array<{
-      date: string;
-      created_by: string | null;
-      created_by_email: string | null;
-    }>).map((r) => [r.date, r]),
-  );
-  const now = new Date().toISOString();
-  const actor = { id: user.id, email: user.email };
-
-  const records = input.entries.map((e) => {
-    const override = e.schedule_id
-      ? overrideSchedById.get(e.schedule_id) ?? null
-      : null;
-    const sched = override ?? employeeSched;
-    const scheduleId = override ? e.schedule_id! : null;
-    return {
-      ...buildManualEntryRecord(
-        input.employee_id,
-        e.date,
-        { ...e, schedule_id: scheduleId },
-        sched,
-      ),
-      ...auditFields(existingByDate.get(e.date), actor, now),
-    };
-  });
-
-  const { error } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .upsert(records, { onConflict: "employee_id,date" });
-  if (error) throw error;
-
-  // Recompute the VL ledger once per affected month.
-  const months = new Set(input.entries.map((e) => e.date.slice(0, 7)));
-  for (const ym of months) {
-    const [y, m] = ym.split("-").map(Number);
-    await recomputeAttendanceDeductionFor(input.employee_id, y, m);
-  }
-
-  revalidatePath("/attendance");
-  return { success: true, count: records.length };
-}
 
 // --- Delete a single attendance entry ---
 
@@ -652,44 +393,6 @@ export async function deleteAttendanceEntry(
   return { success: true };
 }
 
-// --- Fetch a single attendance entry for correction (pre-fills the form) ---
-
-export async function getAttendanceEntryForEdit(id: string) {
-  const user = await getCurrentUser();
-  if (!user || !canManualEntry(user.role)) {
-    throw new Error("Unauthorized");
-  }
-
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .schema("hris")
-    .from("attendance_logs")
-    .select(
-      "id, employee_id, date, schedule_id, time_in_am, time_out_am, time_in_pm, time_out_pm, remarks, no_time_reason, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason",
-    )
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) return null;
-
-  return {
-    id: data.id as string,
-    employee_id: data.employee_id as string,
-    date: data.date as string,
-    schedule_id: (data.schedule_id as string | null) ?? null,
-    time_in_am: extractTime(data.time_in_am as string | null) ?? "",
-    time_out_am: extractTime(data.time_out_am as string | null) ?? "",
-    time_in_pm: extractTime(data.time_in_pm as string | null) ?? "",
-    time_out_pm: extractTime(data.time_out_pm as string | null) ?? "",
-    remarks: (data.remarks as string | null) ?? "",
-    no_time_reason: (data.no_time_reason as NoTimeReason | null) ?? null,
-    reason_in_am: (data.time_in_am_reason as NoTimeReason | null) ?? null,
-    reason_out_am: (data.time_out_am_reason as NoTimeReason | null) ?? null,
-    reason_in_pm: (data.time_in_pm_reason as NoTimeReason | null) ?? null,
-    reason_out_pm: (data.time_out_pm_reason as NoTimeReason | null) ?? null,
-  };
-}
 
 // --- Match parsed rows to employees and check conflicts ---
 // Dahua exports are parsed in the browser (see src/lib/dahua-parse.ts) so the
