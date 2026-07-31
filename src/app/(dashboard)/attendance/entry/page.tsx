@@ -44,7 +44,12 @@ export default async function AttendanceEntryPage({
     : undefined;
 
   return (
-    <div className="max-w-3xl space-y-6">
+    // Creating shows the per-date grid — six columns of times, reasons and a
+    // schedule — which does not fit the 48rem (max-w-3xl) column the rest of
+    // the form is comfortable in. Editing has no grid, so it keeps the
+    // narrower measure rather than stretching a handful of fields across the
+    // page.
+    <div className={`${isEdit ? "max-w-3xl" : "max-w-6xl"} space-y-6`}>
       <div>
         <h1 className="text-2xl font-bold tracking-tight">
           {isEdit ? "Correct Attendance Entry" : "Manual Attendance Entry"}
