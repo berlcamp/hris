@@ -155,7 +155,7 @@ export function CorrectionRequestForm({
    *  no approval step. Presentational only — createCorrectionRequest re-derives
    *  this from the caller's role and ignores anything the client claims. */
   directApply?: boolean;
-  /** The payroll month a department may still correct, or null for a role with
+  /** The payroll months a department may still correct, or null for a role with
    *  no date limit. Computed on the server from the Manila clock — the browser's
    *  own clock never decides this. Presentational, like directApply: both
    *  server actions re-derive the window and refuse anything outside it. */
@@ -414,8 +414,9 @@ export function CorrectionRequestForm({
               <span className="font-medium text-foreground">
                 {describeCorrectionWindow(correctionWindow)}
               </span>
-              . The payroll month stays open through the first 7 days of the
-              month after it — ask HR to correct anything older.
+              . The current payroll month and the one before it stay open, and
+              the oldest of them hangs on through the first 7 days of the month
+              after it — ask HR to correct anything older.
             </p>
           )}
           <div className="grid gap-4 sm:grid-cols-3">
@@ -478,7 +479,7 @@ export function CorrectionRequestForm({
             </div>
             <div className="space-y-2">
               <Label htmlFor="date_from">From</Label>
-              {/* min/max keep the picker inside the payroll month a department
+              {/* min/max keep the picker inside the payroll months a department
                   may still correct. Convenience only — the browser will happily
                   accept a typed-in date outside them, so getCorrectionDraftDays
                   and createCorrectionRequest both re-derive the window from the

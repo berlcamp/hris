@@ -220,7 +220,7 @@ export function canManageCosTemplates(
 // correction grants no access to the Dahua importer, bulk DTR generation or
 // entry deletion. Their reach is limited to employees whose EFFECTIVE
 // department (detailed_department_id ?? department_id) is their own, and to
-// duty dates inside the payroll month still being closed (see
+// duty dates inside the payroll months still being closed (see
 // src/lib/correction-window.ts).
 const CORRECTION_REQUESTER_ROLES: readonly UserRole[] = [
   "department_admin",

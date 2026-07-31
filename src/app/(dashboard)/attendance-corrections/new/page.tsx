@@ -43,7 +43,7 @@ export default async function NewCorrectionRequestPage({
   const directApply = canDirectApplyAttendanceCorrection(user.role);
 
   // Null for a direct-apply role — they have no date limit. For a department
-  // admin it is the payroll month still being closed, derived from the server's
+  // admin it is the payroll months still being closed, derived from the server's
   // Manila clock so it cannot move with the filer's machine.
   const [employees, schedules, correctionWindow] = await Promise.all([
     getCorrectableEmployees(),

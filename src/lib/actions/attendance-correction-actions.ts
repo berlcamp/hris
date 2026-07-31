@@ -73,7 +73,7 @@ export interface CorrectableEmployee {
 // top of this one, and in practice a department needs to fix whoever's punch
 // the biometric misread; the constraint that matters is not WHO but WHEN, and
 // that is enforced by correctionWindow (see assertCorrectionWindow) — a
-// department can only reach into the payroll month still being closed.
+// department can only reach into the payroll months still being closed.
 export async function getCorrectableEmployees(): Promise<CorrectableEmployee[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
@@ -117,7 +117,7 @@ async function assertReach(employeeId: string) {
   }
 }
 
-// Throws unless every date is inside the payroll month a DEPARTMENT may still
+// Throws unless every date is inside the payroll months a DEPARTMENT may still
 // correct. A no-op for the direct-apply roles, whose date reach is unrestricted.
 //
 // `today` comes from the server clock in Asia/Manila, never from the request:
