@@ -39,6 +39,7 @@ export function DahuaImportDialog() {
   const [result, setResult] = useState<{
     imported: number;
     skipped: number;
+    protectedSkipped: number;
     errors: number;
     totalPunches: number;
     unmatchedPunches: number;
@@ -255,6 +256,14 @@ export function DahuaImportDialog() {
                 <p className="text-2xl font-bold text-muted-foreground">{result.skipped}</p>
                 <p className="text-xs text-muted-foreground">Skipped</p>
               </div>
+              {result.protectedSkipped > 0 && (
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-amber-600">
+                    {result.protectedSkipped}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Protected</p>
+                </div>
+              )}
               {result.errors > 0 && (
                 <div className="text-center">
                   <p className="text-2xl font-bold text-destructive">{result.errors}</p>
@@ -269,6 +278,12 @@ export function DahuaImportDialog() {
                 ` ${result.unmatchedPunches} punch${
                   result.unmatchedPunches === 1 ? "" : "es"
                 } belonged to employees not found in the system and were ignored.`}
+              {result.protectedSkipped > 0 &&
+                ` ${result.protectedSkipped} day${
+                  result.protectedSkipped === 1 ? " was" : "s were"
+                } left untouched because someone entered or corrected ${
+                  result.protectedSkipped === 1 ? "it" : "them"
+                } by hand.`}
             </p>
           </div>
         )}

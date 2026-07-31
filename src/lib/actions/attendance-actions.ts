@@ -120,6 +120,10 @@ export interface DtrSummary {
 
 export interface ImportPreviewRow extends DahuaParsedRow {
   hasConflict: boolean;
+  /** The existing row was authored by a person (manual entry, hand-edit or
+   *  approved correction), so no import will overwrite it — even with
+   *  "overwrite existing" ON. */
+  isProtected: boolean;
   conflictDetails: string | null;
 }
 
@@ -742,12 +746,21 @@ export async function matchAndPreviewImport(
   ];
   const employeeIds = [...new Set(empRows.map((e) => e.id))];
 
-  let existingLogs: { employee_id: string; date: string }[] = [];
+  let existingLogs: {
+    employee_id: string;
+    date: string;
+    source: string | null;
+    correction_locked: boolean | null;
+  }[] = [];
   if (employeeIds.length > 0 && dutyDates.length > 0) {
     const { data } = await supabase
       .schema("hris")
       .from("attendance_logs")
-      .select("employee_id, date")
+      // source and correction_locked drive the preview's wording: the import
+      // will refuse to overwrite a human-authored day even with "overwrite
+      // existing" ON, so the preview must not promise an update it will not
+      // perform.
+      .select("employee_id, date, source, correction_locked")
       .in("employee_id", employeeIds)
       .in("date", dutyDates);
     existingLogs = data ?? [];
@@ -756,18 +769,29 @@ export async function matchAndPreviewImport(
   const existingSet = new Set(
     existingLogs.map((l) => `${l.employee_id}_${l.date}`),
   );
+  // Days no import will touch, whatever the overwrite setting. Mirrors the
+  // skip rule in importDahuaAttendance — keep the two in step.
+  const protectedSet = new Set(
+    existingLogs
+      .filter((l) => (l.source !== null && l.source !== "biometric") || l.correction_locked)
+      .map((l) => `${l.employee_id}_${l.date}`),
+  );
 
   return previewWithDuty.map(({ row, employeeId, duty }) => {
     const matched = employeeId !== null;
-    const hasConflict =
-      matched && existingSet.has(`${employeeId}_${duty}`);
+    const key = `${employeeId}_${duty}`;
+    const hasConflict = matched && existingSet.has(key);
+    const isProtected = matched && protectedSet.has(key);
 
     return {
       ...row,
       matched,
       employeeId,
       hasConflict,
-      conflictDetails: hasConflict
+      isProtected,
+      conflictDetails: isProtected
+        ? "Entered by hand — will be kept, not overwritten"
+        : hasConflict
         ? "Existing record will be updated"
         : !matched
         ? "Employee not found in system"
@@ -810,6 +834,8 @@ async function buildBiometricRecords(
   records: Record<string, unknown>[];
   keys: string[];
   existingSourceByKey: Map<string, string>;
+  /** Keys whose existing row came from an APPROVED attendance correction. */
+  correctionLockedKeys: Set<string>;
   touched: { employeeId: string; year: number; month: number }[];
   errors: number;
 }> {
@@ -834,13 +860,14 @@ async function buildBiometricRecords(
   // existing row's source so replay can skip days a human has since corrected.
   const overrideSchedByKey = new Map<string, ScheduleLike>();
   const existingSourceByKey = new Map<string, string>();
+  const correctionLockedKeys = new Set<string>();
   const employeeIds = [...new Set([...grouped.values()].map((g) => g.employeeId))];
   const dutyDates = [...new Set([...grouped.values()].map((g) => g.dutyDate))];
   if (employeeIds.length > 0 && dutyDates.length > 0) {
     const { data: existing } = await supabase
       .schema("hris")
       .from("attendance_logs")
-      .select("employee_id, date, schedule_id, source")
+      .select("employee_id, date, schedule_id, source, correction_locked")
       .in("employee_id", employeeIds)
       .in("date", dutyDates);
     const existingRows = (existing ?? []) as {
@@ -848,11 +875,13 @@ async function buildBiometricRecords(
       date: string;
       schedule_id: string | null;
       source: string | null;
+      correction_locked: boolean | null;
     }[];
     const schedById = await loadOverrideSchedules(supabase, existingRows);
     for (const r of existingRows) {
       const key = `${r.employee_id}_${r.date}`;
       existingSourceByKey.set(key, r.source ?? "");
+      if (r.correction_locked) correctionLockedKeys.add(key);
       if (r.schedule_id) {
         const sched = schedById.get(r.schedule_id);
         if (sched) overrideSchedByKey.set(key, sched);
@@ -913,7 +942,14 @@ async function buildBiometricRecords(
       errors++;
     }
   }
-  return { records, keys, existingSourceByKey, touched, errors };
+  return {
+    records,
+    keys,
+    existingSourceByKey,
+    correctionLockedKeys,
+    touched,
+    errors,
+  };
 }
 
 // Persist the raw parsed punches for this import so it can be replayed later.
@@ -955,6 +991,7 @@ export async function importDahuaAttendance(
 ): Promise<{
   imported: number;
   skipped: number;
+  protectedSkipped: number;
   errors: number;
   totalPunches: number;
   unmatchedPunches: number;
@@ -1019,16 +1056,52 @@ export async function importDahuaAttendance(
     });
   }
 
-  const { records, touched, errors: buildErrors } = await buildBiometricRecords(
-    supabase,
-    matched,
-    schedByEmp,
-    defaultSched,
-  );
+  const {
+    records,
+    keys,
+    existingSourceByKey,
+    correctionLockedKeys,
+    touched,
+    errors: buildErrors,
+  } = await buildBiometricRecords(supabase, matched, schedByEmp, defaultSched);
+
+  // Never overwrite a day a PERSON authored. One principle across all three
+  // import paths: the device may correct its own records, never somebody's.
+  //
+  // This is the same rule runImportReplay applies (skip unless the existing row
+  // is absent or still source = 'biometric'); before it was added here, a run
+  // with "overwrite existing" ON upserted unconditionally and discarded every
+  // manual entry, hand-edit and per-slot reason in range — including a blank
+  // rest day tagged SATURDAY, which would revert to reading as an absence.
+  //
+  // correction_locked is checked as well as `source`, not instead of it:
+  // migration 065 introduced the flag precisely so protection does not hinge on
+  // a column other flows may reset. Today the two agree (buildCorrectionRecord
+  // writes source 'manual'), and that redundancy is the point.
+  //
+  // The skip is unconditional rather than gated on `overwriteExisting`, because
+  // with overwrite OFF these rows are already filtered into skipKeys — so this
+  // only ever changes behaviour in the case that would have destroyed data.
+  const toWrite: Record<string, unknown>[] = [];
+  const toWriteTouched: typeof touched = [];
+  let protectedSkipped = 0;
+  for (let i = 0; i < records.length; i++) {
+    const existingSource = existingSourceByKey.get(keys[i]);
+    const humanAuthored =
+      existingSource !== undefined && existingSource !== "biometric";
+    if (humanAuthored || correctionLockedKeys.has(keys[i])) {
+      // No overlap with skipKeys to worry about: a day filtered there never
+      // reaches buildBiometricRecords, so it has no record and no key here.
+      protectedSkipped++;
+      continue;
+    }
+    toWrite.push(records[i]);
+    toWriteTouched.push(touched[i]);
+  }
 
   let imported = 0;
   let errors = buildErrors;
-  const skipped = skipKeys.size;
+  const skipped = skipKeys.size + protectedSkipped;
 
   // Batch-upsert against the UNIQUE(employee_id, date) constraint instead of a
   // SELECT + INSERT/UPDATE per group. The old per-row loop did ~2 sequential DB
@@ -1038,8 +1111,8 @@ export async function importDahuaAttendance(
   // when on, it merges over the existing row. `.select("id")` returns only the
   // rows actually written, giving an accurate `imported` count either way.
   const CHUNK = 500;
-  for (let i = 0; i < records.length; i += CHUNK) {
-    const chunk = records.slice(i, i + CHUNK);
+  for (let i = 0; i < toWrite.length; i += CHUNK) {
+    const chunk = toWrite.slice(i, i + CHUNK);
     try {
       const { data, error } = await supabase
         .schema("hris")
@@ -1057,8 +1130,8 @@ export async function importDahuaAttendance(
   }
 
   // Refresh VL ledger for every (employee, month) the import touched.
-  if (touched.length > 0) {
-    await recomputeAttendanceDeductionsBatch(touched);
+  if (toWriteTouched.length > 0) {
+    await recomputeAttendanceDeductionsBatch(toWriteTouched);
   }
 
   // Save the raw punches so this import can be replayed after a bucketing fix.
@@ -1069,7 +1142,14 @@ export async function importDahuaAttendance(
     userEmail: user.email,
     action: "import_attendance",
     tableName: "attendance_logs",
-    newValues: { imported, skipped, errors, overwriteExisting, totalRows: previewRows.length },
+    newValues: {
+      imported,
+      skipped,
+      protectedSkipped,
+      errors,
+      overwriteExisting,
+      totalRows: previewRows.length,
+    },
   });
 
   revalidatePath("/attendance");
@@ -1077,6 +1157,10 @@ export async function importDahuaAttendance(
   return {
     imported,
     skipped,
+    /** Days left alone because a person authored them (manual entry, hand-edit
+     *  or approved correction). Reported separately from `skipped` so the
+     *  result can say what was PROTECTED, not just what was not written. */
+    protectedSkipped,
     errors,
     totalPunches: previewRows.length,
     unmatchedPunches: previewRows.length - matchedPunches,
@@ -1528,7 +1612,14 @@ export async function getDepartmentDtrBulk(
 
       // Full-day holiday with no punches prints HOLIDAY across the row. If the
       // employee actually worked the holiday, fall through so the times show.
-      if (holidayType === "full" && !hasPunch) {
+      //
+      // An explicit no_time_reason also falls through: somebody stated what
+      // that day was (OFF via a clear_as_off correction, LEAVE, TRAVEL...), and
+      // a recorded statement about a specific employee's day beats the
+      // calendar's default classification. Without this the short-circuit
+      // discarded the log entirely — `continue` below — so the reason never
+      // reached the DTR and a day cleared as OFF printed HOLIDAY.
+      if (holidayType === "full" && !hasPunch && !log?.no_time_reason) {
         entries.push({
           date: day.date,
           day_of_week: day.dayOfWeek,
@@ -1879,7 +1970,14 @@ export async function getEmployeeDtrRange(
 
     // Full-day holiday with no punches prints HOLIDAY across the row. If the
     // employee actually worked the holiday, fall through so the times show.
-    if (holidayType === "full" && !hasPunch) {
+    //
+    // An explicit no_time_reason also falls through: somebody stated what that
+    // day was (OFF via a clear_as_off correction, LEAVE, TRAVEL...), and a
+    // recorded statement about a specific employee's day beats the calendar's
+    // default classification. Without this the short-circuit discarded the log
+    // entirely — `continue` below — so the reason never reached the DTR and a
+    // day cleared as OFF printed HOLIDAY.
+    if (holidayType === "full" && !hasPunch && !log?.no_time_reason) {
       entries.push({
         date: dateStr,
         day_of_week: dayOfWeek,
