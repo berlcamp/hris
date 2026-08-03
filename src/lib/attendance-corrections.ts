@@ -142,18 +142,90 @@ export function datesInRange(from: string, to: string): string[] {
   return out;
 }
 
-// A midnight-crossing shift starting on `dateTo` finishes the NEXT morning, so
-// its punches land on dateTo's duty date and the following calendar day is left
-// empty. That trailing day needs an explicit disposition or it reads as an
-// absence. Day shifts return null — they touch only the days in range.
+// A midnight-crossing shift worked on `dutyDate` finishes the NEXT morning, so
+// its punches belong to dutyDate and the following calendar day is left with
+// none of its own. That trailing day needs an explicit disposition or it reads
+// as an absence. Day shifts return null — they touch only the day itself.
+//
+// Pass the day actually pinned to the night schedule, not the end of the
+// request's range: the two coincide only when the pin is on the last day, and
+// naming the wrong date sends the requester to fix a day that is fine.
 export function trailingDutyDate(
-  dateTo: string,
+  dutyDate: string,
   sched: ScheduleLike,
 ): string | null {
   if (!crossesMidnight(sched)) return null;
-  const d = new Date(dateTo + "T00:00:00");
+  const d = new Date(dutyDate + "T00:00:00");
   d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** One loaded day's draft, reduced to what the trailing-day rule needs. */
+export interface TrailingDraft {
+  /** The day's RESOLVED schedule — pin, row pin, employee assignment or
+   *  default. Resolved by the caller so a day left on "Inherit" whose employee
+   *  is assigned a nocturnal schedule is judged on what it actually is. */
+  schedule: ScheduleLike;
+  disposition: Disposition;
+  include: boolean;
+  /** Whether the draft would write at least one punch. */
+  hasTime: boolean;
+  /** Whether the draft would write at least one reason. */
+  hasReason: boolean;
+}
+
+/** The loaded day as it stands on record, before this request. */
+export interface TrailingLoadedDay {
+  date: string;
+  has_record: boolean;
+  is_absent: boolean;
+}
+
+// The days that a midnight-crossing shift leaves empty and nobody has claimed.
+//
+// For each INCLUDED day worked on a night schedule, the day after it keeps none
+// of that shift's punches — they belong to the day the shift started — so it
+// reads as an absence unless something is written there. This returns those
+// trailing days, split by whether the requester can reach them in the grid
+// (`inRange`) or has to widen the range first (`outOfRange`).
+//
+// A day is NOT reported when it already ends up with something of its own:
+// it is being written by this request (any punch, any reason, or Clear as off),
+// or it already carries a record that is not an absence. So a run of
+// consecutive night shifts stays quiet until its last day — every earlier
+// trailing date is the next night shift, which is itself being written.
+//
+// Derived per pinned day, never from the end of the range: the two coincide
+// only when the pin is on the last day, and naming the wrong date sends the
+// requester off to fix a day that was fine.
+export function trailingDaysNeedingDisposition(
+  days: readonly TrailingLoadedDay[],
+  drafts: Readonly<Record<string, TrailingDraft>>,
+): { outOfRange: string[]; inRange: string[] } {
+  const byDate = new Map(days.map((d) => [d.date, d]));
+
+  const handled = (date: string): boolean => {
+    const draft = drafts[date];
+    if (draft?.include) {
+      if (draft.disposition === "clear_as_off") return true;
+      return draft.hasTime || draft.hasReason;
+    }
+    // Not included: the day keeps whatever it already has. A record that is not
+    // flagged absent carries punches or a reason and stands on its own.
+    const existing = byDate.get(date);
+    return !!existing && existing.has_record && !existing.is_absent;
+  };
+
+  const outOfRange = new Set<string>();
+  const inRange = new Set<string>();
+  for (const [date, draft] of Object.entries(drafts)) {
+    if (!draft.include || draft.disposition === "clear_as_off") continue;
+    const trailing = trailingDutyDate(date, draft.schedule);
+    if (!trailing || handled(trailing)) continue;
+    if (byDate.has(trailing)) inRange.add(trailing);
+    else outOfRange.add(trailing);
+  }
+  return { outOfRange: [...outOfRange].sort(), inRange: [...inRange].sort() };
 }
 
 export function buildCorrectionRecord(

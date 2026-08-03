@@ -11,9 +11,8 @@ import {
 import { logAudit } from "@/lib/audit";
 import {
   bucketPunchesForDuty,
+  dayLateUndertime,
   dutyDateFor,
-  lateMinutesFor,
-  undertimeMinutesFor,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
 // The DTR page builder and the time/rule helpers it shares with the biometric
@@ -494,6 +493,7 @@ async function buildBiometricRecords(
           time_in_pm: bucket.time_in_pm,
           time_out_pm: bucket.time_out_pm,
           time_in_am_next_day: bucket.time_in_am_next_day,
+          time_in_pm_next_day: bucket.time_in_pm_next_day,
           time_out_pm_next_day: bucket.time_out_pm_next_day,
         },
         group.dutyDate,
@@ -1138,7 +1138,13 @@ export async function getAttendanceReport(
     supabase
       .schema("hris")
       .from("attendance_logs")
-      .select("employee_id, date, time_in_am, time_out_pm, is_absent")
+      // All four punches and their reasons, not just the outer pair: since the
+      // half-day rule a session missing either of its punches is charged, so
+      // this report cannot judge a day from its arrival and departure alone —
+      // it would read every lunch pair as missing and charge everybody.
+      .select(
+        "employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason, no_time_reason, is_absent",
+      )
       .in("employee_id", empIds)
       .gte("date", startDate)
       .lte("date", endDate),
@@ -1224,23 +1230,36 @@ export async function getAttendanceReport(
           daysAbsent++;
         } else {
           const tIn = log.time_in_am as string | null;
+          const tOutAm = log.time_out_am as string | null;
           const tInPm = log.time_in_pm as string | null;
           const tOut = log.time_out_pm as string | null;
-          const lmRaw = lateMinutesFor(
-            day.date,
-            sched,
-            extractTime(tIn),
-            timestampOnNextDay(tIn, day.date),
-          );
-          const umRaw = undertimeMinutesFor(
-            day.date,
-            sched,
-            extractTime(tOut),
-            timestampOnNextDay(tOut, day.date),
-            !!tIn,
-            extractTime(tInPm),
-            timestampOnNextDay(tInPm, day.date),
-          );
+          // The same one function the DTR scores a day with — this report used
+          // to re-derive late/undertime from the two primitives, which is
+          // exactly how a report and the document it summarises drift apart.
+          const { lateMinutes: lmRaw, undertimeMinutes: umRaw } =
+            dayLateUndertime(
+              day.date,
+              sched,
+              {
+                time_in_am: extractTime(tIn),
+                time_out_am: extractTime(tOutAm),
+                time_in_pm: extractTime(tInPm),
+                time_out_pm: extractTime(tOut),
+                time_in_am_next_day: timestampOnNextDay(tIn, day.date),
+                time_in_pm_next_day: timestampOnNextDay(tInPm, day.date),
+                time_out_pm_next_day: timestampOnNextDay(tOut, day.date),
+              },
+              {
+                reasons: {
+                  in_am: !!log.time_in_am_reason,
+                  out_am: !!log.time_out_am_reason,
+                  in_pm: !!log.time_in_pm_reason,
+                  out_pm: !!log.time_out_pm_reason,
+                },
+                excuseAm: !!log.no_time_reason,
+                excusePm: !!log.no_time_reason,
+              },
+            );
           // Same DTR rule: undertime caps at 7h; 8h+ counts the day absent.
           const { lateMins: lm, undertimeMins: um, absent } =
             applyUndertimeAbsenceRule(lmRaw, umRaw, false);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -49,9 +49,17 @@ import { employeeSearchKeywords } from "@/lib/employee-name-match";
 import type { ScheduleRow } from "@/lib/actions/schedule-actions";
 import type { CorrectionItemFormValues } from "@/lib/validations/attendance-correction-schema";
 import {
-  trailingDutyDate,
+  trailingDaysNeedingDisposition,
   weekendReasonFor,
+  type TrailingDraft,
 } from "@/lib/attendance-corrections";
+import {
+  crossesMidnight,
+  hasBreak,
+  DEFAULT_SCHEDULE,
+  type ScheduleLike,
+} from "@/lib/attendance-schedule";
+import { buildAttendanceRecord } from "@/lib/attendance-record";
 import {
   correctionWindowError,
   describeCorrectionWindow,
@@ -132,6 +140,12 @@ const nullIfBlank = (v: string) => (v.trim() === "" ? null : v.trim());
 const nullIfSentinel = (v: string, sentinel: string) =>
   v === sentinel ? null : v;
 
+// The reason sentinels come out of a Select whose only non-sentinel options are
+// CORRECTION_REASONS, so the narrowing cast is safe — and the server
+// re-validates through correctionRequestSchema regardless.
+const asReason = (v: string) =>
+  nullIfSentinel(v, NO_REASON) as CorrectionReason | null;
+
 // CORRECTION_REASONS is a subset of NO_TIME_REASONS (it drops 'holiday'), so
 // the existing DTR labels apply unchanged.
 const REASON_ITEMS: { value: string; label: string }[] = [
@@ -194,15 +208,70 @@ export function CorrectionRequestForm({
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const selectedEmployee = employees.find((e) => e.id === employeeId);
+
+  // What a day left on "Inherit" is actually measured against. Null when the
+  // employee carries no assignment — scheduleFor then falls through to
+  // DEFAULT_SCHEDULE, mirroring resolveCorrectionSchedule on the server.
+  const employeeSchedule = useMemo<ScheduleLike | null>(() => {
+    const sid = selectedEmployee?.schedule_id;
+    return (sid ? schedules.find((s) => s.id === sid) : null) ?? null;
+  }, [selectedEmployee, schedules]);
+
+  // Client-side twin of resolveCorrectionSchedule (src/lib/attendance-corrections.ts).
+  // The row-level pin is already folded into the draft by draftFor — it seeds
+  // scheduleId from the attendance row's schedule_id — so INHERIT here means
+  // neither an item pin nor a row pin, and resolution falls to the employee's
+  // schedule then the org default. Presentational only: approval re-resolves
+  // this from the database and never trusts what the grid showed.
+  const scheduleFor = useCallback(
+    (scheduleId: string): ScheduleLike =>
+      (scheduleId === INHERIT
+        ? employeeSchedule
+        : (schedules.find((s) => s.id === scheduleId) ?? null)) ??
+      DEFAULT_SCHEDULE,
+    [employeeSchedule, schedules],
+  );
+
   const scheduleItems = useMemo(
     () => [
-      { value: INHERIT, label: "Inherit (employee's schedule)" },
+      {
+        value: INHERIT,
+        label: employeeSchedule
+          ? `Inherit (${employeeSchedule.time_in}–${employeeSchedule.time_out})`
+          : "Inherit (employee's schedule)",
+      },
       ...schedules.map((s) => ({
         value: s.id,
-        label: `${s.name} (${s.time_in}–${s.time_out})`,
+        // A midnight-crossing shift is called out by name: "(22:00–06:00)" alone
+        // reads as a typo, and picking one changes which calendar day the
+        // morning punches land on.
+        label:
+          `${s.name} (${s.time_in}–${s.time_out}` +
+          `${crossesMidnight(s) ? ", next day" : ""})` +
+          `${hasBreak(s) ? "" : " · no break"}`,
       })),
     ],
-    [schedules],
+    [schedules, employeeSchedule],
+  );
+
+  // Drops the two break punches from a day whose schedule has no break window.
+  // The grid hides those inputs, but a value can already be sitting in the draft
+  // — seeded from the attendance row, typed before the schedule was switched, or
+  // defaulted to SATURDAY/SUNDAY on a blank weekend — and submitting it would
+  // write a lunch-out onto a shift that has no lunch.
+  const clearUnusedBreakSlots = useCallback(
+    (d: DayDraft): DayDraft =>
+      hasBreak(scheduleFor(d.scheduleId))
+        ? d
+        : {
+            ...d,
+            time_out_am: "",
+            time_in_pm: "",
+            reason_out_am: NO_REASON,
+            reason_in_pm: NO_REASON,
+          },
+    [scheduleFor],
   );
 
   // Drafts are keyed by DUTY DATE, not attendance-log id: since migration 067 a
@@ -213,8 +282,6 @@ export function CorrectionRequestForm({
     () => Object.keys(drafts).filter((d) => drafts[d]?.include),
     [drafts],
   );
-
-  const selectedEmployee = employees.find((e) => e.id === employeeId);
 
   const loadDays = async () => {
     if (!employeeId || !dateFrom || !dateTo) {
@@ -258,6 +325,14 @@ export function CorrectionRequestForm({
       ),
     );
 
+  // Switching a day's schedule can turn its break slots meaningless, so the
+  // punches sitting in them go with it — see clearUnusedBreakSlots.
+  const setRowSchedule = (date: string, scheduleId: string) =>
+    setDrafts((prev) => ({
+      ...prev,
+      [date]: clearUnusedBreakSlots({ ...prev[date], scheduleId }),
+    }));
+
   const applyBulkSchedule = () => {
     if (includedDates.length === 0) {
       toast.error("Include at least one day first.");
@@ -267,11 +342,66 @@ export function CorrectionRequestForm({
       Object.fromEntries(
         Object.entries(prev).map(([date, d]) => [
           date,
-          d.include ? { ...d, scheduleId: bulkSchedule } : d,
+          d.include
+            ? clearUnusedBreakSlots({ ...d, scheduleId: bulkSchedule })
+            : d,
         ]),
       ),
     );
     toast.success(`Schedule applied to ${includedDates.length} day(s).`);
+  };
+
+  // What the day will read as once this is applied — computed with the SAME
+  // function the apply path writes with (buildAttendanceRecord), so the numbers
+  // shown here are the numbers that land on the DTR rather than a second,
+  // drift-prone re-derivation of the late/undertime rules. Night shifts included:
+  // buildAttendanceRecord dates the early-morning punches to the next calendar
+  // day before measuring them.
+  const previewFor = (date: string, d: DayDraft) => {
+    if (d.disposition === "clear_as_off") return "OFF";
+    // A day with no punches at all states itself through its reason — SATURDAY,
+    // OFFICIAL BUSINESS, LEAVE. Running it through the late/undertime wording
+    // would print "on time" for a rest day, since a reason suppresses both.
+    const times = [d.time_in_am, d.time_out_am, d.time_in_pm, d.time_out_pm];
+    if (!times.some((t) => nullIfBlank(t))) {
+      const reason = [
+        d.reason_in_am,
+        d.reason_out_am,
+        d.reason_in_pm,
+        d.reason_out_pm,
+      ]
+        .map(asReason)
+        .find((r): r is CorrectionReason => !!r);
+      return reason ? NO_TIME_REASON_LABELS[reason] : "absent";
+    }
+    const sched = scheduleFor(d.scheduleId);
+    const record = buildAttendanceRecord(
+      "preview",
+      date,
+      {
+        time_in_am: nullIfBlank(d.time_in_am),
+        time_out_am: nullIfBlank(d.time_out_am),
+        time_in_pm: nullIfBlank(d.time_in_pm),
+        time_out_pm: nullIfBlank(d.time_out_pm),
+        reason_in_am: asReason(d.reason_in_am),
+        reason_out_am: asReason(d.reason_out_am),
+        reason_in_pm: asReason(d.reason_in_pm),
+        reason_out_pm: asReason(d.reason_out_pm),
+      },
+      sched,
+    );
+    if (record.is_absent) return "absent";
+    const parts: string[] = [];
+    if (record.late_minutes > 0) parts.push(`late ${record.late_minutes}m`);
+    if (record.undertime_minutes > 0)
+      parts.push(`UT ${record.undertime_minutes}m`);
+    // A punch that rolled onto the next calendar day is the one thing about a
+    // night shift that is invisible in the HH:MM the user typed.
+    const out = record.time_out_pm;
+    if (out && out.slice(0, 10) !== date) {
+      parts.push(`out ${formatManilaShortDate(out.slice(0, 10))}`);
+    }
+    return parts.length > 0 ? parts.join(" · ") : "on time";
   };
 
   // A midnight-crossing pin pulls the next morning's punches back onto the
@@ -280,29 +410,39 @@ export function CorrectionRequestForm({
   // explicit disposition or computeAttendanceFlags marks it absent, so warn
   // when it falls outside the loaded range and cannot be dispositioned here.
   const trailingWarning = useMemo(() => {
-    if (!days || includedDates.length === 0) return null;
-    // Find a trailing date from the first included day pinned to a
-    // midnight-crossing schedule. Scanning for the trailing date directly —
-    // rather than testing "is any pin nocturnal?" and then re-deriving the
-    // date from whichever pin happens to come first — keeps the two in step:
-    // the first pinned schedule need not be the one that crosses midnight.
-    let trailing: string | null = null;
-    for (const date of includedDates) {
-      const sid = drafts[date]?.scheduleId;
-      if (!sid || sid === INHERIT) continue;
-      const sched = schedules.find((s) => s.id === sid);
-      const candidate = sched ? trailingDutyDate(dateTo, sched) : null;
-      if (candidate) {
-        trailing = candidate;
-        break;
-      }
+    if (!days) return { outOfRange: [] as string[], inRange: [] as string[] };
+    // Reduce each draft to what the rule needs, resolving the schedule through
+    // scheduleFor so a day left on "Inherit" whose employee is ASSIGNED a
+    // nocturnal schedule is judged on what it actually is — reading the pin
+    // alone missed exactly the people who work nights every day.
+    const reduced: Record<string, TrailingDraft> = {};
+    for (const [date, d] of Object.entries(drafts)) {
+      reduced[date] = {
+        schedule: scheduleFor(d.scheduleId),
+        disposition: d.disposition,
+        include: d.include,
+        hasTime: [
+          d.time_in_am,
+          d.time_out_am,
+          d.time_in_pm,
+          d.time_out_pm,
+        ].some((v) => nullIfBlank(v)),
+        hasReason: [
+          d.reason_in_am,
+          d.reason_out_am,
+          d.reason_in_pm,
+          d.reason_out_pm,
+        ].some((r) => asReason(r)),
+      };
     }
-    if (!trailing) return null;
-    // Already in range: the requester can disposition it in the grid below, so
-    // there is nothing to warn about.
-    if (days.some((d) => d.date === trailing)) return null;
-    return trailing;
-  }, [days, includedDates, drafts, schedules, dateTo]);
+    return trailingDaysNeedingDisposition(days, reduced);
+  }, [days, drafts, scheduleFor]);
+
+  const hasTrailingWarning =
+    trailingWarning.outOfRange.length > 0 || trailingWarning.inRange.length > 0;
+
+  const listDates = (dates: string[]) =>
+    dates.map((d) => formatManilaShortDate(d)).join(", ");
 
   const lockedIncluded = useMemo(
     () =>
@@ -339,13 +479,11 @@ export function CorrectionRequestForm({
     }
 
     const byDate = new Map((days ?? []).map((d) => [d.date, d]));
-    // The reason sentinels come out of a Select whose only non-sentinel options
-    // are CORRECTION_REASONS, so the narrowing cast is safe here — and the
-    // server re-validates it through correctionRequestSchema regardless.
-    const asReason = (v: string) =>
-      nullIfSentinel(v, NO_REASON) as CorrectionReason | null;
     const items: CorrectionItemFormValues[] = includedDates.map((date) => {
-      const d = drafts[date];
+      // Cleared again at the boundary rather than trusting the draft: the grid
+      // hides the break inputs for a no-break schedule, but nothing about the
+      // state guarantees they were emptied on the way in.
+      const d = clearUnusedBreakSlots(drafts[date]);
       const day = byDate.get(date)!;
       return {
         duty_date: date,
@@ -607,15 +745,35 @@ export function CorrectionRequestForm({
                   </p>
                 )}
 
-                {trailingWarning && (
+                {hasTrailingWarning && (
                   <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-amber-700">
                     <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                     <span>
-                      A shift that crosses midnight pulls the next morning&apos;s
-                      punches back onto the pinned day, which empties{" "}
-                      <strong>{formatManilaShortDate(trailingWarning)}</strong>.
-                      Extend the range to that date and set it to{" "}
-                      <em>Clear as off</em>, or it will read as an absence.
+                      A shift that crosses midnight belongs to the day it{" "}
+                      <em>starts</em>, so the morning after is left with no
+                      punches of its own and reads as an absence.{" "}
+                      {trailingWarning.inRange.length > 0 && (
+                        <>
+                          Include{" "}
+                          <strong>{listDates(trailingWarning.inRange)}</strong>{" "}
+                          below and set{" "}
+                          {trailingWarning.inRange.length === 1 ? "it" : "them"}{" "}
+                          to <em>Clear as off</em>.{" "}
+                        </>
+                      )}
+                      {trailingWarning.outOfRange.length > 0 && (
+                        <>
+                          Extend the range to{" "}
+                          <strong>
+                            {listDates(trailingWarning.outOfRange)}
+                          </strong>{" "}
+                          and do the same there — that{" "}
+                          {trailingWarning.outOfRange.length === 1
+                            ? "day is"
+                            : "days are"}{" "}
+                          outside the days loaded here.
+                        </>
+                      )}
                     </span>
                   </p>
                 )}
@@ -626,7 +784,7 @@ export function CorrectionRequestForm({
                       <tr className="border-b text-left text-xs text-muted-foreground">
                         <th className="w-10 py-2" />
                         <th className="py-2 pr-3">Date</th>
-                        <th className="py-2 pr-3">Currently</th>
+                        <th className="py-2 pr-3">Currently → after</th>
                         <th className="py-2 pr-3">Disposition</th>
                         <th className="py-2 pr-3">Schedule</th>
                         <th className="py-2 pr-2">AM In</th>
@@ -642,6 +800,11 @@ export function CorrectionRequestForm({
                         const cleared = d.disposition === "clear_as_off";
                         const isWeekend =
                           day.day_of_week === 0 || day.day_of_week === 6;
+                        // The two middle slots exist only for a shift with a
+                        // break window; for a straight-through shift the single
+                        // in/out lives in AM In / PM Out, which is exactly what
+                        // bucketPunchesForDuty and undertimeMinutesFor read.
+                        const rowHasBreak = hasBreak(scheduleFor(d.scheduleId));
                         const slots = [
                           ["time_in_am", "reason_in_am"],
                           ["time_out_am", "reason_out_am"],
@@ -697,6 +860,14 @@ export function CorrectionRequestForm({
                               ) : (
                                 <span className="italic">no record</span>
                               )}
+                              {/* What the day will read as once applied. Only
+                                  for included days — an unchecked row is not
+                                  being written, so a projection of it is noise. */}
+                              {d.include && (
+                                <div className="mt-1 font-medium text-foreground">
+                                  → {previewFor(day.date, d)}
+                                </div>
+                              )}
                             </td>
                             <td className="py-3 pr-3">
                               <Select
@@ -731,7 +902,7 @@ export function CorrectionRequestForm({
                                 value={d.scheduleId}
                                 items={scheduleItems}
                                 onValueChange={(v) =>
-                                  patch(day.date, { scheduleId: v as string })
+                                  setRowSchedule(day.date, v as string)
                                 }
                                 disabled={!d.include}
                               >
@@ -747,9 +918,30 @@ export function CorrectionRequestForm({
                                 </SelectContent>
                               </Select>
                             </td>
-                            {slots.map(([timeKey, reasonKey]) => (
+                            {slots.map(([timeKey, reasonKey], slotIndex) => {
+                              const isBreakSlot =
+                                slotIndex === 1 || slotIndex === 2;
+                              if (isBreakSlot && !rowHasBreak) {
+                                return (
+                                  <td key={timeKey} className="py-3 pr-2">
+                                    <div className="w-[110px] pt-2 text-center text-[11px] italic text-muted-foreground">
+                                      no break
+                                    </div>
+                                  </td>
+                                );
+                              }
+                              return (
                               <td key={timeKey} className="py-3 pr-2">
                                 <div className="space-y-1">
+                                  {/* On a straight-through shift the column
+                                      headings (AM In / PM Out) describe halves
+                                      of a day that has none — the two punches
+                                      are simply the arrival and the departure. */}
+                                  {!rowHasBreak && (
+                                    <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                      {slotIndex === 0 ? "In" : "Out"}
+                                    </div>
+                                  )}
                                   <Input
                                     type="time"
                                     className="w-[110px]"
@@ -787,7 +979,8 @@ export function CorrectionRequestForm({
                                   </Select>
                                 </div>
                               </td>
-                            ))}
+                              );
+                            })}
                           </tr>
                         );
                       })}
@@ -799,7 +992,13 @@ export function CorrectionRequestForm({
                   and marks it OFF — use it for the day a night-shift pin
                   empties out. Per-slot reasons print in a slot the layout
                   leaves blank; <strong>NO BREAK</strong> is for a day worked
-                  straight through lunch.
+                  straight through lunch. A schedule with no break window hides
+                  its two middle slots and takes the arrival from{" "}
+                  <strong>In</strong> and the departure from <strong>Out</strong>
+                  ; one marked <em>next day</em> crosses midnight, so an
+                  early-morning punch is measured against the following calendar
+                  day. The <strong>→</strong> line shows what each included day
+                  will read as once applied.
                 </p>
               </>
             )}

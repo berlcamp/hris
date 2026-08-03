@@ -56,6 +56,16 @@ export interface CorrectableEmployee {
   first_name: string;
   last_name: string;
   biometric_no: number | null;
+  /**
+   * The employee's own schedule assignment, or null when they have none.
+   *
+   * Carried so the form can resolve what a day set to "Inherit" is actually
+   * measured against — which decides whether the break slots are shown and how
+   * the late/undertime preview is computed. Only the id: the page already loads
+   * every schedule row (getSchedules), so the client looks the rest up there
+   * rather than repeating time_in/time_out/break on ~1,000 employee rows.
+   */
+  schedule_id: string | null;
 }
 
 // Employees this user may correct.
@@ -87,7 +97,9 @@ export async function getCorrectableEmployees(): Promise<CorrectableEmployee[]> 
   let query = supabase
     .schema("hris")
     .from("employees")
-    .select("id, first_name, last_name, biometric_no, department_id, detailed_department_id")
+    .select(
+      "id, first_name, last_name, biometric_no, schedule_id, department_id, detailed_department_id",
+    )
     .eq("status", "active")
     .order("last_name");
 
@@ -106,6 +118,7 @@ export async function getCorrectableEmployees(): Promise<CorrectableEmployee[]> 
     first_name: e.first_name as string,
     last_name: e.last_name as string,
     biometric_no: (e.biometric_no as number | null) ?? null,
+    schedule_id: (e.schedule_id as string | null) ?? null,
   }));
 }
 

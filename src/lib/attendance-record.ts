@@ -6,9 +6,8 @@
 // unchanged — attendance-actions.ts now re-exports from here.
 
 import {
-  lateMinutesFor,
+  dayLateUndertime,
   timeOnNextDayForNightShift,
-  undertimeMinutesFor,
   type ScheduleLike,
 } from "./attendance-schedule.ts";
 
@@ -46,29 +45,36 @@ export function computeAttendanceFlags(
     time_in_am_next_day?: boolean;
     time_in_pm_next_day?: boolean;
     time_out_pm_next_day?: boolean;
+    // A slot's reason explains why its punch is missing, so the session it
+    // belongs to is not charged the flat half day. Absent on the import path,
+    // where the device reports punches and nothing else.
+    reason_in_am?: string | null;
+    reason_out_am?: string | null;
+    reason_in_pm?: string | null;
+    reason_out_pm?: string | null;
+    /** A day-level reason (OFF / holiday / a weekend) excuses both sessions. */
+    no_time_reason?: string | null;
   },
   dutyDate: string,
   sched: ScheduleLike,
 ) {
   const hasAnyLog =
     entry.time_in_am || entry.time_out_am || entry.time_in_pm || entry.time_out_pm;
-  // For no-break shifts the single in/out lives in time_in_am / time_out_pm;
-  // for has-break shifts the morning in / evening out are the late/undertime
-  // anchors. Either way, time_in_am and time_out_pm are correct.
-  const lateMinutes = lateMinutesFor(
+  const dayExcused = !!entry.no_time_reason;
+  const { lateMinutes, undertimeMinutes } = dayLateUndertime(
     dutyDate,
     sched,
-    entry.time_in_am,
-    entry.time_in_am_next_day ?? false,
-  );
-  const undertimeMinutes = undertimeMinutesFor(
-    dutyDate,
-    sched,
-    entry.time_out_pm,
-    entry.time_out_pm_next_day ?? false,
-    !!entry.time_in_am,
-    entry.time_in_pm,
-    entry.time_in_pm_next_day ?? false,
+    entry,
+    {
+      reasons: {
+        in_am: !!entry.reason_in_am,
+        out_am: !!entry.reason_out_am,
+        in_pm: !!entry.reason_in_pm,
+        out_pm: !!entry.reason_out_pm,
+      },
+      excuseAm: dayExcused,
+      excusePm: dayExcused,
+    },
   );
 
   return {
@@ -101,6 +107,7 @@ export function buildAttendanceRecord(
     {
       ...fields,
       time_in_am_next_day: nextDay(fields.time_in_am),
+      time_in_pm_next_day: nextDay(fields.time_in_pm),
       time_out_pm_next_day: nextDay(fields.time_out_pm),
     },
     date,
@@ -133,11 +140,12 @@ export function buildAttendanceRecord(
     time_in_pm_reason: reasonInPm,
     time_out_pm_reason: reasonOutPm,
     source: "manual",
-    ...flags,
     // An official-duty reason excuses the missing punch: the day is on duty
-    // (not absent), and tardiness/undertime tied to the excused slot is dropped.
-    ...(reasonInAm ? { is_late: false, late_minutes: 0 } : {}),
-    ...(reasonOutPm ? { is_undertime: false, undertime_minutes: 0 } : {}),
+    // (not absent), and the charge tied to the excused slot is dropped. The
+    // dropping happens per SESSION inside computeAttendanceFlags — a reason on
+    // the afternoon must not also erase an unaccounted morning, which is what
+    // a blanket "reason_out_pm zeroes all undertime" override did.
+    ...flags,
     ...(hasAnyReason ? { is_absent: false } : {}),
   };
 }

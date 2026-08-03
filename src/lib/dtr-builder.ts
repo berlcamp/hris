@@ -15,11 +15,10 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import {
   DEFAULT_SCHEDULE,
+  dayLateUndertime,
   hasBreak,
-  lateMinutesFor,
   pmLateMinutesFor,
   trimTimeStr,
-  undertimeMinutesFor,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
 import { getHolidayMap } from "@/lib/holiday-helpers";
@@ -513,34 +512,45 @@ export async function buildDtrResults(
           (log.schedule_id
             ? overrideSchedMap.get(log.schedule_id as string)
             : null) ?? sched;
-        const lateMins = lateMinutesFor(
-          day.date,
-          daySched,
-          extractTime(tInAmRaw),
-          timestampOnNextDay(tInAmRaw, day.date),
-        );
-        const undertimeMins = undertimeMinutesFor(
-          day.date,
-          daySched,
-          extractTime(tOutPmRaw),
-          timestampOnNextDay(tOutPmRaw, day.date),
-          !!tInAmRaw,
-          extractTime(tInPmRaw),
-          timestampOnNextDay(tInPmRaw, day.date),
-        );
+        const tOutAmRaw = log.time_out_am as string | null;
         const reasonInAm = slotReasonShort(log.time_in_am_reason);
         const reasonOutAm = slotReasonShort(log.time_out_am_reason);
         const reasonInPm = slotReasonShort(log.time_in_pm_reason);
         const reasonOutPm = slotReasonShort(log.time_out_pm_reason);
-        // An excused slot — or the holiday portion of a worked holiday — drops
-        // the tardiness/undertime tied to it.
-        const holidayExcusesLate =
+        // A holiday excuses the half of the day it covers, wholesale. A slot
+        // reason excuses only the punch it sits on — dayLateUndertime decides
+        // what that costs, per session, so a morning with no lunch-out is
+        // charged its half day even when the afternoon is excused.
+        const holidayExcusesAm =
           holidayType === "full" || holidayType === "half_am";
-        const holidayExcusesUndertime =
+        const holidayExcusesPm =
           holidayType === "full" || holidayType === "half_pm";
-        const effLateMins = reasonInAm || holidayExcusesLate ? 0 : lateMins;
-        const effUndertimeMins =
-          reasonOutPm || holidayExcusesUndertime ? 0 : undertimeMins;
+        const { lateMinutes: effLateMins, undertimeMinutes: effUndertimeMins } =
+          dayLateUndertime(
+            day.date,
+            daySched,
+            {
+              time_in_am: extractTime(tInAmRaw),
+              time_out_am: extractTime(tOutAmRaw),
+              time_in_pm: extractTime(tInPmRaw),
+              time_out_pm: extractTime(tOutPmRaw),
+              time_in_am_next_day: timestampOnNextDay(tInAmRaw, day.date),
+              time_in_pm_next_day: timestampOnNextDay(tInPmRaw, day.date),
+              time_out_pm_next_day: timestampOnNextDay(tOutPmRaw, day.date),
+            },
+            {
+              reasons: {
+                in_am: !!reasonInAm,
+                out_am: !!reasonOutAm,
+                in_pm: !!reasonInPm,
+                out_pm: !!reasonOutPm,
+              },
+              // A day-level reason (OFF, a declared rest day) states the whole
+              // day, so neither session is charged.
+              excuseAm: holidayExcusesAm || !!log.no_time_reason,
+              excusePm: holidayExcusesPm || !!log.no_time_reason,
+            },
+          );
         // Cap undertime at 7h; 8h+ reclassifies the day as absent.
         const {
           lateMins: finalLateMins,
@@ -561,8 +571,7 @@ export async function buildDtrResults(
           extractTime(tInPmRaw),
           timestampOnNextDay(tInPmRaw, day.date),
         );
-        const isPmLate =
-          !reasonInPm && !holidayExcusesUndertime && pmLateMins > 0;
+        const isPmLate = !reasonInPm && !holidayExcusesPm && pmLateMins > 0;
         // An absent day (already absent, or reclassified by the 8h rule) prints
         // ABSENT across the row, so any partial punches are not shown.
         const showTimes = !dayAbsent;

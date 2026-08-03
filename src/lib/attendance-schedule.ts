@@ -360,6 +360,161 @@ export function bucketPunchesForDuty(
   };
 }
 
+// A half day. An LGU workday is two sessions — morning and afternoon — and a
+// session missing either of its two punches is charged as a whole half day,
+// flat, whatever the schedule's actual shape. Deliberately NOT derived from
+// time_in → break_start: a 7:30–16:30 schedule still charges 4:00 for an
+// unaccounted morning, because the DTR's unit of undertime is the half day.
+export const HALF_DAY_UNDERTIME_MINUTES = 4 * 60; // 240
+
+export interface DaySlotTimes {
+  time_in_am: string | null;
+  time_out_am: string | null;
+  time_in_pm: string | null;
+  time_out_pm: string | null;
+  time_in_am_next_day?: boolean;
+  time_in_pm_next_day?: boolean;
+  time_out_pm_next_day?: boolean;
+}
+
+/** Which slots carry a reason (OB / FW / TRAVEL / NO BREAK / leave / off). */
+export interface SlotReasonFlags {
+  in_am?: boolean;
+  out_am?: boolean;
+  in_pm?: boolean;
+  out_pm?: boolean;
+}
+
+export interface DayMinutes {
+  lateMinutes: number;
+  undertimeMinutes: number;
+}
+
+// The whole of a day's late + undertime, in ONE place.
+//
+// The rule, for a schedule with a break: a session (morning = AM in/out,
+// afternoon = PM in/out) that does not carry BOTH its punches rendered no
+// verifiable service, and is charged a flat half day. A DTR cell cannot be
+// blank and cost nothing — that is what let a missing lunch scan, or an
+// afternoon with a departure but no arrival, pass as a full day's work.
+//
+// The flat charge SUPERSEDES that session's per-minute charges: a morning
+// already billed as four unaccounted hours is not also billed for arriving
+// late, which would put more than four hours of penalty on a four-hour
+// session. A complete session is charged exactly what it was charged before —
+// lateness against time_in, early departure against time_out, and a late
+// return from lunch against break_end.
+//
+// A reason on either of a session's slots explains the missing punch, so the
+// flat charge does not apply; the punches that ARE there are still measured,
+// so tagging the two lunch slots NO BREAK on a day worked straight through
+// does not also forgive arriving half an hour late.
+//
+// Schedules with no break keep their existing treatment — a single in/out pair
+// has no half to charge, and a missing clock-out bills the whole shift.
+//
+// Late and undertime are returned together because the two now interact: split
+// across two functions, every caller would have to re-implement the
+// supersession rule and they would drift apart.
+export function dayLateUndertime(
+  dutyDate: string,
+  sched: ScheduleLike,
+  slots: DaySlotTimes,
+  opts: {
+    reasons?: SlotReasonFlags;
+    /** The morning is excused wholesale — a full/AM holiday, or a day-level
+     *  reason like OFF. Suppresses the flat charge AND the per-minute ones. */
+    excuseAm?: boolean;
+    excusePm?: boolean;
+  } = {},
+): DayMinutes {
+  const r = opts.reasons ?? {};
+  const { excuseAm = false, excusePm = false } = opts;
+
+  // A day with NO punches at all is an absence, not two incomplete sessions.
+  // The absent flag carries it and the DTR charges the full eight hours there
+  // (UNDERTIME_ABSENT_MINUTES). Charging 4 + 4 here as well would turn every
+  // rest day, holiday and approved leave into an eight-hour undertime.
+  if (
+    !slots.time_in_am &&
+    !slots.time_out_am &&
+    !slots.time_in_pm &&
+    !slots.time_out_pm
+  ) {
+    return { lateMinutes: 0, undertimeMinutes: 0 };
+  }
+
+  if (!hasBreak(sched)) {
+    return {
+      lateMinutes:
+        excuseAm || r.in_am
+          ? 0
+          : lateMinutesFor(
+              dutyDate,
+              sched,
+              slots.time_in_am,
+              slots.time_in_am_next_day ?? false,
+            ),
+      undertimeMinutes:
+        excusePm || r.out_pm
+          ? 0
+          : undertimeMinutesFor(
+              dutyDate,
+              sched,
+              slots.time_out_pm,
+              slots.time_out_pm_next_day ?? false,
+              !!slots.time_in_am,
+            ),
+    };
+  }
+
+  let lateMinutes = 0;
+  let undertimeMinutes = 0;
+
+  // --- morning ---
+  const amComplete = !!slots.time_in_am && !!slots.time_out_am;
+  const amExplained = excuseAm || !!r.in_am || !!r.out_am;
+  if (!amComplete && !amExplained) {
+    undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
+  } else if (!excuseAm && !r.in_am) {
+    lateMinutes = lateMinutesFor(
+      dutyDate,
+      sched,
+      slots.time_in_am,
+      slots.time_in_am_next_day ?? false,
+    );
+  }
+
+  // --- afternoon ---
+  const pmComplete = !!slots.time_in_pm && !!slots.time_out_pm;
+  const pmExplained = excusePm || !!r.in_pm || !!r.out_pm;
+  if (!pmComplete && !pmExplained) {
+    undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
+  } else if (!excusePm) {
+    // Early departure, measured only when there is a departure to measure.
+    if (!r.out_pm && slots.time_out_pm) {
+      undertimeMinutes += undertimeMinutesFor(
+        dutyDate,
+        sched,
+        slots.time_out_pm,
+        slots.time_out_pm_next_day ?? false,
+        true,
+      );
+    }
+    // A late return from lunch is afternoon service not rendered.
+    if (!r.in_pm) {
+      undertimeMinutes += pmLateMinutesFor(
+        dutyDate,
+        sched,
+        slots.time_in_pm,
+        slots.time_in_pm_next_day ?? false,
+      );
+    }
+  }
+
+  return { lateMinutes, undertimeMinutes };
+}
+
 // Late = minutes the actual clock-in (or single in for no-break shifts) was
 // past time_in. Returns 0 when there is no clock-in record.
 export function lateMinutesFor(

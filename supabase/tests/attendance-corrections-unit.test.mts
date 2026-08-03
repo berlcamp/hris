@@ -87,9 +87,12 @@ import {
   dayOfWeekFor,
   resolveCorrectionSchedule,
   resolveItemSchedules,
+  trailingDaysNeedingDisposition,
   trailingDutyDate,
   weekendReasonFor,
   type CorrectionItemInput,
+  type TrailingDraft,
+  type TrailingLoadedDay,
 } from "../../src/lib/attendance-corrections.ts";
 import type { ScheduleLike } from "../../src/lib/attendance-schedule.ts";
 
@@ -114,13 +117,17 @@ const item = (over: Partial<CorrectionItemInput>): CorrectionItemInput => ({
   ...over,
 });
 
-// The headline case: 835 min late + 240 min undertime under the inherited 8-5
-// schedule becomes 0/0 once the night shift is pinned.
+// The headline case: a night shift misread against the inherited 8-5 schedule
+// becomes 0/0 once the night shift is pinned. Before the half-day rule the
+// misreading showed up as 835 minutes of LATENESS; now the day's two
+// incomplete sessions are charged 4 hours each instead, and the flat charge
+// supersedes the lateness. Nonsense either way — that is the point of the pin.
 test("pinning a night schedule clears a misread night shift", () => {
   const wrong = buildCorrectionRecord(EMP2, item({
     schedule: REGULAR, time_in_am: "21:55",
   }));
-  assert.equal(wrong.late_minutes, 835);
+  assert.equal(wrong.undertime_minutes, 480);
+  assert.equal(wrong.late_minutes, 0);
 
   const right = buildCorrectionRecord(EMP2, item({
     schedule: NIGHT, scheduleId: "night", time_in_am: "21:55", time_out_pm: "06:05",
@@ -240,6 +247,139 @@ test("resolveItemSchedules: an item pin id that resolves to no schedule is flagg
 test("a night-shift range reaches one day past its end", () => {
   assert.equal(trailingDutyDate("2026-06-20", NIGHT), "2026-06-21");
   assert.equal(trailingDutyDate("2026-06-20", REGULAR), null);
+});
+
+// --- The trailing-day warning ------------------------------------------------
+//
+// This rule lived inline in the correction form and was wrong there: it derived
+// the trailing date from the END OF THE RANGE for every pinned day, so pinning
+// a night shift to any day at all named dateTo + 1 — a date that, being outside
+// the loaded range by construction, could never be suppressed. It therefore
+// fired on every night pin and pointed at a day that was usually fine.
+
+// Loaded days for a range, all with a plain unremarkable record.
+const loadedRange = (dates: string[]): TrailingLoadedDay[] =>
+  dates.map((date) => ({ date, has_record: true, is_absent: false }));
+
+// A day with nothing on it — the state a trailing day is left in, and the only
+// one that is at risk of reading as an absence.
+const blankDay = (date: string): TrailingLoadedDay => ({
+  date,
+  has_record: false,
+  is_absent: true,
+});
+
+const draft = (over: Partial<TrailingDraft> = {}): TrailingDraft => ({
+  schedule: REGULAR,
+  disposition: "update",
+  include: true,
+  hasTime: true,
+  hasReason: false,
+  ...over,
+});
+
+test("trailing days: a night shift mid-range names the day AFTER IT, not the end of the range", () => {
+  const days = [
+    ...loadedRange(["2026-06-01"]),
+    blankDay("2026-06-02"),
+    ...loadedRange(["2026-06-03", "2026-06-30"]),
+  ];
+  const result = trailingDaysNeedingDisposition(days, {
+    // Pinned to nights on the 1st only; the 2nd is blank and unclaimed.
+    "2026-06-01": draft({ schedule: NIGHT }),
+    "2026-06-02": draft({ include: false }),
+  });
+  assert.deepEqual(result.inRange, ["2026-06-02"]);
+  assert.deepEqual(result.outOfRange, []);
+});
+
+test("trailing days: the day after the last night shift is reported as out of range", () => {
+  const days = loadedRange(["2026-06-29", "2026-06-30"]);
+  const result = trailingDaysNeedingDisposition(days, {
+    "2026-06-30": draft({ schedule: NIGHT }),
+  });
+  assert.deepEqual(result.outOfRange, ["2026-07-01"]);
+  assert.deepEqual(result.inRange, []);
+});
+
+test("trailing days: a run of consecutive night shifts reports only its last day", () => {
+  const days = loadedRange(["2026-06-01", "2026-06-02", "2026-06-03"]);
+  const result = trailingDaysNeedingDisposition(days, {
+    "2026-06-01": draft({ schedule: NIGHT }),
+    "2026-06-02": draft({ schedule: NIGHT }),
+    "2026-06-03": draft({ schedule: NIGHT }),
+  });
+  // The 2nd and 3rd are themselves being written, so only the 4th is left bare.
+  assert.deepEqual(result.outOfRange, ["2026-06-04"]);
+  assert.deepEqual(result.inRange, []);
+});
+
+test("trailing days: a day shift never reports anything", () => {
+  const days = loadedRange(["2026-06-01", "2026-06-02"]);
+  const result = trailingDaysNeedingDisposition(days, {
+    "2026-06-01": draft(),
+    "2026-06-02": draft({ include: false }),
+  });
+  assert.deepEqual(result, { outOfRange: [], inRange: [] });
+});
+
+test("trailing days: a trailing day already handled is not reported", () => {
+  const days = loadedRange(["2026-06-01", "2026-06-02"]);
+  const clearedNext = trailingDaysNeedingDisposition(days, {
+    "2026-06-01": draft({ schedule: NIGHT }),
+    "2026-06-02": draft({ disposition: "clear_as_off", hasTime: false }),
+  });
+  assert.deepEqual(clearedNext.inRange, [], "Clear as off settles the day");
+
+  const reasonedNext = trailingDaysNeedingDisposition(days, {
+    "2026-06-01": draft({ schedule: NIGHT }),
+    "2026-06-02": draft({ hasTime: false, hasReason: true }),
+  });
+  assert.deepEqual(reasonedNext.inRange, [], "a reason settles the day");
+
+  // Left out of the request entirely, but it already carries a real record.
+  const standsAlone = trailingDaysNeedingDisposition(days, {
+    "2026-06-01": draft({ schedule: NIGHT }),
+    "2026-06-02": draft({ include: false }),
+  });
+  assert.deepEqual(standsAlone.inRange, [], "an existing non-absent row stands");
+});
+
+test("trailing days: an untouched day that is blank or already absent IS reported", () => {
+  const blank: TrailingLoadedDay[] = [
+    { date: "2026-06-01", has_record: true, is_absent: false },
+    { date: "2026-06-02", has_record: false, is_absent: true },
+  ];
+  const result = trailingDaysNeedingDisposition(blank, {
+    "2026-06-01": draft({ schedule: NIGHT }),
+    "2026-06-02": draft({ include: false }),
+  });
+  assert.deepEqual(result.inRange, ["2026-06-02"]);
+});
+
+test("trailing days: a night shift the requester is CLEARING costs nothing", () => {
+  const days = loadedRange(["2026-06-01", "2026-06-02"]);
+  const result = trailingDaysNeedingDisposition(days, {
+    "2026-06-01": draft({ schedule: NIGHT, disposition: "clear_as_off" }),
+    "2026-06-02": draft({ include: false }),
+  });
+  assert.deepEqual(result, { outOfRange: [], inRange: [] });
+});
+
+test("trailing days: two separate night shifts report both trailing days, deduped and sorted", () => {
+  const days = [
+    ...loadedRange(["2026-06-01"]),
+    blankDay("2026-06-02"),
+    ...loadedRange(["2026-06-10"]),
+    blankDay("2026-06-11"),
+  ];
+  const result = trailingDaysNeedingDisposition(days, {
+    "2026-06-01": draft({ schedule: NIGHT }),
+    "2026-06-02": draft({ include: false }),
+    "2026-06-10": draft({ schedule: NIGHT }),
+    "2026-06-11": draft({ include: false }),
+  });
+  assert.deepEqual(result.inRange, ["2026-06-02", "2026-06-11"]);
 });
 
 // --- Migration 067: weekend / leave reasons and the calendar helpers ----------

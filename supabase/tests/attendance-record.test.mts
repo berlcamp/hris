@@ -53,17 +53,115 @@ test("an on-time regular day is neither late nor undertime", () => {
   assert.equal(r.time_in_am, `${D}T08:00:00`);
 });
 
-// This is the 8-5-no-lunch case from the spec: the MATH is already right, and
-// only the printed DTR's two blank middle cells are misleading.
-test("working straight through lunch charges no late and no undertime", () => {
+// The 8-5-no-lunch case. Under the half-day rule this is no longer a free day:
+// neither session carries both its punches, so each is charged a flat half day
+// and the eight-hour total is what the DTR reclassifies as ABSENT. A day worked
+// straight through has to SAY so — the two lunch slots tagged NO BREAK — before
+// it reads as service rendered.
+test("working straight through lunch is charged both half days until it is tagged", () => {
   const r = buildAttendanceRecord(
     EMP,
     D,
     { time_in_am: "08:00", time_out_am: null, time_in_pm: null, time_out_pm: "17:00", ...noReasons },
     REGULAR,
   );
+  assert.equal(r.late_minutes, 0, "the flat half-day charge supersedes lateness");
+  assert.equal(r.undertime_minutes, 480, "morning and afternoon, 4 hours each");
+});
+
+test("NO BREAK on the lunch slots explains the missing punches", () => {
+  const r = buildAttendanceRecord(
+    EMP,
+    D,
+    {
+      time_in_am: "08:00", time_out_am: null, time_in_pm: null, time_out_pm: "17:00",
+      ...noReasons, reason_out_am: "no_break", reason_in_pm: "no_break",
+    },
+    REGULAR,
+  );
+  assert.equal(r.undertime_minutes, 0, "an explained gap is not charged");
   assert.equal(r.late_minutes, 0);
-  assert.equal(r.undertime_minutes, 0);
+
+  // Explaining the lunch does NOT forgive the morning: the arrival punch is
+  // there and it was half an hour late.
+  const late = buildAttendanceRecord(
+    EMP,
+    D,
+    {
+      time_in_am: "08:30", time_out_am: null, time_in_pm: null, time_out_pm: "17:00",
+      ...noReasons, reason_out_am: "no_break", reason_in_pm: "no_break",
+    },
+    REGULAR,
+  );
+  assert.equal(late.late_minutes, 30);
+  assert.equal(late.undertime_minutes, 0);
+});
+
+// The question that started this rule: an afternoon with a departure but no
+// arrival used to cost nothing at all.
+test("a session missing one of its two punches is charged a flat half day", () => {
+  const pmArrivalMissing = buildAttendanceRecord(
+    EMP,
+    D,
+    { time_in_am: "08:00", time_out_am: "12:49", time_in_pm: null, time_out_pm: "17:00", ...noReasons },
+    REGULAR,
+  );
+  assert.equal(pmArrivalMissing.undertime_minutes, 240);
+  assert.equal(pmArrivalMissing.late_minutes, 0);
+
+  const pmDepartureMissing = buildAttendanceRecord(
+    EMP,
+    D,
+    { time_in_am: "08:00", time_out_am: "12:00", time_in_pm: "13:00", time_out_pm: null, ...noReasons },
+    REGULAR,
+  );
+  assert.equal(pmDepartureMissing.undertime_minutes, 240);
+
+  const amDepartureMissing = buildAttendanceRecord(
+    EMP,
+    D,
+    { time_in_am: "08:00", time_out_am: null, time_in_pm: "13:00", time_out_pm: "17:00", ...noReasons },
+    REGULAR,
+  );
+  assert.equal(amDepartureMissing.undertime_minutes, 240);
+
+  // No morning at all, a complete afternoon: the morning is still four hours
+  // of unrendered service. This charged NOTHING before the rule.
+  const morningAbsent = buildAttendanceRecord(
+    EMP,
+    D,
+    { time_in_am: null, time_out_am: null, time_in_pm: "13:00", time_out_pm: "17:00", ...noReasons },
+    REGULAR,
+  );
+  assert.equal(morningAbsent.undertime_minutes, 240);
+});
+
+// The flat charge is a half day, not the session's clock length: a 7:30-16:30
+// schedule has a 4.5-hour morning and a 3.5-hour afternoon, and both are 240.
+test("the half-day charge is flat, whatever shape the schedule is", () => {
+  const OFFSET = {
+    id: "offset", time_in: "07:30", time_out: "16:30",
+    break_start: "12:00", break_end: "13:00",
+  };
+  const r = buildAttendanceRecord(
+    EMP,
+    D,
+    { time_in_am: "07:30", time_out_am: "12:00", time_in_pm: null, time_out_pm: "16:30", ...noReasons },
+    OFFSET,
+  );
+  assert.equal(r.undertime_minutes, 240);
+});
+
+// A no-break shift has no half to charge: it keeps the whole-shift treatment.
+test("a no-break shift with no clock-out is still charged the whole shift", () => {
+  const r = buildAttendanceRecord(
+    EMP,
+    D,
+    { time_in_am: "22:00", time_out_am: null, time_in_pm: null, time_out_pm: null, ...noReasons },
+    NIGHT,
+  );
+  // 22:00 -> 05:00 the next morning.
+  assert.equal(r.undertime_minutes, 7 * 60);
 });
 
 test("a night shift clock-out rolls to the next calendar day", () => {
@@ -160,7 +258,15 @@ test("a per-date schedule pin is written and drives that day's late math", () =>
     { time_in_am: "21:55", time_out_am: null, time_in_pm: null, time_out_pm: "06:05" },
     REGULAR,
   );
-  assert.ok(inherited.late_minutes > 0, "21:55 is very late against a day shift");
+  // Scored against a day schedule this is nonsense either way. It used to
+  // surface as a huge LATENESS; under the half-day rule both sessions are
+  // incomplete, so it surfaces as a full day of undertime instead (which the
+  // DTR then reclassifies as absent). Either way the un-pinned day is wrong.
+  assert.equal(
+    inherited.undertime_minutes,
+    480,
+    "a night shift measured against a day schedule is a full day of undertime",
+  );
 
   const pinned = buildAttendanceRecord(
     "emp-1", "2026-09-21",
