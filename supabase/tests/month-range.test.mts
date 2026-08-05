@@ -73,6 +73,20 @@ test("formatMonthLabel names the month", () => {
   assert.equal(formatMonthLabel("2025-12"), "December 2025");
 });
 
+test("the open window is the current month plus the two before it", () => {
+  // Mirrors allowedMonths() in src/lib/actions/dtr-actions.ts: newest first, so
+  // the client can default to element 0. The January case is the one that
+  // matters — a department admin downloading in January must still reach back
+  // into the previous YEAR.
+  const window = (current: string) =>
+    Array.from({ length: 3 }, (_, back) => shiftMonths(current, -back));
+
+  assert.deepEqual(window("2026-08"), ["2026-08", "2026-07", "2026-06"]);
+  assert.deepEqual(window("2026-01"), ["2026-01", "2025-12", "2025-11"]);
+  assert.deepEqual(window("2026-02"), ["2026-02", "2026-01", "2025-12"]);
+  assert.deepEqual(window("2026-03"), ["2026-03", "2026-02", "2026-01"]);
+});
+
 test("consecutive months tile without a gap or an overlap", () => {
   // Every DTR range this module produces is [startOfMonth, endOfMonth]. The day
   // after one month's end must be the next month's start, or a download would

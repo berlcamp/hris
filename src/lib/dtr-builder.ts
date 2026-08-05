@@ -2,12 +2,12 @@
 //
 // This used to be written twice inside attendance-actions.ts — once in
 // getDepartmentDtrBulk, once in getEmployeeDtrRange — as two ~200-line copies of
-// the same day loop that had already drifted in comment wording. The weekly DTR
-// module would have made it three. It lives here instead, as a plain module, for
-// one reason beyond de-duplication: a `"use server"` file may only export async
-// functions, and everything it exports becomes a network-reachable endpoint. A
-// builder that skips authorization must NOT be exported from such a file, so it
-// cannot live next to the actions that call it.
+// the same day loop that had already drifted in comment wording. The monthly
+// DTR module would have made it three. It lives here instead, as a plain module,
+// for one reason beyond de-duplication: a `"use server"` file may only export
+// async functions, and everything it exports becomes a network-reachable
+// endpoint. A builder that skips authorization must NOT be exported from such a
+// file, so it cannot live next to the actions that call it.
 //
 // Nothing in here authorizes anything. Every caller decides who may see these
 // employees BEFORE handing them over.

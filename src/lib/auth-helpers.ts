@@ -289,14 +289,17 @@ export function canDirectApplyAttendanceCorrection(
 // model, and it is enforced server-side in src/lib/actions/dtr-actions.ts:
 //
 //   canSelectDtrDepartment  -> any department, any month
-//   isDeptScoped            -> own department only, current or previous month
-//   everyone else           -> own DTR only, current or previous month
+//   isDeptScoped            -> own department only, recent months only
+//   everyone else           -> own DTR only, recent months only
+//
+// "Recent months" is the current one plus the two before it — OPEN_MONTH_COUNT
+// in src/lib/actions/dtr-actions.ts is the single place that number lives.
 
-// Roles that pick which department to download and are not held to the
-// two-month window. Deliberately NOT the same set as canPrintDtr, which also
+// Roles that pick which department to download and are not held to the recent-
+// month window. Deliberately NOT the same set as canPrintDtr, which also
 // contains ocm_admin — the monthly module was specified for these three. Adding
 // "ocm_admin" here is the one-line change if OCM Admin should match the reach
-// it already has in Weekly DTR and Bulk DTR.
+// it already has in Bulk DTR.
 const DTR_ANY_DEPARTMENT_ROLES: readonly UserRole[] = [
   "super_admin",
   "hr_admin",

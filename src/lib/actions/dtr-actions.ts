@@ -10,15 +10,15 @@
 //   * canSelectDtrDepartment (super admin, HR admin, DTR manager) — pick any
 //     department, pick any month.
 //   * department-scoped roles (department admin, department head, composite) —
-//     pinned to their OWN department, and to the current or previous month.
-//   * everyone else, including plain employees — their own DTR only, current or
-//     previous month.
+//     pinned to their OWN department, and to the recent-month window.
+//   * everyone else, including plain employees — their own DTR only, same
+//     recent-month window.
 //
 // The department is never taken from the client for a department-scoped caller:
 // resolveScope discards whatever id the browser sent and substitutes the
-// caller's own, so a hand-crafted request cannot walk the org chart. The
-// two-month window is enforced the same way — the browser only offers two
-// months, but the server is what makes that true.
+// caller's own, so a hand-crafted request cannot walk the org chart. The month
+// window is enforced the same way — the browser only offers the open months,
+// but the server is what makes that true.
 //
 // This module replaced Weekly DTR, which gave the department-scoped roles the
 // same single verb over a Monday–Sunday week. They kept that reach here as the
@@ -80,16 +80,24 @@ interface MonthlyDtrScope {
 }
 
 /**
- * The two months a restricted caller may download: the current one in Manila
- * and the one before it.
+ * How many months a restricted caller may reach, counting the current one — so
+ * 3 means "this month and the two before it". One constant, because the picker
+ * the browser renders and the check the server enforces must never disagree.
+ */
+const OPEN_MONTH_COUNT = 3;
+
+/**
+ * The months a restricted caller may download, newest first.
  *
  * Manila, not the server's clock: a UTC host is still on the previous day for
  * the first eight hours of every Philippine day, which on the 1st of a month
- * would silently offer the wrong pair.
+ * would silently offer the wrong set.
  */
-function allowedMonths(): [string, string] {
+function allowedMonths(): string[] {
   const current = toMonthKey(manilaToday());
-  return [current, shiftMonths(current, -1)];
+  return Array.from({ length: OPEN_MONTH_COUNT }, (_, back) =>
+    shiftMonths(current, -back),
+  );
 }
 
 /** The month window, as the page needs it to build the picker. */
@@ -109,7 +117,7 @@ function assertMonthAllowed(month: string, anyMonth: boolean): void {
   if (anyMonth) return;
   if (!allowedMonths().includes(month)) {
     throw new Error(
-      "You may only download the current month or the previous month.",
+      "You may only download the current month or the two months before it.",
     );
   }
 }

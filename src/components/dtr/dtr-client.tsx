@@ -43,7 +43,7 @@ interface DtrClientProps {
   departments: DepartmentOption[];
   /** The one department an "own-department" user may generate for. */
   lockedDepartment: DepartmentOption | null;
-  /** Current month first, then the previous one — the restricted window. */
+  /** The open months, newest first — the restricted window. */
   selectableMonths: string[];
 }
 
@@ -223,7 +223,7 @@ export function DtrClient({
               Month
             </label>
             {anyMonth ? (
-              // No two-month window for this tier, so a native month picker is
+              // No month window for this tier, so a native month picker is
               // the honest control — a dropdown would have to invent a range.
               <Input
                 type="month"
