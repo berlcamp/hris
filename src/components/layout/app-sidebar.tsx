@@ -37,7 +37,7 @@ import {
   LayoutTemplate,
   Hammer,
   ClipboardCheck,
-  CalendarRange,
+  FileClock,
 } from "lucide-react";
 
 import {
@@ -134,10 +134,11 @@ const attendanceRoles: UserRole[] = [
 ];
 // The Leave & Attendance nav group must remain visible to department-scoped
 // roles for the Leave items, even though they can't see Attendance & DTR.
-const leaveAttendanceGroupRoles: UserRole[] = [
-  ...leaveAttendanceRoles,
-  "dtr_manager",
-];
+// Since /dtr below is open to EVERY role, the group is now reachable by all of
+// them — the per-item filter in the render still decides what each role
+// actually sees, so nobody gains an item this way. (This used to be
+// leaveAttendanceRoles + dtr_manager.)
+const leaveAttendanceGroupRoles: UserRole[] = allRoles;
 // Contract of Service module. Mirrors canManageCos() in src/lib/auth-helpers.ts
 // — keep the two in sync.
 const cosRoles: UserRole[] = ["super_admin", "hr_admin", "cos_manager"];
@@ -171,20 +172,6 @@ const correctionRoles: UserRole[] = [
   // canDirectApplyAttendanceCorrection. Without this it would lose the reach it
   // has today through Manual Attendance Entry.
   "ocm_admin",
-];
-// Weekly DTR. Like the corrections route above, this deliberately reaches the
-// department-scoped roles that attendanceRoles excludes: downloading a finished
-// week's DTR for your own department is not attendance access, and the module
-// has no write path. Mirrors canDownloadWeeklyDtr in src/lib/auth-helpers.ts.
-const weeklyDtrRoles: UserRole[] = [
-  "super_admin",
-  // Same reach as HR here: OCM Admin already prints DTRs across departments
-  // (canPrintDtr), so it picks the department rather than being pinned to one.
-  "ocm_admin",
-  "hr_admin",
-  "department_head",
-  "department_admin",
-  "department_admin_and_department_head",
 ];
 
 const navGroups: NavGroup[] = [
@@ -246,12 +233,11 @@ const navGroups: NavGroup[] = [
         roles: ["super_admin", "hr_admin"],
       },
       { title: "Attendance & DTR", href: "/attendance", icon: Clock, roles: attendanceRoles },
-      {
-        title: "Weekly DTR",
-        href: "/weekly-dtr",
-        icon: CalendarRange,
-        roles: weeklyDtrRoles,
-      },
+      // Open to every role — see the header of src/lib/actions/dtr-actions.ts
+      // for the three tiers it serves. Replaced the Weekly DTR item, which sat
+      // here and reached the department-scoped roles that attendanceRoles
+      // excludes; those roles still reach this one, by a month instead.
+      { title: "DTR", href: "/dtr", icon: FileClock, roles: allRoles },
       {
         title: "Attendance Corrections",
         href: "/attendance-corrections",

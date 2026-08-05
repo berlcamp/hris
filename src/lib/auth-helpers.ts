@@ -276,34 +276,52 @@ export function canDirectApplyAttendanceCorrection(
   return !!role && CORRECTION_DIRECT_APPLY_ROLES.includes(role);
 }
 
-// Roles that may open the Weekly DTR module — download a completed week's DTR
-// for the employees their department is accountable for.
+// --- DTR module (/dtr) ---
 //
-// This is deliberately a separate power from canAccessAttendance and
-// canPrintDtr, which the department-scoped roles are excluded from and stay
-// excluded from. Weekly DTR grants exactly one verb, download, over one unit,
-// a finished week, and only where attendance was actually recorded. It carries
-// no reach into the Dahua importer, entry deletion, schedules, or arbitrary
-// date ranges — the things those two helpers gate.
+// This replaced the Weekly DTR module, which granted the same one verb over a
+// Monday–Sunday week and whose canDownloadWeeklyDtr helper lived here. The
+// department-scoped roles it served are now the middle tier below, so they kept
+// their reach — a whole month rather than a single week.
 //
-// hr_admin, super_admin and ocm_admin are included because they already reach
-// every DTR through canPrintDtr; having them here means one page serves both
-// audiences rather than HR being told to go use a different module. OCM Admin
-// is not department-scoped, so like HR it picks the department (see
-// resolveScope in weekly-dtr-actions).
-const WEEKLY_DTR_ROLES: readonly UserRole[] = [
+// /dtr is open to EVERY signed-in role, so there is no "can access" helper for
+// it: the two below decide how much of it a role gets, and everyone who matches
+// neither falls through to their own DTR. That is the whole authorization
+// model, and it is enforced server-side in src/lib/actions/dtr-actions.ts:
+//
+//   canSelectDtrDepartment  -> any department, any month
+//   isDeptScoped            -> own department only, current or previous month
+//   everyone else           -> own DTR only, current or previous month
+
+// Roles that pick which department to download and are not held to the
+// two-month window. Deliberately NOT the same set as canPrintDtr, which also
+// contains ocm_admin — the monthly module was specified for these three. Adding
+// "ocm_admin" here is the one-line change if OCM Admin should match the reach
+// it already has in Weekly DTR and Bulk DTR.
+const DTR_ANY_DEPARTMENT_ROLES: readonly UserRole[] = [
   "super_admin",
-  "ocm_admin",
   "hr_admin",
-  "department_head",
-  "department_admin",
-  "department_admin_and_department_head",
+  "dtr_manager",
 ] as const;
 
-export function canDownloadWeeklyDtr(
+export function canSelectDtrDepartment(
   role: UserRole | null | undefined,
 ): boolean {
-  return !!role && WEEKLY_DTR_ROLES.includes(role);
+  return !!role && DTR_ANY_DEPARTMENT_ROLES.includes(role);
+}
+
+// Who sees the "Import from Dahua device" button ON /dtr. This is a placement
+// rule, not a new power: the importer's own server actions keep gating on
+// isAttendanceManager, so hr_admin still imports from /attendance — it simply
+// does not get a second entry point here.
+const DTR_DEVICE_IMPORT_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "dtr_manager",
+] as const;
+
+export function canImportDtrDevice(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && DTR_DEVICE_IMPORT_ROLES.includes(role);
 }
 
 // Anyone who may open the correction wizard at all, by either route. Use this
