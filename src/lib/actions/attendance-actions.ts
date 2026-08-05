@@ -42,6 +42,8 @@ import {
   recomputeAttendanceDeductionsBatch,
 } from "@/lib/actions/attendance-deduction-actions";
 import type { DahuaParsedRow } from "@/lib/dahua-parse";
+import { getHolidayMap } from "@/lib/holiday-helpers";
+import { holidayExcusedSessions } from "@/lib/validations/holiday-schema";
 
 // --- Types ---
 
@@ -1134,6 +1136,12 @@ export async function getAttendanceReport(
 
   const empIds = empRows.map((e) => e.id);
 
+  // The holiday calendar is part of scoring a day, not decoration: a session a
+  // declared holiday (or a no_*_deductions waiver) covers is not charged on the
+  // DTR, so it must not be charged here either — this report is a summary of
+  // those very DTRs.
+  const holidayMap = await getHolidayMap(supabase, startDate, endDate);
+
   const [{ data: logs }, { data: leaves }] = await Promise.all([
     supabase
       .schema("hris")
@@ -1233,6 +1241,9 @@ export async function getAttendanceReport(
           const tOutAm = log.time_out_am as string | null;
           const tInPm = log.time_in_pm as string | null;
           const tOut = log.time_out_pm as string | null;
+          const holidayExcuses = holidayExcusedSessions(
+            holidayMap.get(day.date)?.type ?? null,
+          );
           // The same one function the DTR scores a day with — this report used
           // to re-derive late/undertime from the two primitives, which is
           // exactly how a report and the document it summarises drift apart.
@@ -1256,8 +1267,8 @@ export async function getAttendanceReport(
                   in_pm: !!log.time_in_pm_reason,
                   out_pm: !!log.time_out_pm_reason,
                 },
-                excuseAm: !!log.no_time_reason,
-                excusePm: !!log.no_time_reason,
+                excuseAm: holidayExcuses.am || !!log.no_time_reason,
+                excusePm: holidayExcuses.pm || !!log.no_time_reason,
               },
             );
           // Same DTR rule: undertime caps at 7h; 8h+ counts the day absent.

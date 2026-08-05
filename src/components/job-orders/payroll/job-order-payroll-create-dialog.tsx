@@ -28,6 +28,7 @@ import {
 } from "@/lib/validations/job-order-payroll-schema";
 import { createJobOrderPayroll } from "@/lib/actions/job-order-payroll-actions";
 import { getHolidaysInRange, type HolidayInRange } from "@/lib/actions/holiday-actions";
+import { HOLIDAY_TYPE_LABELS } from "@/lib/validations/holiday-schema";
 import { countWeekdays } from "@/lib/job-order-payroll-helpers";
 import type { JobOrderAreaOption } from "@/lib/types";
 
@@ -248,7 +249,7 @@ export function JobOrderPayrollCreateDialog({
                 {holidays.map((h) => (
                   <li key={h.date}>
                     {format(new Date(`${h.date}T00:00:00`), "MMM d")} —{" "}
-                    {h.name} ({h.type})
+                    {h.name} ({HOLIDAY_TYPE_LABELS[h.type]})
                   </li>
                 ))}
               </ul>

@@ -27,7 +27,10 @@ import {
   type DtrSignatory,
   type SignatoryInput,
 } from "@/lib/dtr-signatory";
-import type { HolidayType } from "@/lib/validations/holiday-schema";
+import {
+  holidayExcusedSessions,
+  type HolidayType,
+} from "@/lib/validations/holiday-schema";
 import {
   NO_TIME_REASON_LABELS,
   NO_TIME_REASON_SHORT,
@@ -55,9 +58,11 @@ export interface DtrEntry {
   is_absent: boolean;
   remarks: string | null;
   leave_type: string | null;
-  // Declared holiday overlay for this date, if any. "full" replaces the whole
-  // row with HOLIDAY; "half_am"/"half_pm" label only that half of the day.
-  holiday: "full" | "half_am" | "half_pm" | null;
+  // Declared calendar entry for this date, if any. "full" replaces the whole
+  // row with HOLIDAY; "half_am"/"half_pm" label only that half of the day. The
+  // "no_am_deductions"/"no_pm_deductions" waivers print nothing — they only
+  // zero out that session's late/undertime.
+  holiday: HolidayType | null;
   holiday_name: string | null;
   // Official-duty reason a manual entry has no punches (TRAVEL / FIELD WORK /
   // OFFICIAL BUSINESS). Printed across the row like ON LEAVE when there are no
@@ -517,14 +522,16 @@ export async function buildDtrResults(
         const reasonOutAm = slotReasonShort(log.time_out_am_reason);
         const reasonInPm = slotReasonShort(log.time_in_pm_reason);
         const reasonOutPm = slotReasonShort(log.time_out_pm_reason);
-        // A holiday excuses the half of the day it covers, wholesale. A slot
-        // reason excuses only the punch it sits on — dayLateUndertime decides
-        // what that costs, per session, so a morning with no lunch-out is
-        // charged its half day even when the afternoon is excused.
-        const holidayExcusesAm =
-          holidayType === "full" || holidayType === "half_am";
-        const holidayExcusesPm =
-          holidayType === "full" || holidayType === "half_pm";
+        // A holiday excuses the half of the day it covers, wholesale, and a
+        // no_*_deductions day excuses that same session's late/undertime
+        // without being a holiday at all — the employee still reports for it,
+        // the times still print, only the charge is dropped. The per-type rule
+        // lives in holidayExcusedSessions. A slot reason excuses only the
+        // punch it sits on — dayLateUndertime decides what that costs, per
+        // session, so a morning with no lunch-out is charged its half day even
+        // when the afternoon is excused.
+        const { am: holidayExcusesAm, pm: holidayExcusesPm } =
+          holidayExcusedSessions(holidayType);
         const { lateMinutes: effLateMins, undertimeMinutes: effUndertimeMins } =
           dayLateUndertime(
             day.date,

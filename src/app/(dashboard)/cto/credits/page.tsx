@@ -10,6 +10,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getCtoBalancesReport } from "@/lib/actions/cto-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { getHolidays } from "@/lib/actions/holiday-actions";
+import { isNonWorkingHoliday } from "@/lib/validations/holiday-schema";
 import { getDepartments } from "@/lib/actions/user-actions";
 
 export default async function CtoCreditsPage() {
@@ -50,7 +51,11 @@ export default async function CtoCreditsPage() {
         </div>
         <CtoCreditEntryDialog
           employees={activeEmployees}
-          holidayDates={holidays.map((h) => h.date)}
+          // Only real holidays earn the x1.5 day-type suggestion. A
+          // no_*_deductions day is an ordinary working day.
+          holidayDates={holidays
+            .filter((h) => isNonWorkingHoliday(h.type))
+            .map((h) => h.date)}
         />
       </div>
 
