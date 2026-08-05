@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import {
   canDirectApplyAttendanceCorrection,
   canFileAttendanceCorrection,
+  canReadOwnDeptCorrections,
   canRequestAttendanceCorrection,
   canReviewAttendanceCorrection,
 } from "@/lib/auth-helpers";
@@ -565,7 +566,8 @@ export async function listCorrectionRequests(): Promise<
 
   if (canReviewAttendanceCorrection(user.role)) {
     // Reviewers see everything.
-  } else if (canRequestAttendanceCorrection(user.role) && user.departmentId) {
+  } else if (canReadOwnDeptCorrections(user.role) && user.departmentId) {
+    // Filers and read-only viewers (Department Head) alike: own department only.
     query = query.eq("department_id", user.departmentId);
   } else {
     throw new Error("Unauthorized");
@@ -618,7 +620,7 @@ export async function getCorrectionRequest(id: string) {
 
   const isReviewer = canReviewAttendanceCorrection(user.role);
   const isOwnDept =
-    canRequestAttendanceCorrection(user.role) &&
+    canReadOwnDeptCorrections(user.role) &&
     !!user.departmentId &&
     request.department_id === user.departmentId;
   if (!isReviewer && !isOwnDept) throw new Error("Unauthorized");

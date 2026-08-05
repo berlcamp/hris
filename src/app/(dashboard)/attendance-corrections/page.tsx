@@ -11,6 +11,7 @@ import { listCorrectionRequests } from "@/lib/actions/attendance-correction-acti
 import {
   canDirectApplyAttendanceCorrection,
   canFileAttendanceCorrection,
+  canOpenAttendanceCorrections,
   canReviewAttendanceCorrection,
 } from "@/lib/auth-helpers";
 
@@ -21,10 +22,11 @@ export default async function AttendanceCorrectionsPage() {
   const canRequest = canFileAttendanceCorrection(user.role);
   const isReviewer = canReviewAttendanceCorrection(user.role);
   const isDirect = canDirectApplyAttendanceCorrection(user.role);
-  // The two sides of the workflow share this route; anyone on neither side has
-  // no business here. listCorrectionRequests throws for them anyway — this
-  // just turns that into a redirect instead of an error page.
-  if (!canRequest && !isReviewer) redirect("/dashboard");
+  // Every side of the workflow shares this route — filers, reviewers, and the
+  // read-only viewers who only watch their department's queue. Anyone on none
+  // of them has no business here. listCorrectionRequests throws for them
+  // anyway — this just turns that into a redirect instead of an error page.
+  if (!canOpenAttendanceCorrections(user.role)) redirect("/dashboard");
 
   const requests = await listCorrectionRequests();
 

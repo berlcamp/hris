@@ -149,11 +149,11 @@ const cosTemplateRoles: UserRole[] = ["super_admin", "hr_admin"];
 // Assignments today; payrolls, memos and special orders join in later specs.
 // Mirrors canManageJobOrders in src/lib/auth-helpers.ts.
 const jobOrderRoles: UserRole[] = ["super_admin", "hr_admin", "jo_manager"];
-// Attendance corrections. The union of the two sides of the workflow —
-// requesters (department-scoped admins) and reviewers — because both land on
-// the same /attendance-corrections route, which branches on role. Mirrors
-// canRequestAttendanceCorrection + canReviewAttendanceCorrection in
-// src/lib/auth-helpers.ts; keep the three in sync.
+// Attendance corrections. The union of every side of the workflow —
+// requesters (department-scoped admins), reviewers, and read-only viewers —
+// because they all land on the same /attendance-corrections route, which
+// branches on role. Mirrors canOpenAttendanceCorrections in
+// src/lib/auth-helpers.ts; keep the two in sync.
 //
 // Note the department-scoped roles here are NOT in attendanceRoles above: they
 // can file a correction without gaining any other attendance reach, which is
@@ -161,6 +161,9 @@ const jobOrderRoles: UserRole[] = ["super_admin", "hr_admin", "jo_manager"];
 const correctionRoles: UserRole[] = [
   "department_admin",
   "department_admin_and_department_head",
+  // Read-only over its own department: sees what was filed and how HR decided
+  // it, but gets no "New Request" button — see canViewAttendanceCorrections.
+  "department_head",
   "super_admin",
   "hr_admin",
   "dtr_manager",

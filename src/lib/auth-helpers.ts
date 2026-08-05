@@ -307,13 +307,55 @@ export function canDownloadWeeklyDtr(
 }
 
 // Anyone who may open the correction wizard at all, by either route. Use this
-// for route/nav gating; use the two specific helpers to decide what the filing
-// actually DOES.
+// to gate the wizard and the "New Request" button; use the two specific helpers
+// to decide what the filing actually DOES.
 export function canFileAttendanceCorrection(
   role: UserRole | null | undefined,
 ): boolean {
   return (
     canRequestAttendanceCorrection(role) ||
     canDirectApplyAttendanceCorrection(role)
+  );
+}
+
+// Roles that may READ their own department's corrections but file nothing. A
+// Department Head answers for the attendance their department admin files
+// against, so they need to see what was filed and how HR decided it — but the
+// filing stays with the admin and the approving stays with HR.
+//
+// Deliberately a FOURTH set rather than a widening of
+// CORRECTION_REQUESTER_ROLES: membership there hands out the wizard, the
+// correction window and withdrawal, none of which belong to a viewer.
+const CORRECTION_VIEWER_ROLES: readonly UserRole[] = ["department_head"] as const;
+
+export function canViewAttendanceCorrections(
+  role: UserRole | null | undefined,
+): boolean {
+  return !!role && CORRECTION_VIEWER_ROLES.includes(role);
+}
+
+// Anyone whose reach over corrections stops at their OWN department — the
+// department-scoped filers plus the read-only viewers. Reviewers see every
+// department and are deliberately not here; actions branch on
+// canReviewAttendanceCorrection first, then fall back to this with a
+// department_id filter.
+export function canReadOwnDeptCorrections(
+  role: UserRole | null | undefined,
+): boolean {
+  return (
+    canRequestAttendanceCorrection(role) || canViewAttendanceCorrections(role)
+  );
+}
+
+// Anyone who may open the /attendance-corrections route at all. Use this for
+// route and nav gating — it is the union of every side of the workflow,
+// including the viewers who can do nothing there but look.
+export function canOpenAttendanceCorrections(
+  role: UserRole | null | undefined,
+): boolean {
+  return (
+    canFileAttendanceCorrection(role) ||
+    canReviewAttendanceCorrection(role) ||
+    canViewAttendanceCorrections(role)
   );
 }
