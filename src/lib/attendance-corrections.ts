@@ -4,7 +4,11 @@
 // correction_locked, which protects it from a later biometric overwrite.
 
 import { buildAttendanceRecord } from "./attendance-record.ts";
-import { crossesMidnight, type ScheduleLike } from "./attendance-schedule.ts";
+import {
+  crossesMidnight,
+  dayOfWeekFor,
+  type ScheduleLike,
+} from "./attendance-schedule.ts";
 import type { CorrectionReason } from "@/lib/constants";
 
 export type Disposition = "update" | "clear_as_off";
@@ -106,14 +110,10 @@ export function resolveItemSchedules<
   });
 }
 
-// Day of week (0 = Sunday) for a YYYY-MM-DD string, computed through Date.UTC
-// rather than `new Date(iso + "T00:00:00")`. The latter parses as LOCAL time,
-// so the same date can land on a different weekday depending on where the
-// caller runs — and this value is shared by the server action and the browser.
-export function dayOfWeekFor(iso: string): number {
-  const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
-  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-}
+// Re-exported, not redefined: dayLateUndertime needs the same weekday for the
+// rest-day rule, so the one implementation lives beside it in
+// attendance-schedule.ts and this module's existing callers keep their import.
+export { dayOfWeekFor };
 
 // The reason code a weekend day defaults to when it carries no punches, so the
 // day reads as a rest day instead of an absence. Weekdays get null: a blank

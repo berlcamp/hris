@@ -27,6 +27,27 @@ export function trimTimeStr(t: string | null | undefined): string | null {
   return t.slice(0, 5);
 }
 
+// Day of week (0 = Sunday) for a YYYY-MM-DD string, computed through Date.UTC
+// rather than `new Date(iso + "T00:00:00")`. The latter parses as LOCAL time,
+// so the same date can land on a different weekday depending on where the
+// caller runs — and this value is shared by server actions and the browser.
+export function dayOfWeekFor(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+// Saturday and Sunday are REST DAYS: no hours are owed on them.
+//
+// hris.schedules carries hours only (time_in/time_out/break) — migrations 030
+// and 036 never gave it a day-of-week column — so nothing in this system can
+// declare that an employee is rostered on a Saturday. The weekend is therefore
+// the one span the schedule model can say nobody is scheduled for, and the DTR
+// has always treated it that way for a date with no attendance row at all.
+export function isRestDay(iso: string): boolean {
+  const dow = dayOfWeekFor(iso);
+  return dow === 0 || dow === 6;
+}
+
 // Postgres `TIME` columns serialize as "HH:MM:SS"; the rest of the codebase
 // uses "HH:MM". Always normalize before formatting into Date strings or you
 // get "HH:MM:SS:00" → NaN.
@@ -413,6 +434,14 @@ export interface DayMinutes {
 // Schedules with no break keep their existing treatment — a single in/out pair
 // has no half to charge, and a missing clock-out bills the whole shift.
 //
+// On a REST DAY (see isRestDay) none of the flat charges apply. No hours are
+// owed, so an incomplete session is not a session unrendered — there is nothing
+// for the half day to be charged against, and a day with a single stray scan is
+// not eight hours of absence. What CAN still be measured is measured: a session
+// carrying both its punches is scored for lateness and early departure exactly
+// as on a weekday, so an employee who does report for weekend duty is still
+// held to the hours they actually recorded.
+//
 // Late and undertime are returned together because the two now interact: split
 // across two functions, every caller would have to re-implement the
 // supersession rule and they would drift apart.
@@ -430,6 +459,11 @@ export function dayLateUndertime(
 ): DayMinutes {
   const r = opts.reasons ?? {};
   const { excuseAm = false, excusePm = false } = opts;
+  // Derived here rather than passed in: every caller — the DTR, the summary
+  // report, the biometric importer, the corrections apply path — scores the
+  // same calendar, so a caller that could forget the flag is a caller that
+  // would drift from the printed document.
+  const restDay = isRestDay(dutyDate);
 
   // A day with NO punches at all is an absence, not two incomplete sessions.
   // The absent flag carries it and the DTR charges the full eight hours there
@@ -456,7 +490,7 @@ export function dayLateUndertime(
               slots.time_in_am_next_day ?? false,
             ),
       undertimeMinutes:
-        excusePm || r.out_pm
+        excusePm || r.out_pm || (restDay && !slots.time_out_pm)
           ? 0
           : undertimeMinutesFor(
               dutyDate,
@@ -472,11 +506,19 @@ export function dayLateUndertime(
   let undertimeMinutes = 0;
 
   // --- morning ---
+  //
+  // `|| restDay` on amExplained drops the flat half day; `amComplete ||
+  // !restDay` on the measuring branch is the other half of the same rule. On a
+  // rest day an INCOMPLETE morning is not scored at all: with no departure
+  // there is no session to measure, and charging its lateness alone would bill
+  // an employee for a weekend nothing could roster them onto. A weekday still
+  // measures it — there the missing punch is explained by a reason, and an
+  // explained lunch scan must not also forgive arriving half an hour late.
   const amComplete = !!slots.time_in_am && !!slots.time_out_am;
-  const amExplained = excuseAm || !!r.in_am || !!r.out_am;
+  const amExplained = excuseAm || !!r.in_am || !!r.out_am || restDay;
   if (!amComplete && !amExplained) {
     undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
-  } else if (!excuseAm && !r.in_am) {
+  } else if (!excuseAm && !r.in_am && (amComplete || !restDay)) {
     lateMinutes = lateMinutesFor(
       dutyDate,
       sched,
@@ -487,10 +529,10 @@ export function dayLateUndertime(
 
   // --- afternoon ---
   const pmComplete = !!slots.time_in_pm && !!slots.time_out_pm;
-  const pmExplained = excusePm || !!r.in_pm || !!r.out_pm;
+  const pmExplained = excusePm || !!r.in_pm || !!r.out_pm || restDay;
   if (!pmComplete && !pmExplained) {
     undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
-  } else if (!excusePm) {
+  } else if (!excusePm && (pmComplete || !restDay)) {
     // Early departure, measured only when there is a departure to measure.
     if (!r.out_pm && slots.time_out_pm) {
       undertimeMinutes += undertimeMinutesFor(

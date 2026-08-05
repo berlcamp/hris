@@ -207,6 +207,32 @@ export function applyUndertimeAbsenceRule(
 }
 
 /**
+ * The REST-DAY counterpart of applyUndertimeAbsenceRule, for a Saturday or
+ * Sunday (see isRestDay).
+ *
+ * A rest day owes no hours, so it can never be an absence: neither the row's
+ * stored is_absent flag — which only ever meant "this row has no punches" —
+ * nor the 8-hour reclassification applies. Without this the DTR printed
+ * SATURDAY across the time columns (dtrSpanFor ranks the weekend above the
+ * absence) while charging a full 8-hour undertime in the cells beside it, and
+ * fed those 480 minutes into the page total and the leave-credit conversion.
+ *
+ * Whatever dayLateUndertime did measure is kept and still clamped by the same
+ * 7-hour ceiling, so an employee who reported for weekend duty is scored on the
+ * hours they actually recorded.
+ */
+export function applyRestDayRule(
+  lateMins: number,
+  undertimeMins: number,
+): { lateMins: number; undertimeMins: number; absent: boolean } {
+  return {
+    lateMins,
+    undertimeMins: Math.min(undertimeMins, UNDERTIME_CAP_MINUTES),
+    absent: false,
+  };
+}
+
+/**
  * The org-wide default work schedule — the schedules row flagged is_default
  * (migration 036) — applied to employees with no schedule assigned. Falls back
  * to the hardcoded 8:00–17:00 / 12:00–13:00 constant only if no default row
@@ -558,12 +584,19 @@ export async function buildDtrResults(
               excusePm: holidayExcusesPm || !!log.no_time_reason,
             },
           );
-        // Cap undertime at 7h; 8h+ reclassifies the day as absent.
+        // Cap undertime at 7h; 8h+ reclassifies the day as absent — unless the
+        // day is a weekend, which owes no hours and so can never be an absence.
+        // This branch is the one that had no weekend rule at all: the no-row
+        // branch below has always guarded its absence with `!day.isWeekend`,
+        // and a Saturday that merely HAD a row was charged as if it were a
+        // Tuesday.
         const {
           lateMins: finalLateMins,
           undertimeMins: cappedUndertimeMins,
           absent: dayAbsent,
-        } = applyUndertimeAbsenceRule(effLateMins, effUndertimeMins, isAbsent);
+        } = day.isWeekend
+          ? applyRestDayRule(effLateMins, effUndertimeMins)
+          : applyUndertimeAbsenceRule(effLateMins, effUndertimeMins, isAbsent);
         // An absent day is charged a full 8-hour undertime on the DTR.
         const finalUndertimeMins = dayAbsent
           ? UNDERTIME_ABSENT_MINUTES
@@ -611,8 +644,13 @@ export async function buildDtrResults(
           reason_out_pm: showTimes ? reasonOutPm : null,
         });
 
-        if (!dayAbsent) totalPresent++;
-        else totalAbsent++;
+        // An unworked weekend counts as neither present nor absent — exactly
+        // what the no-row branch below does for the same date. A weekend that
+        // WAS worked still counts present; the punches are the difference.
+        if (day.isWeekend && !hasPunch) {
+          // a rest day nobody reported for: not a day of service, not an absence
+        } else if (dayAbsent) totalAbsent++;
+        else totalPresent++;
         if (isLate) {
           totalLateCount++;
           totalLateMinutes += finalLateMins;

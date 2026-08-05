@@ -21,6 +21,7 @@ import {
 // network-reachable endpoint. See the note at the top of dtr-builder.ts.
 import {
   DTR_EMPLOYEE_SELECT,
+  applyRestDayRule,
   applyUndertimeAbsenceRule,
   buildDtrResults,
   employeesWithAttendance,
@@ -1234,7 +1235,12 @@ export async function getAttendanceReport(
       const log = logMap.get(day.date) as Record<string, unknown> | undefined;
       if (log) {
         const isAbsent = (log.is_absent as boolean) ?? false;
-        if (isAbsent) {
+        // A weekend owes no hours, so a blank row there is a rest day, not an
+        // absence — the same rule the DTR applies, and the same one the no-row
+        // branch below already applied to this very date.
+        if (day.isWeekend && isAbsent) {
+          // counted as neither present nor absent
+        } else if (isAbsent) {
           daysAbsent++;
         } else {
           const tIn = log.time_in_am as string | null;
@@ -1271,9 +1277,11 @@ export async function getAttendanceReport(
                 excusePm: holidayExcuses.pm || !!log.no_time_reason,
               },
             );
-          // Same DTR rule: undertime caps at 7h; 8h+ counts the day absent.
-          const { lateMins: lm, undertimeMins: um, absent } =
-            applyUndertimeAbsenceRule(lmRaw, umRaw, false);
+          // Same DTR rule: undertime caps at 7h; 8h+ counts the day absent —
+          // and a weekend, owing no hours, is never reclassified absent.
+          const { lateMins: lm, undertimeMins: um, absent } = day.isWeekend
+            ? applyRestDayRule(lmRaw, umRaw)
+            : applyUndertimeAbsenceRule(lmRaw, umRaw, false);
           if (absent) {
             daysAbsent++;
           } else {
