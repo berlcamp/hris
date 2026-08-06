@@ -566,9 +566,23 @@ export async function listCorrectionRequests(): Promise<
 
   if (canReviewAttendanceCorrection(user.role)) {
     // Reviewers see everything.
+  } else if (canDirectApplyAttendanceCorrection(user.role)) {
+    // OCM Admin: records attendance across every department, but reviews
+    // nothing and has no department of its own to scope by. Its queue is what
+    // IT filed. Deliberately not "everything" — it cannot act on another
+    // department's request, and those carry proof documents and justifications
+    // that are HR's to read. Without this branch the role fell through to the
+    // throw below, which crashed the page it is shown in the sidebar.
+    query = query.eq("requested_by", user.id);
   } else if (canReadOwnDeptCorrections(user.role) && user.departmentId) {
     // Filers and read-only viewers (Department Head) alike: own department only.
     query = query.eq("department_id", user.departmentId);
+  } else if (canReadOwnDeptCorrections(user.role)) {
+    // A department-scoped account with no department on its profile
+    // (department_id is nullable for every role — see user-schema.ts). There is
+    // no queue to show it, but the route gate already let it in, so an empty
+    // list beats an opaque error page for what is an account-config gap.
+    return [];
   } else {
     throw new Error("Unauthorized");
   }
@@ -623,7 +637,13 @@ export async function getCorrectionRequest(id: string) {
     canReadOwnDeptCorrections(user.role) &&
     !!user.departmentId &&
     request.department_id === user.departmentId;
-  if (!isReviewer && !isOwnDept) throw new Error("Unauthorized");
+  // Whoever filed it may read it back, whatever their department. This is what
+  // lets OCM Admin — direct-apply across every department, reviewer of none —
+  // open the request the wizard redirects to after "Record Attendance"; before
+  // it, that landed on notFound(). Scoped to the filer's own id, so it widens
+  // nobody's reach beyond what they themselves submitted.
+  const isFiler = !!request.requested_by && request.requested_by === user.id;
+  if (!isReviewer && !isOwnDept && !isFiler) throw new Error("Unauthorized");
 
   const { data: items } = await supabase
     .schema("hris")

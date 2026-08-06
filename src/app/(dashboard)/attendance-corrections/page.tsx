@@ -44,9 +44,11 @@ export default async function AttendanceCorrectionsPage() {
 
   const liveCount = requests.filter((r) => LIVE.includes(r.status)).length;
 
-  // Only reviewers see requests from more than one department, so the
-  // department filter would be a single-option no-op for a requester.
-  const departments = isReviewer ? await getDepartments() : [];
+  // Only the cross-department roles — reviewers, and the direct-apply OCM Admin
+  // reading back its own filings — see more than one department, so the filter
+  // would be a single-option no-op for a department requester. isDirect is the
+  // superset (reviewers are all direct-apply), so it alone is the test.
+  const departments = isDirect ? await getDepartments() : [];
 
   return (
     <div className="space-y-6">
@@ -95,7 +97,7 @@ export default async function AttendanceCorrectionsPage() {
               { label: "Withdrawn", value: "cancelled" },
             ],
           },
-          ...(isReviewer
+          ...(isDirect
             ? [
                 {
                   id: "department",
