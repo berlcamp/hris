@@ -333,3 +333,128 @@ test("missing clock-out with a late PM return is not double-charged", () => {
     240,
   );
 });
+
+// ── A PM departure with no PM arrival ───────────────────────────────
+//
+// Reported against biometric #2278 on 8 July: AM in and AM out present, PM
+// arrival BLANK, PM departure 12:43. Nobody clocks out of an afternoon they
+// never clocked into — 12:43 is the return from lunch, tagged Check Out by a
+// device that labels punches in ORDER rather than by what they mean.
+//
+// The mirror of the "mislabeled Break In → PM out" rescues above: there a
+// mislabeled LATE punch is recovered as the departure, here a mislabeled EARLY
+// one is recovered as the arrival. Both hang off the same PM midpoint.
+
+test("lone PM punch mislabeled Check Out before the midpoint → PM arrival", () => {
+  const b = bucketPunchesForDuty(
+    [
+      punch("07:56", "checkin"),
+      punch("12:02", "breakout"),
+      punch("12:43", "checkout"), // the lunch return, mislabeled
+    ],
+    D,
+    REGULAR,
+  );
+  assert.deepEqual(slots(b), {
+    in_am: "07:56",
+    out_am: "12:02",
+    in_pm: "12:43",
+    out_pm: null,
+  });
+});
+
+// Same punches, correct label — the two must agree, or the row an employee
+// gets depends on which terminal they happened to tap.
+test("the same day labelled Break In buckets identically", () => {
+  const b = bucketPunchesForDuty(
+    [
+      punch("07:56", "checkin"),
+      punch("12:02", "breakout"),
+      punch("12:43", "breakin"),
+    ],
+    D,
+    REGULAR,
+  );
+  assert.deepEqual(slots(b), {
+    in_am: "07:56",
+    out_am: "12:02",
+    in_pm: "12:43",
+    out_pm: null,
+  });
+});
+
+test("an unlabelled day buckets identically too", () => {
+  const b = bucketPunchesForDuty(
+    [punch("07:56"), punch("12:02"), punch("12:43")],
+    D,
+    REGULAR,
+  );
+  assert.deepEqual(slots(b), {
+    in_am: "07:56",
+    out_am: "12:02",
+    in_pm: "12:43",
+    out_pm: null,
+  });
+});
+
+// The other side of the midpoint must not move: a real early release is a
+// departure, and turning it into an arrival would blank a punch the employee
+// actually made and charge the afternoon as never clocked out.
+test("a genuine early release past the midpoint stays the PM departure", () => {
+  const b = bucketPunchesForDuty(
+    [
+      punch("07:56", "checkin"),
+      punch("12:02", "breakout"),
+      punch("15:30", "checkout"),
+    ],
+    D,
+    REGULAR,
+  );
+  assert.deepEqual(slots(b), {
+    in_am: "07:56",
+    out_am: "12:02",
+    in_pm: null,
+    out_pm: "15:30",
+  });
+});
+
+test("a full day is untouched — both PM punches keep their slots", () => {
+  const b = bucketPunchesForDuty(
+    [
+      punch("07:56", "checkin"),
+      punch("12:02", "breakout"),
+      punch("12:43", "breakin"),
+      punch("17:05", "checkout"),
+    ],
+    D,
+    REGULAR,
+  );
+  assert.deepEqual(slots(b), {
+    in_am: "07:56",
+    out_am: "12:02",
+    in_pm: "12:43",
+    out_pm: "17:05",
+  });
+});
+
+// Two Check Outs and no Break In: the earlier one is the lunch return, the
+// later one still closes the day. Before the fix the 12:43 was discarded
+// outright — only the LAST out_pm punch was ever read.
+test("an early and a late Check Out fill both PM slots", () => {
+  const b = bucketPunchesForDuty(
+    [
+      punch("07:56", "checkin"),
+      punch("12:02", "breakout"),
+      punch("12:43", "checkout"),
+      punch("17:05", "checkout"),
+    ],
+    D,
+    REGULAR,
+  );
+  assert.deepEqual(slots(b), {
+    in_am: "07:56",
+    out_am: "12:02",
+    in_pm: "12:43",
+    out_pm: "17:05",
+  });
+});

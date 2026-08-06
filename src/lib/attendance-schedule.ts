@@ -198,13 +198,24 @@ function bucketByStatus(
   const last = (arr: Punch[]) => arr[arr.length - 1] ?? null;
 
   const inAm = first(inSlot("in_am"));
-  let outPm = last(inSlot("out_pm"));
+  const outPmPunches = inSlot("out_pm");
+  // Explicitly nullable: the rescue below can clear it when the only "Check
+  // Out" of the day turns out to be the return from lunch.
+  let outPm: Punch | null = last(outPmPunches);
 
   // Break Out + Break In merged and ordered; earliest = out, latest = in.
   const breaks = punches.filter((p) => {
     const slot = STATUS_SLOT[p.status];
     return slot === "out_am" || slot === "in_pm";
   });
+
+  // Halfway between the scheduled lunch return and the scheduled clock-out.
+  // Both rescues below hang off it: nobody returns from lunch after it, and
+  // nobody leaves for the day before it.
+  const pmMidpointMs =
+    (shiftMomentMs(dutyDate, sched, sched.break_end!) +
+      shiftMomentMs(dutyDate, sched, sched.time_out)) /
+    2;
 
   // The device labels punches by ORDER (Check In / Break Out / Break In / Check
   // Out), so on an early-release day the final logout comes through as a Break
@@ -217,10 +228,6 @@ function bucketByStatus(
   // afternoon is charged as un-clocked-out undertime. The midpoint mirrors the
   // window path's lone-PM heuristic; a genuine (early) lunch return stays put.
   if (!outPm && (inAm || breaks.length > 1) && breaks.length > 0) {
-    const pmMidpointMs =
-      (shiftMomentMs(dutyDate, sched, sched.break_end!) +
-        shiftMomentMs(dutyDate, sched, sched.time_out)) /
-      2;
     const lastBreak = breaks[breaks.length - 1];
     if (lastBreak.ms >= pmMidpointMs) {
       outPm = lastBreak;
@@ -234,13 +241,36 @@ function bucketByStatus(
   // departure from a lunch they never took. Recording it as time_out_am would
   // print a phantom AM departure and leave the real arrival blank.
   const outAm = inAm ? (breaks.length > 0 ? breaks[0] : null) : null;
-  const inPm = inAm
+  let inPm = inAm
     ? breaks.length > 1
       ? breaks[breaks.length - 1]
       : null
     : breaks.length > 0
       ? breaks[0]
       : null;
+
+  // An afternoon cannot have a departure and no arrival. Nobody clocks out of
+  // a session they never clocked into, so a "Check Out" sitting alone in the
+  // PM is not a departure — it is the return from lunch, mislabeled. The
+  // device tags punches by ORDER (Check In / Break Out / Break In / Check
+  // Out), so whenever the midday scans do not both come through as Break
+  // punches, the tap after lunch arrives as a Check Out.
+  //
+  // The clock decides, on the same midpoint as the rescue above: before it,
+  // the punch is a lunch return and becomes time_in_pm; at or after it, a
+  // genuine early release, which stays the departure and leaves the arrival
+  // blank for the half-day rule to charge. This is that rescue's mirror image
+  // — there a mislabeled LATE punch is recovered as the departure, here a
+  // mislabeled EARLY one is recovered as the arrival.
+  if (!inPm && outPm && outPmPunches.length > 0) {
+    const earliestOut = outPmPunches[0];
+    if (earliestOut.ms < pmMidpointMs) {
+      inPm = earliestOut;
+      // With only one such punch it IS the arrival, so nothing is left to be
+      // the departure. With several, the later ones still close the day.
+      if (outPm === earliestOut) outPm = null;
+    }
+  }
 
   return {
     time_in_am: inAm?.time ?? null,
@@ -349,10 +379,18 @@ export function bucketPunchesForDuty(
   const amLast = am.length > 1 ? am[am.length - 1] : null;
 
   // A lone PM punch is ambiguous: it is either the return from lunch (arrival)
-  // or the end of the day (departure). Trust the device's own label when it
-  // carries one; otherwise split on the midpoint of the PM session, so a 17:05
-  // punch reads as the departure it plainly is rather than an arrival that
-  // leaves time_out_pm blank and charges a phantom half-day of undertime.
+  // or the end of the day (departure). Split on the midpoint of the PM session,
+  // so a 17:05 punch reads as the departure it plainly is rather than an
+  // arrival that leaves time_out_pm blank and charges a phantom half-day of
+  // undertime.
+  //
+  // A "Check Out" label cannot promote a punch to departure on its own: the
+  // device labels by ORDER, so the tap after lunch routinely arrives tagged
+  // Check Out, and honouring that left the afternoon with an exit and no
+  // entry. Nobody clocks out of a session they never clocked into, so before
+  // the midpoint the clock wins and the punch is the arrival. A "Break In"
+  // label still pins a punch as the arrival — that direction never invents a
+  // departure, and bucketByStatus rescues a genuinely late one separately.
   let pmFirst: Punch | null = null;
   let pmLast: Punch | null = null;
   if (pm.length > 1) {
@@ -363,8 +401,7 @@ export function bucketPunchesForDuty(
     const slot = STATUS_SLOT[only.status];
     const pmMidpointMs =
       (breakEndMs + shiftMomentMs(dutyDate, sched, sched.time_out)) / 2;
-    const isDeparture =
-      slot === "out_pm" ? true : slot === "in_pm" ? false : only.ms >= pmMidpointMs;
+    const isDeparture = slot === "in_pm" ? false : only.ms >= pmMidpointMs;
     if (isDeparture) pmLast = only;
     else pmFirst = only;
   }
