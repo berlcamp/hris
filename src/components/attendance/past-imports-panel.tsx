@@ -131,11 +131,16 @@ export function PastImportsPanel() {
               key={b.id}
               className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
             >
+              {/* The description leads: it is the one field a person chose,
+                  and the reason it is required. The period range drops to the
+                  detail line, where it disambiguates two similarly-named
+                  imports rather than being the only thing to go on. */}
               <div className="min-w-0">
                 <div className="truncate font-medium">
-                  {fmtDate(b.period_start)} – {fmtDate(b.period_end)}
+                  {b.description || `${fmtDate(b.period_start)} – ${fmtDate(b.period_end)}`}
                 </div>
                 <div className="truncate text-xs text-muted-foreground">
+                  {fmtDate(b.period_start)} – {fmtDate(b.period_end)} ·{" "}
                   {b.punch_count} punch{plural(b.punch_count)} ·{" "}
                   {fmtDateTime(b.imported_at)}
                   {b.imported_by_name ? ` · ${b.imported_by_name}` : ""}
@@ -172,8 +177,23 @@ export function PastImportsPanel() {
           <AlertDialogHeader>
             <AlertDialogTitle>Re-run this import?</AlertDialogTitle>
             <AlertDialogDescription>
-              Re-buckets the saved punches with the current rules. Days you
-              edited by hand are left untouched.
+              {/* Naming the batch here is the point of requiring a description
+                  — this is the last screen before old rows are rewritten. */}
+              {target?.description ? (
+                <>
+                  Re-buckets{" "}
+                  <span className="font-medium text-foreground">
+                    {target.description}
+                  </span>{" "}
+                  with the current rules. Days you edited by hand are left
+                  untouched.
+                </>
+              ) : (
+                <>
+                  Re-buckets the saved punches with the current rules. Days you
+                  edited by hand are left untouched.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {preview && (

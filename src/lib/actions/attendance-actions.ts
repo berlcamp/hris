@@ -543,6 +543,7 @@ async function saveImportBatch(
   supabase: ReturnType<typeof createAdminClient>,
   importedBy: string,
   previewRows: ImportPreviewRow[],
+  description: string,
 ): Promise<void> {
   if (previewRows.length === 0) return;
   const punches: StoredPunch[] = previewRows.map((r) => ({
@@ -559,6 +560,7 @@ async function saveImportBatch(
       .from("attendance_import_batches")
       .insert({
         imported_by: importedBy,
+        description,
         period_start: dates[0] ?? null,
         period_end: dates[dates.length - 1] ?? null,
         punch_count: punches.length,
@@ -569,9 +571,38 @@ async function saveImportBatch(
   }
 }
 
+// The longest description the batch list can show without the layout fighting
+// it. Enforced here rather than in the DB so an over-long label is a message
+// the importer can act on, not a constraint violation.
+const IMPORT_DESCRIPTION_MAX = 120;
+
+/**
+ * Normalizes and validates the description an import must carry.
+ *
+ * Checked on the server as well as in the dialog because the dialog is not the
+ * only possible caller of a server action — and because `saveImportBatch`
+ * deliberately swallows its own errors, so a blank label rejected only by the
+ * NOT NULL would lose the batch silently and take replay with it. Failing here
+ * fails before a single attendance row is written.
+ */
+function normalizeImportDescription(raw: string): string {
+  const description = raw.trim().replace(/\s+/g, " ");
+  if (!description) {
+    throw new Error("Add a short description so this import can be found later.");
+  }
+  if (description.length > IMPORT_DESCRIPTION_MAX) {
+    throw new Error(
+      `Description must be ${IMPORT_DESCRIPTION_MAX} characters or fewer.`,
+    );
+  }
+  return description;
+}
+
 export async function importDahuaAttendance(
   previewRows: ImportPreviewRow[],
-  overwriteExisting: boolean
+  overwriteExisting: boolean,
+  /** Required label for the saved batch — how this import is found for replay. */
+  description: string,
 ): Promise<{
   imported: number;
   skipped: number;
@@ -585,6 +616,10 @@ export async function importDahuaAttendance(
   if (!user || !isAttendanceManager(user.role)) {
     throw new Error("Unauthorized");
   }
+
+  // Before any write: a rejected description must not leave attendance rows
+  // behind with no batch to replay them from.
+  const batchDescription = normalizeImportDescription(description);
 
   const supabase = createAdminClient();
 
@@ -719,7 +754,7 @@ export async function importDahuaAttendance(
   }
 
   // Save the raw punches so this import can be replayed after a bucketing fix.
-  await saveImportBatch(supabase, user.id, previewRows);
+  await saveImportBatch(supabase, user.id, previewRows, batchDescription);
 
   await logAudit({
     userId: user.id,
@@ -727,6 +762,7 @@ export async function importDahuaAttendance(
     action: "import_attendance",
     tableName: "attendance_logs",
     newValues: {
+      description: batchDescription,
       imported,
       skipped,
       protectedSkipped,
@@ -756,6 +792,8 @@ export async function importDahuaAttendance(
 
 export interface ImportBatchRow {
   id: string;
+  /** The label supplied at import time — how a manager picks a batch to replay. */
+  description: string;
   imported_at: string;
   period_start: string | null;
   period_end: string | null;
@@ -774,7 +812,7 @@ export async function getImportBatches(): Promise<ImportBatchRow[]> {
     .schema("hris")
     .from("attendance_import_batches")
     .select(
-      "id, imported_at, period_start, period_end, punch_count, user_profiles(full_name, email)",
+      "id, description, imported_at, period_start, period_end, punch_count, user_profiles(full_name, email)",
     )
     .order("imported_at", { ascending: false });
   if (error) throw error;
@@ -785,6 +823,9 @@ export async function getImportBatches(): Promise<ImportBatchRow[]> {
     } | null;
     return {
       id: r.id as string,
+      // Batches written before migration 074 were backfilled, so this is only
+      // ever empty for a row inserted around the migration itself.
+      description: (r.description as string | null) ?? "",
       imported_at: r.imported_at as string,
       period_start: r.period_start as string | null,
       period_end: r.period_end as string | null,

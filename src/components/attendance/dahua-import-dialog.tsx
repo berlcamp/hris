@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -29,11 +30,36 @@ import { PastImportsPanel } from "@/components/attendance/past-imports-panel";
 
 type Step = "upload" | "preview" | "importing" | "done";
 
+// Mirrors normalizeImportDescription on the server. Kept in step by the server
+// rejecting anything longer — this only stops the field growing past it.
+const DESCRIPTION_MAX = 120;
+
+const fmtShort = (d: string) =>
+  new Date(d + "T00:00:00").toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+
+// A first draft of the description, so the required field is a confirmation
+// rather than a blank box: the file that was uploaded and the range it covers.
+// The importer is expected to replace it with something meaningful ("Main gate,
+// 1st half of July"), but an untouched default still beats an empty cell.
+function suggestDescription(fileName: string, dates: string[]): string {
+  const sorted = [...dates].filter(Boolean).sort();
+  const period =
+    sorted.length > 0
+      ? `${fmtShort(sorted[0])} – ${fmtShort(sorted[sorted.length - 1])}`
+      : "";
+  const base = fileName.replace(/\.[^.]+$/, "").trim();
+  return [base, period].filter(Boolean).join(" · ").slice(0, DESCRIPTION_MAX);
+}
+
 export function DahuaImportDialog() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("upload");
   const [previewRows, setPreviewRows] = useState<ImportPreviewRow[]>([]);
+  const [description, setDescription] = useState("");
   const [overwrite, setOverwrite] = useState(false);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<{
@@ -51,6 +77,7 @@ export function DahuaImportDialog() {
   const reset = useCallback(() => {
     setStep("upload");
     setPreviewRows([]);
+    setDescription("");
     setOverwrite(false);
     setProgress(0);
     setResult(null);
@@ -77,6 +104,7 @@ export function DahuaImportDialog() {
 
       const preview = await matchAndPreviewImport(parsed);
       setPreviewRows(preview);
+      setDescription(suggestDescription(file.name, preview.map((r) => r.date)));
       setStep("preview");
     } catch (err) {
       toast.error("Failed to parse file");
@@ -86,12 +114,16 @@ export function DahuaImportDialog() {
   };
 
   const handleImport = async () => {
+    if (!description.trim()) {
+      toast.error("Add a short description so this import can be found later.");
+      return;
+    }
     setStep("importing");
     setProgress(10);
 
     try {
       setProgress(30);
-      const res = await importDahuaAttendance(previewRows, overwrite);
+      const res = await importDahuaAttendance(previewRows, overwrite, description);
       setProgress(100);
       setResult(res);
       setStep("done");
@@ -105,7 +137,9 @@ export function DahuaImportDialog() {
 
       router.refresh();
     } catch (err) {
-      toast.error("Import failed");
+      // Surface the server's own wording — a rejected description is something
+      // the importer can fix, and "Import failed" does not say what to do.
+      toast.error(err instanceof Error ? err.message : "Import failed");
       setStep("preview");
     }
   };
@@ -214,6 +248,29 @@ export function DahuaImportDialog() {
               {fileName}
             </div>
 
+            {/* Required description. This is what the Past Imports list shows,
+                and the only way to tell two imports of the same period apart
+                when one has to be re-run months later. */}
+            <div className="flex flex-col gap-1.5 px-1 shrink-0">
+              <Label htmlFor="import-description" className="text-sm">
+                Description <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="import-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                maxLength={DESCRIPTION_MAX}
+                placeholder="e.g. Main gate device — 1st half of July"
+                aria-describedby="import-description-help"
+              />
+              <p
+                id="import-description-help"
+                className="text-xs text-muted-foreground"
+              >
+                Shown in Past Imports so you can find this batch to re-run later.
+              </p>
+            </div>
+
             {/* Overwrite toggle */}
             {conflictCount > 0 && (
               <div className="flex items-center gap-3 rounded-lg border p-3 bg-muted/50 shrink-0">
@@ -296,7 +353,7 @@ export function DahuaImportDialog() {
               </Button>
               <Button
                 onClick={handleImport}
-                disabled={matchedCount === 0}
+                disabled={matchedCount === 0 || !description.trim()}
               >
                 Import {matchedCount} Record(s)
               </Button>

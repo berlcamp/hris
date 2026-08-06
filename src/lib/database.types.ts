@@ -12,6 +12,7 @@ export type Database = {
       attendance_import_batches: {
         Row: {
           created_at: string
+          description: string
           id: string
           imported_at: string
           imported_by: string | null
@@ -22,6 +23,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          description: string
           id?: string
           imported_at?: string
           imported_by?: string | null
@@ -32,6 +34,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          description?: string
           id?: string
           imported_at?: string
           imported_by?: string | null
