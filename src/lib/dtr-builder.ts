@@ -217,9 +217,11 @@ export function applyUndertimeAbsenceRule(
  * absence) while charging a full 8-hour undertime in the cells beside it, and
  * fed those 480 minutes into the page total and the leave-credit conversion.
  *
- * Whatever dayLateUndertime did measure is kept and still clamped by the same
- * 7-hour ceiling, so an employee who reported for weekend duty is scored on the
- * hours they actually recorded.
+ * dayLateUndertime already returns zero for a rest day, so the minutes passed in
+ * are zero in practice; they are still carried through and clamped by the same
+ * 7-hour ceiling rather than hardcoded to 0, so this stays a rule about
+ * ABSENCE — the one thing dayLateUndertime does not decide — and nothing here
+ * has to be revisited if a rest day ever becomes chargeable again.
  */
 export function applyRestDayRule(
   lateMins: number,
@@ -611,7 +613,11 @@ export async function buildDtrResults(
           extractTime(tInPmRaw),
           timestampOnNextDay(tInPmRaw, day.date),
         );
-        const isPmLate = !reasonInPm && !holidayExcusesPm && pmLateMins > 0;
+        // A weekend is charged nothing (dayLateUndertime returns zero for it),
+        // so the PM arrival must not print red either — a red cell beside an
+        // empty undertime column reads as a charge the DTR is not making.
+        const isPmLate =
+          !day.isWeekend && !reasonInPm && !holidayExcusesPm && pmLateMins > 0;
         // An absent day (already absent, or reclassified by the 8h rule) prints
         // ABSENT across the row, so any partial punches are not shown.
         const showTimes = !dayAbsent;

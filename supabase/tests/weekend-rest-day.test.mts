@@ -10,10 +10,11 @@
 //
 // hris.schedules carries hours only, with no day-of-week column, so nothing in
 // this system can roster an employee onto a Saturday. The weekend is therefore
-// the one span the schedule model can say no hours are owed on: no flat
-// half-day charge for an incomplete session, no 8-hour absence. What was
-// actually measured is still measured, so an employee who does report for
-// weekend duty is scored on the hours they recorded.
+// the one span the schedule model can say no hours are owed on — and with no
+// hours owed there is no schedule for a punch to be measured against. So a rest
+// day is charged NOTHING: no flat half day, no 8-hour absence, and (migration
+// 075) no lateness or early departure either. The times still print; only the
+// deduction is dropped.
 //
 // Requires Node >= 22 for --experimental-strip-types.
 // Run: npm run test:dtr
@@ -128,26 +129,34 @@ test("a weekend worked through a missed lunch scan is not charged", () => {
   assert.equal(r.undertimeMinutes, 0);
 });
 
-// The other half of the rule: weekend duty that WAS rendered is still scored,
-// or an employee could report at noon on a Saturday and be paid for a full one.
-test("a complete weekend session is still measured", () => {
+// Migration 075: the per-minute charges go too. A complete weekend session used
+// to be scored for lateness and early departure exactly as a Tuesday would be,
+// which billed employees for weekend work they volunteered for. Nothing on a
+// rest day is owed, so nothing on a rest day is short.
+test("a complete weekend session is not measured either", () => {
   assert.equal(
     dayLateUndertime(SAT, REGULAR, slots("08:30", "12:00", "13:00", "17:00"))
       .lateMinutes,
-    30,
-    "a late arrival on a session with both punches is charged",
+    0,
+    "arriving late on a day nothing could roster you onto is not late",
   );
   assert.equal(
     dayLateUndertime(SAT, REGULAR, slots("08:00", "12:00", "13:00", "15:00"))
       .undertimeMinutes,
-    120,
-    "leaving two hours early is charged",
+    0,
+    "leaving early on an unrequired duty is not a shortfall",
   );
   assert.equal(
     dayLateUndertime(SAT, REGULAR, slots("08:00", "12:00", "13:30", "17:00"))
       .undertimeMinutes,
-    30,
-    "a late return from lunch is afternoon service not rendered",
+    0,
+    "and neither is a late return from lunch",
+  );
+  assert.equal(
+    dayLateUndertime(SUN, REGULAR, slots("09:45", "12:00", "13:00", "14:00"))
+      .undertimeMinutes,
+    0,
+    "the same holds for a Sunday",
   );
 });
 
@@ -158,9 +167,8 @@ test("a fully worked weekend costs nothing", () => {
 });
 
 // No-break shifts have one session, so "incomplete" means a missing clock-out.
-// The flat whole-shift charge is what the rest day drops; a real departure is
-// still a measurement.
-test("a no-break weekend shift drops the missing-clock-out charge only", () => {
+// The weekday charges are the control here — none of them survive the weekend.
+test("a no-break weekend shift is charged nothing", () => {
   assert.equal(
     dayLateUndertime(MON, NO_BREAK, slots("08:00", null, null, null))
       .undertimeMinutes,
@@ -174,10 +182,16 @@ test("a no-break weekend shift drops the missing-clock-out charge only", () => {
     "the same day on a rest day bills nothing",
   );
   assert.equal(
-    dayLateUndertime(SAT, NO_BREAK, slots("08:00", null, null, "15:00"))
+    dayLateUndertime(MON, NO_BREAK, slots("08:00", null, null, "15:00"))
       .undertimeMinutes,
     120,
-    "but a recorded early departure is still measured",
+    "a weekday early departure is charged",
+  );
+  assert.equal(
+    dayLateUndertime(SAT, NO_BREAK, slots("08:00", null, null, "15:00"))
+      .undertimeMinutes,
+    0,
+    "the same departure on a rest day is not",
   );
 });
 

@@ -471,13 +471,13 @@ export interface DayMinutes {
 // Schedules with no break keep their existing treatment — a single in/out pair
 // has no half to charge, and a missing clock-out bills the whole shift.
 //
-// On a REST DAY (see isRestDay) none of the flat charges apply. No hours are
-// owed, so an incomplete session is not a session unrendered — there is nothing
-// for the half day to be charged against, and a day with a single stray scan is
-// not eight hours of absence. What CAN still be measured is measured: a session
-// carrying both its punches is scored for lateness and early departure exactly
-// as on a weekday, so an employee who does report for weekend duty is still
-// held to the hours they actually recorded.
+// On a REST DAY (see isRestDay) NOTHING is charged at all — not the flat half
+// days, and not the per-minute lateness or early departure either. No hours are
+// owed on a Saturday or Sunday, so there is no schedule for a punch to be
+// measured against: an employee who reports for weekend duty is rendering
+// service that was never required of them, and arriving at 8:15 or leaving at
+// 15:00 on a day nothing could roster them onto is not a shortfall. The times
+// still print on the DTR; only the deduction is dropped.
 //
 // Late and undertime are returned together because the two now interact: split
 // across two functions, every caller would have to re-implement the
@@ -496,11 +496,14 @@ export function dayLateUndertime(
 ): DayMinutes {
   const r = opts.reasons ?? {};
   const { excuseAm = false, excusePm = false } = opts;
+
   // Derived here rather than passed in: every caller — the DTR, the summary
   // report, the biometric importer, the corrections apply path — scores the
   // same calendar, so a caller that could forget the flag is a caller that
   // would drift from the printed document.
-  const restDay = isRestDay(dutyDate);
+  if (isRestDay(dutyDate)) {
+    return { lateMinutes: 0, undertimeMinutes: 0 };
+  }
 
   // A day with NO punches at all is an absence, not two incomplete sessions.
   // The absent flag carries it and the DTR charges the full eight hours there
@@ -527,7 +530,7 @@ export function dayLateUndertime(
               slots.time_in_am_next_day ?? false,
             ),
       undertimeMinutes:
-        excusePm || r.out_pm || (restDay && !slots.time_out_pm)
+        excusePm || r.out_pm
           ? 0
           : undertimeMinutesFor(
               dutyDate,
@@ -543,19 +546,11 @@ export function dayLateUndertime(
   let undertimeMinutes = 0;
 
   // --- morning ---
-  //
-  // `|| restDay` on amExplained drops the flat half day; `amComplete ||
-  // !restDay` on the measuring branch is the other half of the same rule. On a
-  // rest day an INCOMPLETE morning is not scored at all: with no departure
-  // there is no session to measure, and charging its lateness alone would bill
-  // an employee for a weekend nothing could roster them onto. A weekday still
-  // measures it — there the missing punch is explained by a reason, and an
-  // explained lunch scan must not also forgive arriving half an hour late.
   const amComplete = !!slots.time_in_am && !!slots.time_out_am;
-  const amExplained = excuseAm || !!r.in_am || !!r.out_am || restDay;
+  const amExplained = excuseAm || !!r.in_am || !!r.out_am;
   if (!amComplete && !amExplained) {
     undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
-  } else if (!excuseAm && !r.in_am && (amComplete || !restDay)) {
+  } else if (!excuseAm && !r.in_am) {
     lateMinutes = lateMinutesFor(
       dutyDate,
       sched,
@@ -566,10 +561,10 @@ export function dayLateUndertime(
 
   // --- afternoon ---
   const pmComplete = !!slots.time_in_pm && !!slots.time_out_pm;
-  const pmExplained = excusePm || !!r.in_pm || !!r.out_pm || restDay;
+  const pmExplained = excusePm || !!r.in_pm || !!r.out_pm;
   if (!pmComplete && !pmExplained) {
     undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
-  } else if (!excusePm && (pmComplete || !restDay)) {
+  } else if (!excusePm) {
     // Early departure, measured only when there is a departure to measure.
     if (!r.out_pm && slots.time_out_pm) {
       undertimeMinutes += undertimeMinutesFor(
