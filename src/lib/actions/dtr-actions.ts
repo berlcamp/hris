@@ -3,9 +3,11 @@
 // Monthly DTR (/dtr) — one calendar month of CSC Form 48 DTRs, for whoever the
 // caller is accountable for.
 //
-// The module is open to every signed-in role, which makes the scoping rules the
-// whole of its security model. There are three tiers, and each one is decided
-// HERE rather than in the page or the client:
+// The module is open to every signed-in role except the JO Manager and the COS
+// Manager (see canAccessDtr — they administer their own registry and have no
+// attendance reach), which makes the scoping rules the whole of its security
+// model. There are three tiers, and each one is decided HERE rather than in the
+// page or the client:
 //
 //   * canSelectDtrDepartment (super admin, HR admin, DTR manager) — pick any
 //     department, pick any month.
@@ -33,7 +35,11 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canSelectDtrDepartment, isDeptScoped } from "@/lib/auth-helpers";
+import {
+  canAccessDtr,
+  canSelectDtrDepartment,
+  isDeptScoped,
+} from "@/lib/auth-helpers";
 import {
   buildDtrResults,
   employeesWithAttendance,
@@ -135,6 +141,7 @@ async function resolveScope(
 ): Promise<MonthlyDtrScope> {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
+  if (!canAccessDtr(user.role)) throw new Error("Unauthorized");
 
   const anyDepartment = canSelectDtrDepartment(user.role);
   assertMonthAllowed(month, anyDepartment);
@@ -268,6 +275,7 @@ export async function getMyMonthlyDtr(
 ): Promise<BulkDtrResult | null> {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
+  if (!canAccessDtr(user.role)) throw new Error("Unauthorized");
 
   assertMonthAllowed(month, canSelectDtrDepartment(user.role));
 

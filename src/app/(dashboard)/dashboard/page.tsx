@@ -13,6 +13,8 @@ import {
   CalendarClock,
   Star,
   AlertTriangle,
+  HardHat,
+  Briefcase,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -33,6 +35,8 @@ import {
   getPendingApprovals,
   getEmployeeDashboardData,
 } from "@/lib/actions/dashboard-actions";
+import { getActiveJobOrderCount } from "@/lib/actions/job-order-actions";
+import { getActiveCosEmployeeCount } from "@/lib/actions/cos-employee-actions";
 import { DepartmentBarChart, EmployeeTypePieChart } from "@/components/dashboard/dashboard-charts";
 import { getRatingColor } from "@/lib/ipcr-utils";
 
@@ -58,6 +62,53 @@ export default async function DashboardPage() {
   const isDeptScoped = roleIsDeptScoped(user.role);
   const isComposite = roleIsCompositeDeptAdminHead(user.role);
   const isEmployee = user.role === "employee";
+
+  // The two module-scoped manager roles get a dashboard of exactly one figure:
+  // the active headcount of the registry they administer. Everything below —
+  // leave counts, approvals, charts, quick actions — belongs to modules they
+  // have no reach into, so they return early rather than render an empty page.
+  // getDashboardStats is skipped entirely for the same reason.
+  if (user.role === "jo_manager" || user.role === "cos_manager") {
+    const isJo = user.role === "jo_manager";
+    const count = isJo
+      ? await getActiveJobOrderCount()
+      : await getActiveCosEmployeeCount();
+    const Icon = isJo ? HardHat : Briefcase;
+
+    return (
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Welcome back, {user.fullName}.
+          </p>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                {isJo ? "Active Job Order Employees" : "Active COS Employees"}
+              </CardTitle>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
+                <Icon className="h-4 w-4 text-blue-600" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{count}</div>
+              <Link
+                href={isJo ? "/job-orders" : "/cos/employees"}
+                className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                View {isJo ? "Job Order" : "COS"} employees
+                <ArrowRight className="h-3 w-3" />
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   const stats = await getDashboardStats(user);
 

@@ -55,15 +55,29 @@ async function requireCosManager(): Promise<AuthOk | { error: string }> {
 }
 
 /**
- * The ONLY place `cos_employees` is read from. Applies the schema and the
+ * The ONLY place `cos_employees` rows are read from. Applies the schema and the
  * soft-delete filter together so neither can be forgotten at a call site.
- * Do not call `.from("cos_employees")` anywhere else in this module.
+ * Do not call `.from("cos_employees")` anywhere else in this module — reads go
+ * through here, counts through baseCountQuery().
  */
 function baseQuery() {
   return createAdminClient()
     .schema("hris")
     .from("cos_employees")
     .select(SELECT_WITH_DEPARTMENT)
+    .is("deleted_at", null);
+}
+
+/**
+ * The counting twin of baseQuery(): same table and same soft-delete filter, but
+ * head-only. A counting select cannot reuse baseQuery()'s column list, so the
+ * filter is repeated here rather than left to each caller to remember.
+ */
+function baseCountQuery() {
+  return createAdminClient()
+    .schema("hris")
+    .from("cos_employees")
+    .select("id", { count: "exact", head: true })
     .is("deleted_at", null);
 }
 
@@ -77,6 +91,22 @@ export async function getCosEmployees(): Promise<CosEmployeeWithDepartment[]> {
 
   if (error) throw error;
   return (data ?? []) as unknown as CosEmployeeWithDepartment[];
+}
+
+/**
+ * How many COS personnel are currently active — the single figure the COS
+ * Manager's dashboard shows. Head-only count rather than `getCosEmployees()`
+ * filtered in memory, so the dashboard never pulls the whole registry to
+ * display one number.
+ */
+export async function getActiveCosEmployeeCount(): Promise<number> {
+  const auth = await requireCosManager();
+  if ("error" in auth) return 0;
+
+  const { count, error } = await baseCountQuery().eq("status", "active");
+
+  if (error) throw error;
+  return count ?? 0;
 }
 
 export async function getCosEmployee(

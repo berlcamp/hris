@@ -154,6 +154,21 @@ export function canEditDetailedDepartmentAnyDept(
   );
 }
 
+// Who may open the Monthly DTR module (/dtr) at all. It is open to every
+// signed-in role EXCEPT the two module-scoped manager roles: a JO Manager and a
+// COS Manager administer their own registry and have no reach into plantilla
+// attendance — not even their own DTR, since neither role belongs to the
+// plantilla roster. Everyone else keeps the tier canSelectDtrDepartment /
+// isDeptScoped assigns them.
+const DTR_EXCLUDED_ROLES: readonly UserRole[] = [
+  "jo_manager",
+  "cos_manager",
+] as const;
+
+export function canAccessDtr(role: UserRole | null | undefined): boolean {
+  return !!role && !DTR_EXCLUDED_ROLES.includes(role);
+}
+
 // Roles that can manage the Job Orders module: JO employees, Area Assignments,
 // and (from Specs 2 and 3) payrolls, memos and special orders. "jo_manager" is
 // a dedicated role with no reach outside Job Orders. super_admin and hr_admin

@@ -139,13 +139,19 @@ const attendanceRoles: UserRole[] = [
   "employee",
   "dtr_manager",
 ];
+// Who reaches the Monthly DTR item: every role except the JO and COS managers,
+// whose reach stops at their own registry. Mirrors canAccessDtr in
+// src/lib/auth-helpers.ts; keep the two in sync.
+const dtrRoles: UserRole[] = allRoles.filter(
+  (r) => r !== "jo_manager" && r !== "cos_manager",
+);
 // The Leave & Attendance nav group must remain visible to department-scoped
 // roles for the Leave items, even though they can't see Attendance & DTR.
-// Since /dtr below is open to EVERY role, the group is now reachable by all of
-// them — the per-item filter in the render still decides what each role
-// actually sees, so nobody gains an item this way. (This used to be
-// leaveAttendanceRoles + dtr_manager.)
-const leaveAttendanceGroupRoles: UserRole[] = allRoles;
+// Since /dtr below is open to every role but those two, the group is reachable
+// by the same set — the per-item filter in the render still decides what each
+// role actually sees, so nobody gains an item this way, and a group left with
+// no visible items is dropped entirely.
+const leaveAttendanceGroupRoles: UserRole[] = dtrRoles;
 // Contract of Service module. Mirrors canManageCos() in src/lib/auth-helpers.ts
 // — keep the two in sync.
 const cosRoles: UserRole[] = ["super_admin", "hr_admin", "cos_manager"];
@@ -244,7 +250,7 @@ const navGroups: NavGroup[] = [
       // for the three tiers it serves. Replaced the Weekly DTR item, which sat
       // here and reached the department-scoped roles that attendanceRoles
       // excludes; those roles still reach this one, by a month instead.
-      { title: "DTR", href: "/dtr", icon: FileClock, roles: allRoles },
+      { title: "DTR", href: "/dtr", icon: FileClock, roles: dtrRoles },
       {
         title: "Attendance Corrections",
         href: "/attendance-corrections",

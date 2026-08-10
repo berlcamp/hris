@@ -142,6 +142,27 @@ export async function getJobOrderEmployees(
   return rows.map(shape);
 }
 
+/**
+ * How many Job Order personnel are currently active — the single figure the JO
+ * Manager's dashboard shows. Counted head-only rather than by fetching the
+ * roster: the dashboard needs the number, not the rows, and the roster is
+ * already past PostgREST's 1000-row cap.
+ */
+export async function getActiveJobOrderCount(): Promise<number> {
+  const user = await getCurrentUser();
+  if (!canManageJobOrders(user?.role)) return 0;
+
+  const { count, error } = await createAdminClient()
+    .schema("hris")
+    .from("job_order_employees")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null)
+    .eq("status", "active");
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function getJobOrderEmployeeById(
   id: string,
 ): Promise<JobOrderEmployee | null> {

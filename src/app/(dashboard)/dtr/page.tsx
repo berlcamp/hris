@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
 import { getSelectableMonths } from "@/lib/actions/dtr-actions";
 import {
+  canAccessDtr,
   canImportDtrDevice,
   canSelectDtrDepartment,
   isDeptScoped,
@@ -14,10 +15,13 @@ import { DtrClient, type DtrMode } from "@/components/dtr/dtr-client";
 export default async function DtrPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  // The JO and COS managers are the only roles shut out of the module — see
+  // canAccessDtr. Every other role reaches this page, and the role only decides
+  // which of the three tiers they land on. See the header of
+  // src/lib/actions/dtr-actions.ts — the server re-derives the same tier, so
+  // this is presentation only.
+  if (!canAccessDtr(user.role)) redirect("/dashboard");
 
-  // Every signed-in role reaches this page; the role only decides which of the
-  // three tiers they land on. See the header of src/lib/actions/dtr-actions.ts
-  // — the server re-derives the same tier, so this is presentation only.
   const anyDepartment = canSelectDtrDepartment(user.role);
   const scoped = isDeptScoped(user.role);
   const mode: DtrMode = anyDepartment
