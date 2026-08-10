@@ -18,6 +18,8 @@ export interface AuthUserData {
   role: UserRole;
   departmentId: string | null;
   isActive: boolean;
+  /** Department Admin only — see canOpenAttendanceCorrections. */
+  canAccessAttendanceCorrections: boolean;
   avatarUrl: string | null;
 }
 
@@ -36,7 +38,9 @@ export async function getCurrentUser(): Promise<AuthUserData | null> {
   const { data: profile } = await adminClient
     .schema("hris")
     .from("user_profiles")
-    .select("id, email, full_name, role, department_id, is_active, avatar_url")
+    .select(
+      "id, email, full_name, role, department_id, is_active, can_access_attendance_corrections, avatar_url",
+    )
     .eq("email", authUser.email)
     .maybeSingle();
 
@@ -55,6 +59,8 @@ export async function getCurrentUser(): Promise<AuthUserData | null> {
     role: profile.role as UserRole,
     departmentId: profile.department_id,
     isActive: profile.is_active,
+    canAccessAttendanceCorrections:
+      profile.can_access_attendance_corrections ?? true,
     avatarUrl: profile.avatar_url,
   };
 }

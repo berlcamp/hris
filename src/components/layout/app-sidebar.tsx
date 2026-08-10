@@ -61,8 +61,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { useUser } from "@/hooks/use-user";
+import { useUser, type AuthUser } from "@/hooks/use-user";
 import { signOut } from "@/lib/actions/auth-actions";
+import { canOpenAttendanceCorrections } from "@/lib/auth-helpers";
 import type { UserRole } from "@/lib/types";
 
 interface NavItem {
@@ -70,6 +71,12 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   roles: UserRole[];
+  /**
+   * Extra per-ACCOUNT gate, applied on top of `roles`. For items whose access
+   * is not decided by role alone — today only Attendance Corrections, which a
+   * Department Admin can have switched off on its user profile.
+   */
+  visible?: (user: AuthUser | null) => boolean;
 }
 
 interface NavGroup {
@@ -243,6 +250,11 @@ const navGroups: NavGroup[] = [
         href: "/attendance-corrections",
         icon: ClipboardCheck,
         roles: correctionRoles,
+        // A Department Admin's access is per account, not per role — HR can
+        // switch it off from /admin/users. The role list above is the ceiling;
+        // this is the account's own answer, and it is the same call the route
+        // itself makes before redirecting.
+        visible: (user) => !!user && canOpenAttendanceCorrections(user),
       },
     ],
   },
@@ -389,7 +401,10 @@ export function AppSidebar() {
     .filter((group) => group.roles.includes(userRole))
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => item.roles.includes(userRole)),
+      items: group.items.filter(
+        (item) =>
+          item.roles.includes(userRole) && (item.visible?.(user) ?? true),
+      ),
     }))
     .filter((group) => group.items.length > 0);
 

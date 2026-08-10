@@ -28,6 +28,11 @@ export const userFormSchema = z.object({
   ),
   department_id: z.string().nullable(),
   is_active: z.boolean(),
+  // Only meaningful for the Department Admin roles — the form shows the
+  // checkbox for those alone, and updateUser/createUser force it back to true
+  // for every other role so a stale "off" cannot come along with a later role
+  // change. See migration 076 and canOpenAttendanceCorrections.
+  can_access_attendance_corrections: z.boolean(),
 });
 
 export type UserFormValues = z.infer<typeof userFormSchema>;

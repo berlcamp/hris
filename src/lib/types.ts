@@ -60,6 +60,12 @@ export interface UserProfile {
   role: UserRole;
   department_id: string | null;
   is_active: boolean;
+  /**
+   * Department Admin only: may this account open Attendance Corrections.
+   * Ignored for every other role — see isDeptAdmin / canOpenAttendanceCorrections
+   * in src/lib/auth-helpers.ts (migration 076).
+   */
+  can_access_attendance_corrections: boolean;
   avatar_url: string | null;
   created_at: string;
   updated_at: string;

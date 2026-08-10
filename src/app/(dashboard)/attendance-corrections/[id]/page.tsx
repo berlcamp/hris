@@ -81,7 +81,7 @@ export default async function CorrectionDetailPage({
   const isReviewer = canReviewAttendanceCorrection(user.role);
   const isLive = request.status === "pending" || request.status === "needs_rebase";
   const canWithdraw =
-    canRequestAttendanceCorrection(user.role) &&
+    canRequestAttendanceCorrection(user) &&
     !!user.departmentId &&
     request.department_id === user.departmentId &&
     isLive;

@@ -24,7 +24,7 @@ export default async function NewCorrectionRequestPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canFileAttendanceCorrection(user.role)) {
+  if (!canFileAttendanceCorrection(user)) {
     redirect("/attendance-corrections");
   }
   // Prefill for "Correct entry" on the attendance table, which used to open the

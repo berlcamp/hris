@@ -90,7 +90,7 @@ export async function getCorrectableEmployees(): Promise<CorrectableEmployee[]> 
   if (!user) throw new Error("Unauthorized");
 
   const direct = canDirectApplyAttendanceCorrection(user.role);
-  if (!direct && (!canRequestAttendanceCorrection(user.role) || !user.departmentId)) {
+  if (!direct && (!canRequestAttendanceCorrection(user) || !user.departmentId)) {
     throw new Error("Unauthorized");
   }
 
@@ -153,7 +153,7 @@ function assertCorrectionWindow(
 /** The open window for the CURRENT user, or null when they have no limit. */
 export async function getCorrectionWindow(): Promise<CorrectionWindow | null> {
   const user = await getCurrentUser();
-  if (!user || !canFileAttendanceCorrection(user.role)) {
+  if (!user || !canFileAttendanceCorrection(user)) {
     throw new Error("Unauthorized");
   }
   if (canDirectApplyAttendanceCorrection(user.role)) return null;
@@ -298,7 +298,7 @@ export async function createCorrectionRequest(
   proof: FormData,
 ) {
   const user = await getCurrentUser();
-  if (!user || !canFileAttendanceCorrection(user.role)) {
+  if (!user || !canFileAttendanceCorrection(user)) {
     throw new Error("Unauthorized");
   }
   // Whether this filing applies on submit or waits for a reviewer is decided
@@ -574,10 +574,10 @@ export async function listCorrectionRequests(): Promise<
     // that are HR's to read. Without this branch the role fell through to the
     // throw below, which crashed the page it is shown in the sidebar.
     query = query.eq("requested_by", user.id);
-  } else if (canReadOwnDeptCorrections(user.role) && user.departmentId) {
+  } else if (canReadOwnDeptCorrections(user) && user.departmentId) {
     // Filers and read-only viewers (Department Head) alike: own department only.
     query = query.eq("department_id", user.departmentId);
-  } else if (canReadOwnDeptCorrections(user.role)) {
+  } else if (canReadOwnDeptCorrections(user)) {
     // A department-scoped account with no department on its profile
     // (department_id is nullable for every role — see user-schema.ts). There is
     // no queue to show it, but the route gate already let it in, so an empty
@@ -634,7 +634,7 @@ export async function getCorrectionRequest(id: string) {
 
   const isReviewer = canReviewAttendanceCorrection(user.role);
   const isOwnDept =
-    canReadOwnDeptCorrections(user.role) &&
+    canReadOwnDeptCorrections(user) &&
     !!user.departmentId &&
     request.department_id === user.departmentId;
   // Whoever filed it may read it back, whatever their department. This is what
@@ -674,7 +674,7 @@ export async function getCorrectionRequest(id: string) {
 
 export async function cancelCorrectionRequest(id: string) {
   const user = await getCurrentUser();
-  if (!user || !canRequestAttendanceCorrection(user.role)) {
+  if (!user || !canRequestAttendanceCorrection(user)) {
     throw new Error("Unauthorized");
   }
   const supabase = createAdminClient();

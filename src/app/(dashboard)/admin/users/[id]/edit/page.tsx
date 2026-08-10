@@ -40,6 +40,8 @@ export default async function EditUserPage({
             | "employee",
           department_id: user.department_id,
           is_active: user.is_active ?? true,
+          can_access_attendance_corrections:
+            user.can_access_attendance_corrections ?? true,
         }}
       />
     </div>

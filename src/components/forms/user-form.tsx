@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -26,6 +27,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { userFormSchema, type UserFormValues } from "@/lib/validations/user-schema";
+import { isDeptAdmin } from "@/lib/auth-helpers";
 import { createUser, updateUser } from "@/lib/actions/user-actions";
 
 interface Department {
@@ -74,12 +76,21 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
       role: "employee",
       department_id: null,
       is_active: true,
+      can_access_attendance_corrections: true,
     },
   });
 
   const watchRole = watch("role");
   const watchDepartment = watch("department_id");
   const watchActive = watch("is_active");
+  const watchCorrections = watch("can_access_attendance_corrections");
+
+  // The switch is a Department Admin concern only: every other role's reach
+  // over corrections is settled by the role itself (reviewers, the direct-apply
+  // OCM Admin, the read-only Department Head), so there is nothing to toggle.
+  // The composite "Dept Admin + Head" is included because it inherits the
+  // dept-admin powers — see isDeptAdmin in src/lib/auth-helpers.ts.
+  const showCorrectionsToggle = isDeptAdmin(watchRole);
 
   const onSubmit = async (data: UserFormValues) => {
     setLoading(true);
@@ -170,6 +181,36 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
             </Select>
             {errors.role && (
               <p className="text-sm text-destructive">{errors.role.message}</p>
+            )}
+
+            {/* Sits under the role because it only qualifies that role — it is
+                a Department Admin setting, not a general account setting. */}
+            {showCorrectionsToggle && (
+              <div className="flex items-start gap-3 rounded-lg border p-3 mt-3">
+                <Checkbox
+                  id="can_access_attendance_corrections"
+                  checked={watchCorrections}
+                  onCheckedChange={(checked) =>
+                    setValue("can_access_attendance_corrections", checked, {
+                      shouldValidate: true,
+                    })
+                  }
+                  className="mt-0.5"
+                />
+                <div className="space-y-0.5">
+                  <Label
+                    htmlFor="can_access_attendance_corrections"
+                    className="font-normal"
+                  >
+                    Can access Attendance Corrections
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Lets this Department Admin file attendance correction
+                    requests for their department. Unchecked, the module is
+                    hidden and the route is closed to them.
+                  </p>
+                </div>
+              </div>
             )}
           </div>
 

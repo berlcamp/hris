@@ -19,14 +19,14 @@ export default async function AttendanceCorrectionsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const canRequest = canFileAttendanceCorrection(user.role);
+  const canRequest = canFileAttendanceCorrection(user);
   const isReviewer = canReviewAttendanceCorrection(user.role);
   const isDirect = canDirectApplyAttendanceCorrection(user.role);
   // Every side of the workflow shares this route — filers, reviewers, and the
   // read-only viewers who only watch their department's queue. Anyone on none
   // of them has no business here. listCorrectionRequests throws for them
   // anyway — this just turns that into a redirect instead of an error page.
-  if (!canOpenAttendanceCorrections(user.role)) redirect("/dashboard");
+  if (!canOpenAttendanceCorrections(user)) redirect("/dashboard");
 
   const requests = await listCorrectionRequests();
 

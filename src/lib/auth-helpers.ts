@@ -227,10 +227,36 @@ const CORRECTION_REQUESTER_ROLES: readonly UserRole[] = [
   "department_admin_and_department_head",
 ] as const;
 
-export function canRequestAttendanceCorrection(
-  role: UserRole | null | undefined,
-): boolean {
-  return !!role && CORRECTION_REQUESTER_ROLES.includes(role);
+// The corrections helpers below take the USER, not just the role, because a
+// Department Admin's access is settable per account: user_profiles
+// .can_access_attendance_corrections (migration 076), edited from
+// /admin/users. Every other role's access is decided by role alone — the flag
+// is read only for the dept-admin roles, which are the only ones the
+// Administration form offers it for.
+//
+// Taking the whole user is deliberate: a role-only signature would let a call
+// site read the power off the role and silently skip the flag. The type makes
+// that impossible to forget. Pass the object from getCurrentUser/getServerUser
+// as-is.
+export interface CorrectionActor {
+  role: UserRole | null | undefined;
+  canAccessAttendanceCorrections?: boolean | null;
+}
+
+// False only for a dept-admin account whose switch is off. Undefined/null read
+// as ON so a caller holding a user object from before migration 076 — or any
+// partial shape — keeps the access the role grants.
+function correctionsSwitchOn(actor: CorrectionActor): boolean {
+  if (!isDeptAdmin(actor.role)) return true;
+  return actor.canAccessAttendanceCorrections !== false;
+}
+
+export function canRequestAttendanceCorrection(actor: CorrectionActor): boolean {
+  return (
+    !!actor.role &&
+    CORRECTION_REQUESTER_ROLES.includes(actor.role) &&
+    correctionsSwitchOn(actor)
+  );
 }
 
 // Roles that approve or reject a correction. Nothing a requester files reaches
@@ -330,12 +356,10 @@ export function canImportDtrDevice(
 // Anyone who may open the correction wizard at all, by either route. Use this
 // to gate the wizard and the "New Request" button; use the two specific helpers
 // to decide what the filing actually DOES.
-export function canFileAttendanceCorrection(
-  role: UserRole | null | undefined,
-): boolean {
+export function canFileAttendanceCorrection(actor: CorrectionActor): boolean {
   return (
-    canRequestAttendanceCorrection(role) ||
-    canDirectApplyAttendanceCorrection(role)
+    canRequestAttendanceCorrection(actor) ||
+    canDirectApplyAttendanceCorrection(actor.role)
   );
 }
 
@@ -360,23 +384,20 @@ export function canViewAttendanceCorrections(
 // department and are deliberately not here; actions branch on
 // canReviewAttendanceCorrection first, then fall back to this with a
 // department_id filter.
-export function canReadOwnDeptCorrections(
-  role: UserRole | null | undefined,
-): boolean {
+export function canReadOwnDeptCorrections(actor: CorrectionActor): boolean {
   return (
-    canRequestAttendanceCorrection(role) || canViewAttendanceCorrections(role)
+    canRequestAttendanceCorrection(actor) ||
+    canViewAttendanceCorrections(actor.role)
   );
 }
 
 // Anyone who may open the /attendance-corrections route at all. Use this for
 // route and nav gating — it is the union of every side of the workflow,
 // including the viewers who can do nothing there but look.
-export function canOpenAttendanceCorrections(
-  role: UserRole | null | undefined,
-): boolean {
+export function canOpenAttendanceCorrections(actor: CorrectionActor): boolean {
   return (
-    canFileAttendanceCorrection(role) ||
-    canReviewAttendanceCorrection(role) ||
-    canViewAttendanceCorrections(role)
+    canFileAttendanceCorrection(actor) ||
+    canReviewAttendanceCorrection(actor.role) ||
+    canViewAttendanceCorrections(actor.role)
   );
 }

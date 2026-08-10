@@ -42,12 +42,68 @@ import {
   canAccessAttendance,
   canDirectApplyAttendanceCorrection,
   canFileAttendanceCorrection,
+  canOpenAttendanceCorrections,
+  canReadOwnDeptCorrections,
 } from "../../src/lib/auth-helpers.ts";
+import type { UserRole } from "../../src/lib/types.ts";
+
+// The corrections helpers take the whole user, because a Department Admin's
+// access is also settable per account (migration 076). Most cases here only
+// care about the role, so they use the account whose switch is ON — the
+// default every user profile is created with.
+const on = (role: UserRole | null | undefined) => ({
+  role,
+  canAccessAttendanceCorrections: true,
+});
 
 test("department admins may request corrections", () => {
-  assert.equal(canRequestAttendanceCorrection("department_admin"), true);
+  assert.equal(canRequestAttendanceCorrection(on("department_admin")), true);
   assert.equal(
-    canRequestAttendanceCorrection("department_admin_and_department_head"),
+    canRequestAttendanceCorrection(on("department_admin_and_department_head")),
+    true,
+  );
+});
+
+// The per-account switch. It takes access away from the dept-admin roles and
+// is not read for anyone else — a reviewer's access comes from the role.
+test("the corrections switch closes the module for a department admin", () => {
+  for (const role of [
+    "department_admin",
+    "department_admin_and_department_head",
+  ] as const) {
+    const off = { role, canAccessAttendanceCorrections: false };
+    assert.equal(canRequestAttendanceCorrection(off), false, role);
+    assert.equal(canFileAttendanceCorrection(off), false, role);
+    assert.equal(canOpenAttendanceCorrections(off), false, role);
+    assert.equal(canReadOwnDeptCorrections(off), false, role);
+  }
+});
+
+test("the corrections switch is ignored for every other role", () => {
+  for (const role of ["super_admin", "hr_admin", "dtr_manager", "ocm_admin"] as const) {
+    const off = { role, canAccessAttendanceCorrections: false };
+    assert.equal(canFileAttendanceCorrection(off), true, role);
+    assert.equal(canOpenAttendanceCorrections(off), true, role);
+  }
+  // Read-only viewer: keeps its own department's queue whatever the flag says.
+  assert.equal(
+    canOpenAttendanceCorrections({
+      role: "department_head",
+      canAccessAttendanceCorrections: false,
+    }),
+    true,
+  );
+});
+
+// A user object from before the column existed, or any partial shape, must
+// keep the access its role grants rather than silently losing it.
+test("a missing switch value reads as ON", () => {
+  assert.equal(canRequestAttendanceCorrection({ role: "department_admin" }), true);
+  assert.equal(
+    canRequestAttendanceCorrection({
+      role: "department_admin",
+      canAccessAttendanceCorrections: null,
+    }),
     true,
   );
 });
@@ -71,13 +127,10 @@ test("requesting a correction does not grant attendance module access", () => {
 });
 
 test("null and undefined roles are denied everywhere", () => {
-  for (const fn of [
-    canRequestAttendanceCorrection,
-    canReviewAttendanceCorrection,
-    canDirectApplyAttendanceCorrection,
-  ]) {
-    assert.equal(fn(null), false);
-    assert.equal(fn(undefined), false);
+  for (const role of [null, undefined] as const) {
+    assert.equal(canRequestAttendanceCorrection(on(role)), false);
+    assert.equal(canReviewAttendanceCorrection(role), false);
+    assert.equal(canDirectApplyAttendanceCorrection(role), false);
   }
 });
 
@@ -491,12 +544,12 @@ test("department admins can NEVER apply directly", () => {
 // department request.
 test("the requester and direct-apply sets remain disjoint", () => {
   for (const role of ["department_admin", "department_admin_and_department_head"] as const) {
-    assert.equal(canRequestAttendanceCorrection(role), true, role);
+    assert.equal(canRequestAttendanceCorrection(on(role)), true, role);
     assert.equal(canDirectApplyAttendanceCorrection(role), false, role);
   }
   for (const role of ["super_admin", "hr_admin", "dtr_manager"] as const) {
     assert.equal(canDirectApplyAttendanceCorrection(role), true, role);
-    assert.equal(canRequestAttendanceCorrection(role), false, role);
+    assert.equal(canRequestAttendanceCorrection(on(role)), false, role);
   }
 });
 
@@ -505,13 +558,13 @@ test("canFileAttendanceCorrection admits both routes and nobody else", () => {
     "department_admin", "department_admin_and_department_head",
     "super_admin", "hr_admin", "dtr_manager", "ocm_admin",
   ] as const) {
-    assert.equal(canFileAttendanceCorrection(role), true, role);
+    assert.equal(canFileAttendanceCorrection(on(role)), true, role);
   }
   for (const role of ["employee", "department_head", "jo_manager", "cos_manager"] as const) {
-    assert.equal(canFileAttendanceCorrection(role), false, role);
+    assert.equal(canFileAttendanceCorrection(on(role)), false, role);
   }
-  assert.equal(canFileAttendanceCorrection(null), false);
-  assert.equal(canFileAttendanceCorrection(undefined), false);
+  assert.equal(canFileAttendanceCorrection(on(null)), false);
+  assert.equal(canFileAttendanceCorrection(on(undefined)), false);
 });
 
 // OCM Admin records attendance across departments through Manual Attendance
@@ -519,10 +572,10 @@ test("canFileAttendanceCorrection admits both routes and nobody else", () => {
 // an explicit place in the direct-apply set it would lose that reach entirely
 // once manual entry is retired.
 test("OCM Admin keeps cross-department attendance reach", () => {
-  assert.equal(canRequestAttendanceCorrection("ocm_admin"), false);
+  assert.equal(canRequestAttendanceCorrection(on("ocm_admin")), false);
   assert.equal(canReviewAttendanceCorrection("ocm_admin"), false);
   assert.equal(canDirectApplyAttendanceCorrection("ocm_admin"), true);
-  assert.equal(canFileAttendanceCorrection("ocm_admin"), true);
+  assert.equal(canFileAttendanceCorrection(on("ocm_admin")), true);
 });
 
 // --- clear_as_off must read as OFF on the DTR, never HOLIDAY ------------------

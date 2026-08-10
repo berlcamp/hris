@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isDeptAdmin } from "@/lib/auth-helpers";
+import type { UserRole } from "@/lib/types";
 
 export interface CreateUserInput {
   full_name: string;
@@ -9,6 +11,19 @@ export interface CreateUserInput {
   role: string;
   department_id: string | null;
   is_active: boolean;
+  /** Department Admin only — see migration 076. */
+  can_access_attendance_corrections: boolean;
+}
+
+// The corrections switch qualifies the Department Admin role and nothing else,
+// so it is only stored as given for those roles. Every other role is written
+// back as TRUE — not because they need it (nothing reads the column for them),
+// but so an account that was a Department Admin with access revoked does not
+// carry a hidden "off" into a role where the form never showed the box.
+function correctionsAccessFor(input: CreateUserInput): boolean {
+  return isDeptAdmin(input.role as UserRole)
+    ? input.can_access_attendance_corrections
+    : true;
 }
 
 export interface UpdateUserInput extends CreateUserInput {
@@ -71,6 +86,7 @@ export async function createUser(input: CreateUserInput) {
       role: input.role,
       department_id: input.department_id,
       is_active: input.is_active,
+      can_access_attendance_corrections: correctionsAccessFor(input),
     })
     .select()
     .single();
@@ -114,6 +130,7 @@ export async function updateUser(input: UpdateUserInput) {
       role: input.role,
       department_id: input.department_id,
       is_active: input.is_active,
+      can_access_attendance_corrections: correctionsAccessFor(input),
     })
     .eq("id", input.id)
     .select()
