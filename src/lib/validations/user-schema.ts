@@ -33,6 +33,11 @@ export const userFormSchema = z.object({
   // for every other role so a stale "off" cannot come along with a later role
   // change. See migration 076 and canOpenAttendanceCorrections.
   can_access_attendance_corrections: z.boolean(),
+  // Only meaningful for the module-manager roles (JO Manager, COS Manager) —
+  // same treatment as the corrections switch above: the form shows the
+  // checkbox for those alone, and updateUser/createUser force it back to true
+  // for every other role. See migration 077 and canManageJobOrderPayroll.
+  can_manage_module_payroll: z.boolean(),
 });
 
 export type UserFormValues = z.infer<typeof userFormSchema>;

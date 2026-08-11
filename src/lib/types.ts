@@ -66,6 +66,13 @@ export interface UserProfile {
    * in src/lib/auth-helpers.ts (migration 076).
    */
   can_access_attendance_corrections: boolean;
+  /**
+   * Module managers (jo_manager, cos_manager) only: may this account create
+   * and edit payrolls in its module, or is payroll read-only. Ignored for
+   * every other role — see canManageJobOrderPayroll in
+   * src/lib/auth-helpers.ts (migration 077).
+   */
+  can_manage_module_payroll: boolean;
   avatar_url: string | null;
   created_at: string;
   updated_at: string;
@@ -553,6 +560,48 @@ export interface JobOrderAreaOption {
   id: string;
   name: string;
   active_employee_count: number;
+}
+
+/**
+ * Which of the two printed memo templates a memo uses. "new" is the
+ * assign-the-contract memo addressed to the City Administrator; "retain" is
+ * the extension notice addressed to all persons concerned.
+ */
+export type JobOrderMemoType = "new" | "retain";
+
+export interface JobOrderMemo {
+  id: string;
+  /** Printed verbatim as "MEMORANDUM NO. <memo_no>". */
+  memo_no: string | null;
+  memo_type: JobOrderMemoType;
+  subject: string;
+  memo_date: string;
+  /** Period phrase interpolated into the body sentence, verbatim. */
+  period_covered: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Computed in the action, not stored. */
+  member_count: number;
+}
+
+export interface JobOrderMemoMember {
+  id: string;
+  memo_id: string;
+  job_order_employee_id: string | null;
+  full_name: string;
+  /** The JO's area name at snapshot time — prints as OFFICE ASSIGNMENT. */
+  office_assignment: string | null;
+  daily_rate: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One selectable Job Order employee in the memo's member picker. */
+export interface JobOrderMemoPickerOption {
+  id: string;
+  full_name: string;
+  area_name: string | null;
+  daily_rate: number | null;
 }
 
 // ============================================================

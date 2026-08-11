@@ -4,18 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import {
-  Copy,
-  Loader2,
-  Lock,
-  LockOpen,
-  Pencil,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
+import { Loader2, Lock, LockOpen, Pencil, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,18 +22,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import { JobOrderPayrollMembersTable } from "./job-order-payroll-members-table";
 import { JobOrderPayrollEditDialog } from "./job-order-payroll-edit-dialog";
-import {
-  JobOrderPayrollDuplicateDialog,
-  type JobOrderPayrollDuplicateSource,
-} from "./job-order-payroll-duplicate-dialog";
 import { JobOrderPayrollPrintMenu } from "./job-order-payroll-print-menu";
 import {
   deleteJobOrderPayroll,
   finalizeJobOrderPayroll,
   reopenJobOrderPayroll,
 } from "@/lib/actions/job-order-payroll-actions";
-import { refreshMembersFromRoster } from "@/lib/actions/job-order-payroll-member-actions";
 import type { JobOrderPayroll, JobOrderPayrollMember } from "@/lib/types";
+
+/** Typed verbatim (case-sensitive) before Delete unlocks. */
+const DELETE_CONFIRM_PHRASE = "DELETE";
 
 function fmtDate(d: string | null): string {
   return d ? format(new Date(`${d}T00:00:00`), "MMM d, yyyy") : "—";
@@ -53,47 +45,34 @@ interface JobOrderPayrollDetailClientProps {
   payroll: JobOrderPayroll;
   members: JobOrderPayrollMember[];
   isSuperAdmin: boolean;
+  /**
+   * Payroll write access. False for a JO Manager whose "Can create/edit
+   * Payroll" switch is off — the page still opens and still prints, but every
+   * control that mutates the payroll is withheld. The server actions gate on
+   * the same flag; this only keeps dead buttons off the screen.
+   */
+  canEdit: boolean;
 }
 
 export function JobOrderPayrollDetailClient({
   payroll,
   members,
   isSuperAdmin,
+  canEdit,
 }: JobOrderPayrollDetailClientProps) {
   const router = useRouter();
   const isDraft = payroll.status === "draft";
 
   const [editOpen, setEditOpen] = useState(false);
-  const [duplicateSource, setDuplicateSource] =
-    useState<JobOrderPayrollDuplicateSource | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [finalizeConfirmOpen, setFinalizeConfirmOpen] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      const result = await refreshMembersFromRoster(payroll.id);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(
-        `Refreshed ${result.updated ?? 0} member(s), skipped ${result.skipped ?? 0}`,
-      );
-      router.refresh();
-    } catch {
-      toast.error(
-        "Something went wrong refreshing from the roster. Please try again.",
-      );
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  const deleteUnlocked = deleteConfirmText === DELETE_CONFIRM_PHRASE;
 
   const handleFinalize = async () => {
     setFinalizing(true);
@@ -136,6 +115,7 @@ export function JobOrderPayrollDetailClient({
   };
 
   const handleDelete = async () => {
+    if (!deleteUnlocked) return;
     setDeleting(true);
     try {
       const result = await deleteJobOrderPayroll(payroll.id);
@@ -199,7 +179,7 @@ export function JobOrderPayrollDetailClient({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {isDraft && (
+          {isDraft && canEdit && (
             <Button
               variant="outline"
               size="sm"
@@ -209,30 +189,7 @@ export function JobOrderPayrollDetailClient({
               Edit details
             </Button>
           )}
-          {isDraft && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={refreshing}
-            >
-              {refreshing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              Refresh from roster
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setDuplicateSource(payroll)}
-          >
-            <Copy className="h-4 w-4" />
-            Duplicate
-          </Button>
-          {isDraft && (
+          {isDraft && canEdit && (
             <Button
               variant="outline"
               size="sm"
@@ -274,20 +231,13 @@ export function JobOrderPayrollDetailClient({
       <JobOrderPayrollMembersTable
         payrollId={payroll.id}
         members={members}
-        isDraft={isDraft}
+        editable={isDraft && canEdit}
       />
 
       <JobOrderPayrollEditDialog
         open={editOpen}
         onOpenChange={setEditOpen}
         payroll={payroll}
-      />
-
-      <JobOrderPayrollDuplicateDialog
-        source={duplicateSource}
-        onOpenChange={(o) => {
-          if (!o) setDuplicateSource(null);
-        }}
       />
 
       <AlertDialog
@@ -332,19 +282,41 @@ export function JobOrderPayrollDetailClient({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+      <AlertDialog
+        open={deleteConfirmOpen}
+        onOpenChange={(o) => {
+          setDeleteConfirmOpen(o);
+          // Clear on every open/close so a previously-typed confirmation can
+          // never carry over and pre-unlock the next delete.
+          setDeleteConfirmText("");
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this payroll?</AlertDialogTitle>
             <AlertDialogDescription>
-              This cannot be undone.
+              This removes the payroll and all {payroll.member_count} of its
+              member rows. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-confirm">
+              Type <strong>{DELETE_CONFIRM_PHRASE}</strong> to confirm
+            </Label>
+            <Input
+              id="delete-confirm"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={DELETE_CONFIRM_PHRASE}
+              autoComplete="off"
+              disabled={deleting}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              disabled={deleting}
+              disabled={deleting || !deleteUnlocked}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting && <Loader2 className="h-4 w-4 animate-spin" />}

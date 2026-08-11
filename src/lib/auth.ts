@@ -11,6 +11,8 @@ export interface ServerUser {
   isActive: boolean;
   /** Department Admin only — see canOpenAttendanceCorrections. */
   canAccessAttendanceCorrections: boolean;
+  /** Module managers only — see canManageJobOrderPayroll. */
+  canManageModulePayroll: boolean;
   avatarUrl: string | null;
 }
 
@@ -29,7 +31,7 @@ export async function getServerUser(): Promise<ServerUser | null> {
     .schema("hris")
     .from("user_profiles")
     .select(
-      "id, email, full_name, role, department_id, is_active, can_access_attendance_corrections, avatar_url",
+      "id, email, full_name, role, department_id, is_active, can_access_attendance_corrections, can_manage_module_payroll, avatar_url",
     )
     .eq("email", authUser.email)
     .maybeSingle();
@@ -45,6 +47,7 @@ export async function getServerUser(): Promise<ServerUser | null> {
     isActive: profile.is_active,
     canAccessAttendanceCorrections:
       profile.can_access_attendance_corrections ?? true,
+    canManageModulePayroll: profile.can_manage_module_payroll ?? true,
     avatarUrl: profile.avatar_url,
   };
 }

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import { canManageJobOrderPayroll } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import { toPayrollMemberSnapshot } from "@/lib/job-order-payroll-helpers";
 import { assertDraft } from "@/lib/job-order-payroll-guards";
@@ -28,7 +28,9 @@ export async function getAddableJobOrders(
   payrollId: string,
 ): Promise<JobOrderEmployee[]> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return [];
+  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return [];
+  }
 
   const supabase = createAdminClient();
   const existing = await loadMembers(supabase, payrollId);
@@ -47,7 +49,9 @@ export async function addJobOrderPayrollMember(
   jobOrderEmployeeId: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return { error: "Unauthorized" };
+  }
 
   const supabase = createAdminClient();
   const blocked = await assertDraft(supabase, payrollId);
@@ -117,7 +121,9 @@ export async function updateJobOrderPayrollMember(
   input: JobOrderPayrollMemberValues,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return { error: "Unauthorized" };
+  }
 
   const parsed = jobOrderPayrollMemberSchema.safeParse(input);
   if (!parsed.success) {
@@ -167,7 +173,9 @@ export async function removeJobOrderPayrollMember(
   memberId: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return { error: "Unauthorized" };
+  }
 
   const supabase = createAdminClient();
   const { data: member, error: readErr } = await supabase
@@ -202,92 +210,4 @@ export async function removeJobOrderPayrollMember(
 
   revalidate(payrollId);
   return { success: true };
-}
-
-/**
- * Re-copy the snapshot for members still linked to a live roster row.
- *
- * Deliberately never adds or removes members: a JO newly hired into the area
- * does not appear, and one who became inactive is not dropped. Membership
- * stays the user's explicit decision; this refreshes values only.
- */
-export async function refreshMembersFromRoster(
-  payrollId: string,
-): Promise<{ updated?: number; skipped?: number; error?: string }> {
-  const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
-
-  const supabase = createAdminClient();
-  const blocked = await assertDraft(supabase, payrollId);
-  if (blocked) return { error: blocked };
-
-  const members = await loadMembers(supabase, payrollId);
-  const linked = members.filter((m) => m.job_order_employee_id != null);
-  const skipped = members.length - linked.length;
-  if (linked.length === 0) return { updated: 0, skipped };
-
-  // No deleted_at filter beyond what loadJobOrdersForSnapshot applies: a
-  // member whose JO was soft-deleted simply does not come back and is counted
-  // as skipped, rather than being wiped.
-  const roster = await loadJobOrdersForSnapshot(supabase, {
-    ids: linked.map((m) => m.job_order_employee_id!),
-  });
-  const byId = new Map(roster.map((jo) => [jo.id, jo]));
-
-  let updated = 0;
-  let missing = 0;
-  let failed = 0;
-  for (const m of linked) {
-    const jo = byId.get(m.job_order_employee_id!);
-    if (!jo) {
-      missing += 1;
-      continue;
-    }
-    const snap = toPayrollMemberSnapshot(jo);
-    const changed =
-      snap.full_name !== m.full_name ||
-      snap.area_name !== m.area_name ||
-      snap.sub_area !== m.sub_area ||
-      snap.daily_rate !== m.daily_rate ||
-      snap.sss_no !== m.sss_no ||
-      snap.sss_ss !== m.sss_ss ||
-      snap.sss_ec !== m.sss_ec ||
-      snap.has_atm !== m.has_atm ||
-      snap.landbank_account_number !== m.landbank_account_number ||
-      snap.community_tax_number !== m.community_tax_number ||
-      snap.community_tax_date !== m.community_tax_date ||
-      snap.community_tax_place_issued !== m.community_tax_place_issued;
-    if (!changed) continue;
-
-    const { error } = await supabase
-      .schema("hris")
-      .from("job_order_payroll_members")
-      .update(snap)
-      .eq("id", m.id);
-    if (error) {
-      // Log-and-continue: one bad row must not abandon the rest of the
-      // refresh, strand recomputeAreas()/logAudit() from running for the
-      // members that did succeed, or leave `areas` stale. Counted into
-      // `skipped` so the totals still reconcile against members.length.
-      console.error(
-        `refreshMembersFromRoster: failed to update member ${m.id} (payroll ${payrollId}): ${error.message}`,
-      );
-      failed += 1;
-      continue;
-    }
-    updated += 1;
-  }
-
-  await recomputeAreas(supabase, payrollId);
-  await logAudit({
-    userId: user!.id,
-    userEmail: user!.email,
-    action: "update",
-    tableName: "job_order_payroll_members",
-    recordId: payrollId,
-    newValues: { refreshed: updated, skipped: skipped + missing + failed },
-  });
-
-  revalidate(payrollId);
-  return { updated, skipped: skipped + missing + failed };
 }

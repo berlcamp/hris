@@ -42,7 +42,7 @@ function fmtMoney(n: number): string {
 interface JobOrderPayrollMembersTableProps {
   payrollId: string;
   members: JobOrderPayrollMember[];
-  isDraft: boolean;
+  editable: boolean;
 }
 
 /** A run of consecutive members sharing the same area, built by walking the
@@ -68,7 +68,7 @@ function groupByArea(members: JobOrderPayrollMember[]): AreaGroup[] {
 export function JobOrderPayrollMembersTable({
   payrollId,
   members,
-  isDraft,
+  editable,
 }: JobOrderPayrollMembersTableProps) {
   const router = useRouter();
   const [addOpen, setAddOpen] = useState(false);
@@ -102,7 +102,7 @@ export function JobOrderPayrollMembersTable({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Members</h2>
-        {isDraft && (
+        {editable && (
           <Button size="sm" onClick={() => setAddOpen(true)}>
             <Plus className="h-4 w-4" />
             Add member
@@ -145,7 +145,7 @@ export function JobOrderPayrollMembersTable({
                     <MemberRow
                       key={m.id}
                       member={m}
-                      isDraft={isDraft}
+                      editable={editable}
                       onRemove={() => setRemoveTarget(m)}
                       onSaved={() => router.refresh()}
                     />
@@ -200,21 +200,20 @@ export function JobOrderPayrollMembersTable({
 
 interface MemberRowProps {
   member: JobOrderPayrollMember;
-  isDraft: boolean;
+  editable: boolean;
   onRemove: () => void;
   onSaved: () => void;
 }
 
-function MemberRow({ member, isDraft, onRemove, onSaved }: MemberRowProps) {
+function MemberRow({ member, editable, onRemove, onSaved }: MemberRowProps) {
   const [days, setDays] = useState<number | null>(member.days);
   const [hours, setHours] = useState<number | null>(member.hours);
   const [rate, setRate] = useState<number | null>(member.daily_rate);
   const [saving, setSaving] = useState(false);
 
   // Re-sync local editable state whenever the server-sourced member row
-  // changes underneath us (e.g. router.refresh() after a save elsewhere, or
-  // a roster refresh), so a stale local value never lingers after a
-  // successful commit.
+  // changes underneath us (e.g. router.refresh() after a save elsewhere), so
+  // a stale local value never lingers after a successful commit.
   useEffect(() => {
     setDays(member.days);
     setHours(member.hours);
@@ -282,7 +281,7 @@ function MemberRow({ member, isDraft, onRemove, onSaved }: MemberRowProps) {
           type="number"
           className="h-8 w-16"
           value={days ?? ""}
-          disabled={!isDraft || saving}
+          disabled={!editable || saving}
           onChange={(e) => setDays(toNum(e.target.value))}
           onBlur={commit}
         />
@@ -292,7 +291,7 @@ function MemberRow({ member, isDraft, onRemove, onSaved }: MemberRowProps) {
           type="number"
           className="h-8 w-16"
           value={hours ?? ""}
-          disabled={!isDraft || saving}
+          disabled={!editable || saving}
           onChange={(e) => setHours(toNum(e.target.value))}
           onBlur={commit}
         />
@@ -302,7 +301,7 @@ function MemberRow({ member, isDraft, onRemove, onSaved }: MemberRowProps) {
           type="number"
           className="h-8 w-20"
           value={rate ?? ""}
-          disabled={!isDraft || saving}
+          disabled={!editable || saving}
           onChange={(e) => setRate(toNum(e.target.value))}
           onBlur={commit}
         />
@@ -313,7 +312,7 @@ function MemberRow({ member, isDraft, onRemove, onSaved }: MemberRowProps) {
         {fmtMoney(net)}
       </TableCell>
       <TableCell>
-        {isDraft && (
+        {editable && (
           <Button
             variant="ghost"
             size="icon"

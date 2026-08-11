@@ -77,6 +77,7 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
       department_id: null,
       is_active: true,
       can_access_attendance_corrections: true,
+      can_manage_module_payroll: true,
     },
   });
 
@@ -84,6 +85,7 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
   const watchDepartment = watch("department_id");
   const watchActive = watch("is_active");
   const watchCorrections = watch("can_access_attendance_corrections");
+  const watchModulePayroll = watch("can_manage_module_payroll");
 
   // The switch is a Department Admin concern only: every other role's reach
   // over corrections is settled by the role itself (reviewers, the direct-apply
@@ -91,6 +93,12 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
   // The composite "Dept Admin + Head" is included because it inherits the
   // dept-admin powers — see isDeptAdmin in src/lib/auth-helpers.ts.
   const showCorrectionsToggle = isDeptAdmin(watchRole);
+
+  // The payroll switch qualifies the two module-manager roles only: every
+  // other role's payroll reach is settled by the role itself. See migration
+  // 077 and canManageJobOrderPayroll in src/lib/auth-helpers.ts.
+  const showModulePayrollToggle =
+    watchRole === "jo_manager" || watchRole === "cos_manager";
 
   const onSubmit = async (data: UserFormValues) => {
     setLoading(true);
@@ -208,6 +216,35 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
                     Lets this Department Admin file attendance correction
                     requests for their department. Unchecked, the module is
                     hidden and the route is closed to them.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {showModulePayrollToggle && (
+              <div className="flex items-start gap-3 rounded-lg border p-3 mt-3">
+                <Checkbox
+                  id="can_manage_module_payroll"
+                  checked={watchModulePayroll}
+                  onCheckedChange={(checked) =>
+                    setValue("can_manage_module_payroll", checked, {
+                      shouldValidate: true,
+                    })
+                  }
+                  className="mt-0.5"
+                />
+                <div className="space-y-0.5">
+                  <Label
+                    htmlFor="can_manage_module_payroll"
+                    className="font-normal"
+                  >
+                    Can create/edit Payroll
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Lets this manager create payrolls in their module and edit
+                    members, rates and days. Unchecked, the payroll module is
+                    read-only — they can still open and print a run, but not
+                    change one.
                   </p>
                 </div>
               </div>

@@ -187,6 +187,47 @@ export function canManageJobOrders(
   return !!role && JOB_ORDER_ROLES.includes(role);
 }
 
+// Payroll WRITE access inside a module a manager role owns, settable per
+// account: user_profiles.can_manage_module_payroll (migration 077), edited
+// from /admin/users. The role decides which module the account reaches; this
+// decides whether payroll inside it is editable or read-only.
+//
+// Like CorrectionActor above, the helper takes the USER rather than the role
+// so a call site cannot read the power off the role alone and silently skip
+// the flag.
+const MODULE_PAYROLL_MANAGER_ROLES: readonly UserRole[] = [
+  "jo_manager",
+  "cos_manager",
+] as const;
+
+export interface ModulePayrollActor {
+  role: UserRole | null | undefined;
+  canManageModulePayroll?: boolean | null;
+}
+
+// False only for a module-manager account whose switch is off. Undefined/null
+// read as ON so a caller holding a user object from before migration 077 — or
+// any partial shape — keeps the access the role grants.
+function modulePayrollSwitchOn(actor: ModulePayrollActor): boolean {
+  if (!actor.role || !MODULE_PAYROLL_MANAGER_ROLES.includes(actor.role)) {
+    return true;
+  }
+  return actor.canManageModulePayroll !== false;
+}
+
+/**
+ * May this account create, edit, finalize or duplicate a Job Order payroll,
+ * and add/edit/remove its members?
+ *
+ * Reading a payroll is NOT gated by this — a JO Manager with the switch off
+ * still opens the list and detail pages and still prints. super_admin and
+ * hr_admin are unaffected. Reopening and deleting remain super_admin-only via
+ * canReopenOrDeletePayroll, which this does not widen.
+ */
+export function canManageJobOrderPayroll(actor: ModulePayrollActor): boolean {
+  return canManageJobOrders(actor.role) && modulePayrollSwitchOn(actor);
+}
+
 // The composite "Dept Admin + Head" role. Acts as a dept-head approver but
 // is granted cross-department reach within the Leave module specifically —
 // e.g. they can file leave for any employee and approve at the dept-head

@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 
 import { getServerUser } from "@/lib/auth";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import {
+  canManageJobOrderPayroll,
+  canManageJobOrders,
+} from "@/lib/auth-helpers";
 import {
   getJobOrderAreasForPicker,
   getJobOrderPayrolls,
@@ -50,6 +53,10 @@ export default async function JobOrderPayrollPage({
         page={page}
         areas={areas}
         canDelete={user?.role === "super_admin"}
+        canEdit={canManageJobOrderPayroll({
+          role: user?.role,
+          canManageModulePayroll: user?.canManageModulePayroll,
+        })}
       />
     </div>
   );

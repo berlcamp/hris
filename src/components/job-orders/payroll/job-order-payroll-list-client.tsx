@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -44,12 +45,21 @@ import { JOB_ORDER_PAYROLL_PAGE_SIZE } from "@/lib/job-order-payroll-queries";
 import { cn } from "@/lib/utils";
 import type { JobOrderAreaOption, JobOrderPayroll } from "@/lib/types";
 
+/** Typed verbatim (case-sensitive) before Delete unlocks. */
+const DELETE_CONFIRM_PHRASE = "DELETE";
+
 interface JobOrderPayrollListClientProps {
   payrolls: JobOrderPayroll[];
   totalCount: number;
   page: number;
   areas: JobOrderAreaOption[];
   canDelete: boolean;
+  /**
+   * Payroll write access — false for a JO Manager whose "Can create/edit
+   * Payroll" switch is off. Withholds "New payroll" and the Duplicate row
+   * action (duplicating creates a payroll); the list itself stays readable.
+   */
+  canEdit: boolean;
 }
 
 export function JobOrderPayrollListClient({
@@ -58,6 +68,7 @@ export function JobOrderPayrollListClient({
   page,
   areas,
   canDelete,
+  canEdit,
 }: JobOrderPayrollListClientProps) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -96,7 +107,10 @@ export function JobOrderPayrollListClient({
   const [deleteTarget, setDeleteTarget] = useState<JobOrderPayroll | null>(
     null,
   );
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
+
+  const deleteUnlocked = deleteConfirmText === DELETE_CONFIRM_PHRASE;
 
   const totalPages = Math.max(
     1,
@@ -138,7 +152,7 @@ export function JobOrderPayrollListClient({
     !!sp.get("q") || !!sp.get("status") || !!sp.get("from") || !!sp.get("to");
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !deleteUnlocked) return;
     setDeleting(true);
     try {
       const result = await deleteJobOrderPayroll(deleteTarget.id);
@@ -163,6 +177,7 @@ export function JobOrderPayrollListClient({
     onDuplicate: (p) => setDuplicateSource(p),
     onDelete: (p) => setDeleteTarget(p),
     canDelete,
+    canDuplicate: canEdit,
   });
 
   // No getSortedRowModel: this list is server-paginated, so sorting the 20 rows
@@ -236,10 +251,16 @@ export function JobOrderPayrollListClient({
           </Button>
         )}
 
-        <Button size="sm" className="ml-auto" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          New payroll
-        </Button>
+        {canEdit && (
+          <Button
+            size="sm"
+            className="ml-auto"
+            onClick={() => setCreateOpen(true)}
+          >
+            <Plus className="h-4 w-4" />
+            New payroll
+          </Button>
+        )}
       </div>
 
       {/* Every filter/page change is a server round-trip, so without this the
@@ -333,21 +354,37 @@ export function JobOrderPayrollListClient({
         open={deleteTarget !== null}
         onOpenChange={(o) => {
           if (!o) setDeleteTarget(null);
+          // Clear on every open/close so a previously-typed confirmation can
+          // never carry over and pre-unlock the next row's delete.
+          setDeleteConfirmText("");
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Job Order Payroll</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this payroll? This cannot be
-              undone.
+              This removes the payroll and all {deleteTarget?.member_count ?? 0}{" "}
+              of its member rows. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-confirm-list">
+              Type <strong>{DELETE_CONFIRM_PHRASE}</strong> to confirm
+            </Label>
+            <Input
+              id="delete-confirm-list"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={DELETE_CONFIRM_PHRASE}
+              autoComplete="off"
+              disabled={deleting}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              disabled={deleting}
+              disabled={deleting || !deleteUnlocked}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleting && <Loader2 className="h-4 w-4 animate-spin" />}

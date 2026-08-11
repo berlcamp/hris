@@ -44,7 +44,7 @@ const PAGE_SIZE = 1000;
  * Paged with `.range()` in chunks of 1000 because supabase/config.toml caps
  * PostgREST's max_rows at 1000 — an area-picker payroll can snapshot ~578
  * active JOs today, and this result feeds mutations (duplicate, finalize's
- * empty-check, refreshMembersFromRoster), not just display, so a silent
+ * empty-check), not just display, so a silent
  * truncation here is worse than the same cap on a read-only list. Same
  * pattern as `loadJobOrdersForSnapshot` below. `area_name`/`full_name` do not
  * uniquely order rows, so `id` is appended as a tiebreaker to keep page

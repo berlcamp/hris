@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { UserForm } from "@/components/forms/user-form";
 import { getUserById, getDepartments } from "@/lib/actions/user-actions";
+import type { UserFormValues } from "@/lib/validations/user-schema";
 
 export default async function EditUserPage({
   params,
@@ -32,16 +33,17 @@ export default async function EditUserPage({
           id: user.id,
           full_name: user.full_name,
           email: user.email,
-          role: user.role as
-            | "hr_admin"
-            | "department_head"
-            | "department_admin"
-            | "department_admin_and_department_head"
-            | "employee",
+          // Cast to the schema's own role union rather than a hand-written
+          // subset: the previous literal list predated jo_manager/cos_manager
+          // (and ocm_admin, hr_record_manager, dtr_manager), so it read as if
+          // those accounts could not be edited here — they can, and the payroll
+          // switch below is theirs.
+          role: user.role as UserFormValues["role"],
           department_id: user.department_id,
           is_active: user.is_active ?? true,
           can_access_attendance_corrections:
             user.can_access_attendance_corrections ?? true,
+          can_manage_module_payroll: user.can_manage_module_payroll ?? true,
         }}
       />
     </div>

@@ -13,7 +13,12 @@ export interface CreateUserInput {
   is_active: boolean;
   /** Department Admin only — see migration 076. */
   can_access_attendance_corrections: boolean;
+  /** Module managers (JO / COS) only — see migration 077. */
+  can_manage_module_payroll: boolean;
 }
+
+/** The roles the payroll switch qualifies — mirrors auth-helpers'. */
+const MODULE_MANAGER_ROLES = ["jo_manager", "cos_manager"];
 
 // The corrections switch qualifies the Department Admin role and nothing else,
 // so it is only stored as given for those roles. Every other role is written
@@ -23,6 +28,13 @@ export interface CreateUserInput {
 function correctionsAccessFor(input: CreateUserInput): boolean {
   return isDeptAdmin(input.role as UserRole)
     ? input.can_access_attendance_corrections
+    : true;
+}
+
+/** Same rule as correctionsAccessFor, for the module-manager payroll switch. */
+function modulePayrollAccessFor(input: CreateUserInput): boolean {
+  return MODULE_MANAGER_ROLES.includes(input.role)
+    ? input.can_manage_module_payroll
     : true;
 }
 
@@ -87,6 +99,7 @@ export async function createUser(input: CreateUserInput) {
       department_id: input.department_id,
       is_active: input.is_active,
       can_access_attendance_corrections: correctionsAccessFor(input),
+      can_manage_module_payroll: modulePayrollAccessFor(input),
     })
     .select()
     .single();
@@ -131,6 +144,7 @@ export async function updateUser(input: UpdateUserInput) {
       department_id: input.department_id,
       is_active: input.is_active,
       can_access_attendance_corrections: correctionsAccessFor(input),
+      can_manage_module_payroll: modulePayrollAccessFor(input),
     })
     .eq("id", input.id)
     .select()

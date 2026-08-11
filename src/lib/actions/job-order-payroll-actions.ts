@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import {
+  canManageJobOrderPayroll,
+  canManageJobOrders,
+} from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   summarizeMembers,
@@ -292,7 +295,9 @@ export async function createJobOrderPayroll(
   input: JobOrderPayrollCreateValues,
 ): Promise<{ data?: { id: string }; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return { error: "Unauthorized" };
+  }
 
   const parsed = jobOrderPayrollCreateSchema.safeParse(input);
   if (!parsed.success) {
@@ -372,7 +377,9 @@ export async function updateJobOrderPayroll(
   input: JobOrderPayrollMetadataValues,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return { error: "Unauthorized" };
+  }
 
   const parsed = jobOrderPayrollMetadataSchema.safeParse(input);
   if (!parsed.success) {
@@ -416,15 +423,16 @@ export async function updateJobOrderPayroll(
 /**
  * Clone a payroll's member snapshots into a new draft for a new period. Rates
  * come from the SOURCE payroll, not the roster, so duplicating is
- * reproducible; "Refresh from roster" is the explicit way to pull current
- * values.
+ * reproducible; a rate that has since changed is edited on the new draft.
  */
 export async function duplicateJobOrderPayroll(
   sourceId: string,
   metadata: JobOrderPayrollMetadataValues,
 ): Promise<{ data?: { id: string }; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return { error: "Unauthorized" };
+  }
 
   const parsed = jobOrderPayrollMetadataSchema.safeParse(metadata);
   if (!parsed.success) {
@@ -517,7 +525,9 @@ export async function finalizeJobOrderPayroll(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return { error: "Unauthorized" };
+  }
 
   const supabase = createAdminClient();
   const blocked = await assertDraft(supabase, id);

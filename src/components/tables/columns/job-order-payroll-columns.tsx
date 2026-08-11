@@ -27,6 +27,8 @@ export function jobOrderPayrollColumns(handlers: {
   onDuplicate: (p: JobOrderPayroll) => void;
   onDelete: (p: JobOrderPayroll) => void;
   canDelete: boolean;
+  /** Duplicating CREATES a payroll, so it follows payroll write access. */
+  canDuplicate: boolean;
 }): ColumnDef<JobOrderPayroll>[] {
   return [
     {
@@ -114,9 +116,13 @@ export function jobOrderPayrollColumns(handlers: {
             <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
               <Eye className="mr-2 h-4 w-4" /> Open
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handlers.onDuplicate(row.original)}>
-              <Copy className="mr-2 h-4 w-4" /> Duplicate
-            </DropdownMenuItem>
+            {handlers.canDuplicate && (
+              <DropdownMenuItem
+                onClick={() => handlers.onDuplicate(row.original)}
+              >
+                <Copy className="mr-2 h-4 w-4" /> Duplicate
+              </DropdownMenuItem>
+            )}
             {handlers.canDelete && (
               <DropdownMenuItem
                 variant="destructive"

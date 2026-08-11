@@ -1,7 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 
 import { getServerUser } from "@/lib/auth";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import {
+  canManageJobOrderPayroll,
+  canManageJobOrders,
+} from "@/lib/auth-helpers";
 import { getJobOrderPayrollById } from "@/lib/actions/job-order-payroll-actions";
 import { JobOrderPayrollDetailClient } from "@/components/job-orders/payroll/job-order-payroll-detail-client";
 
@@ -23,6 +26,10 @@ export default async function JobOrderPayrollDetailPage({
       payroll={payroll}
       members={members}
       isSuperAdmin={user?.role === "super_admin"}
+      canEdit={canManageJobOrderPayroll({
+        role: user?.role,
+        canManageModulePayroll: user?.canManageModulePayroll,
+      })}
     />
   );
 }

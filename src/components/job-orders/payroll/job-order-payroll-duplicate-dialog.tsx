@@ -131,7 +131,8 @@ export function JobOrderPayrollDuplicateDialog({
           <DialogTitle>Duplicate payroll</DialogTitle>
           <DialogDescription>
             Member snapshots are cloned as-is into a new draft for the period
-            below. Use Refresh from roster afterward to pull current rates.
+            below — rates come from the source payroll, not the current roster,
+            so edit any that have since changed.
           </DialogDescription>
         </DialogHeader>
 
