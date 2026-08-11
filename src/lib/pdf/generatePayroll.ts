@@ -1681,6 +1681,11 @@ export interface GeneratePayrollOBRPrintParams {
   firstHalfTotals?: PayrollOBR1stHalfTotals;
   /** When provided (e.g. "5-01-02-010" for PERA), uses single account code row */
   accountCode?: string;
+  /**
+   * Payee/Office line. Defaults to the regular payroll's standing payee; the
+   * Job Order module passes its own ("<first member on the roll> AND COMPANY").
+   */
+  payee?: string;
 }
 
 // OBR styles - same as Purchase Request
@@ -1726,12 +1731,22 @@ function formatOBRAmount(val: number): string {
   return val.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
+/** Escapes the one OBR field fed by caller-supplied employee data (`payee`). */
+function escapeObrText(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export function generatePayrollOBRPrint({
   particulars,
   totalAmount,
   period_type,
   firstHalfTotals,
   accountCode,
+  payee = "FUENTES, SAM NORMAN G. AND COMPANY",
 }: GeneratePayrollOBRPrintParams): void {
   const is1stHalf = period_type === "1st Half" && firstHalfTotals != null;
   const amountFormatted = formatOBRAmount(totalAmount);
@@ -1864,7 +1879,7 @@ export function generatePayrollOBRPrint({
   </tr>
   <tr>
     <td style="width: 20%; font-weight: bold; font-size: 11pt;">Payee/Office</td>
-    <td colspan="4" style="font-size: 11pt;font-weight: bold;">FUENTES, SAM NORMAN G. AND COMPANY</td>
+    <td colspan="4" style="font-size: 11pt;font-weight: bold;">${escapeObrText(payee)}</td>
   </tr>
   <tr>
     <td style="font-weight: bold; font-size: 11pt;">Office</td>

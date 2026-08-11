@@ -1,30 +1,40 @@
 /**
- * PDF generators for the Job Order payroll module.
+ * PDF generators for the Job Order payroll module. Three documents, all built
+ * from the same member rows:
  *
- * Maps the legacy Laravel JopayrollController print methods to TS exports:
+ *   generateJoPayrollPrint        -> the DAILY WAGES PAYROLL form (below)
+ *   generateJoPayrollSummaryPrint -> SUMMARY OF PAYROLLS, one line per daily
+ *                                    rate, net amounts
+ *   generateJoPayrollObrPrint     -> the Obligation Request, one form for the
+ *                                    whole payroll at gross
  *
- *   print()                  -> generateJoPayrollPrint
- *   printnoss()              -> generateJoPayrollNoSssPrint
- *   printByDepartment()      -> generateJoPayrollByDeptPrint
- *   printSummary()           -> generateJoPayrollSummaryPrint
- *   printNoATM()             -> generateJoPayrollNoAtmPrint
- *   printOvertime()          -> generateJoPayrollOvertimePrint
- *   printOvertimeNoAtm()     -> generateJoPayrollOvertimeNoAtmPrint
- *   printSummaryOvertime()   -> generateJoPayrollSummaryOvertimePrint
- *   printOBR()               -> generateJoPayrollObrPrint
- *   printOBROvertime()       -> generateJoPayrollObrOvertimePrint
+ * The main form's layout is shaped by two independent booleans on the params:
  *
- * Each function expects a list of payroll rows already joined with the
- * employee, plus the parent payroll's period for the title.
+ *   withAtm  -> trailing column is the Landbank ATM savings account number,
+ *               or (false) the Community Tax group: Number / Date / Place
+ *               Issued
+ *   showSss  -> SS / EC deduction columns are populated and subtracted from
+ *               net pay, or (false) left blank with net pay equal to gross
+ *
+ * Neither affects which members print: every member of the payroll is listed
+ * in all four combinations, so SUB TOTAL's gross never moves between them.
+ *
+ * Ten variants ported from the legacy Laravel JopayrollController (no-SSS, by
+ * department, summary, cash-payable, overtime ×2, summary+overtime, OBR ×2)
+ * were dropped once the office settled on this one form — see git history if
+ * one is ever wanted back.
+ *
+ * Expects a list of payroll rows already joined with the employee, plus the
+ * parent payroll's period for the title.
  */
 
 import {
   computeJoGross,
-  computeJoNetAmount,
   computeJoOvertimeGross,
   groupMembersByRate,
 } from "@/lib/job-order-payroll-helpers";
 import type { JobOrderPayrollPrintRow } from "@/lib/job-order-payroll-helpers";
+import { generatePayrollOBRPrint } from "@/lib/pdf/generatePayroll";
 
 // Hard-coded LGU Ozamiz City signatory block — matches the printed Daily Wages
 // Payroll template the accounting office uses. If these names ever change, the
@@ -36,23 +46,41 @@ const DAILY_WAGES_SIGNATORIES = {
   approver: { name: "RUTHEZA GRACE A. OUANO", title: "City Admistrator" },
   treasurer: { name: "JULIE FE C. NAPIGKIT", title: "City Treasurer" },
   agencyName: "LGU OZAMIZ CITY",
+  // Fixed on both printables. This used to interpolate the payroll's
+  // denormalized `areas` label, which made the heading drift with whichever
+  // areas the members happened to belong to; the form is always issued under
+  // the Office of the City Mayor.
+  officeName: "Office of the City Mayor",
 };
 
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
 
-/** @deprecated alias kept so the ten generator signatures below stay untouched. */
+/** @deprecated alias kept so the generator signatures below stay untouched. */
 export type JoPayrollPrintRow = JobOrderPayrollPrintRow;
 
 export interface GenerateJoPayrollPrintParams {
   rows: JoPayrollPrintRow[];
   periodStart: string;
   periodEnd: string;
+  /** The payroll's particulars, printed verbatim as the OBR's PARTICULARS. */
   particulars?: string | null;
-  description?: string | null;
-  /** Comma-separated areas captured on the parent payroll, used in the header. */
-  areas?: string | null;
+  /**
+   * Trailing column group: the Landbank ATM account number (one column) when
+   * true, the Community Tax details (Number / Date / Place Issued) when false.
+   */
+  withAtm: boolean;
+  /**
+   * Populate the SS / EC deduction columns and subtract them from net pay.
+   * When false the two columns are still drawn — just left blank, and net pay
+   * equals gross — so the office's preprinted forms line up either way.
+   *
+   * Required rather than defaulted: the only caller drives this from a
+   * checkbox, and a silent default would let a future call site print a
+   * payroll whose net pay quietly disagrees with the members table.
+   */
+  showSss: boolean;
   /** Renders a diagonal DRAFT watermark. Set when payroll.status === "draft". */
   draft?: boolean;
 }
@@ -227,28 +255,22 @@ function printHTMLContent(htmlContent: string): void {
 // what actually pushes it below: per the CSS painting order, a negative
 // z-index descendant paints above its stacking-context root's own
 // background/border but below that root's non-positioned in-flow content
-// (here, the table). `.draft-watermark`'s stacking-context root is `body`
-// (or `.summary-page` for the paginated generators, overridden back below),
-// and neither sets a background-color, so there is nothing opaque for the
+// (here, the table). `.draft-watermark`'s stacking-context root is `body`,
+// which sets no background-color, so there is nothing opaque for the
 // watermark to sink beneath.
 //
 // `position: fixed`, verified against a real multi-page print (Task 8): the
-// six non-paginated generators render exactly one `.draft-watermark` div for
-// the ENTIRE document, positioned `top: 45%` of `body`. With `position:
-// absolute` that 45% is relative to the whole flowed document's height, not
-// each physical page, so on a payroll spanning N printed pages the watermark
-// only ever lands once, on whichever single page happens to sit at the
-// document's vertical midpoint — confirmed by rendering a 150-row payroll to
-// a 5-page PDF: pages 1, 2, 4 and 5 came back completely unmarked, only page
-// 3 (the midpoint) showed it. `position: fixed` is anchored to each page box
-// during paginated media instead of the document's total height, so browsers
-// repaint it on every physical page — confirmed by re-rendering the same
-// 5-page PDF after this change: all 5 pages now show it. The two
-// `.summary-page` generators already build one watermark div per physical
-// page (one `renderDraftWatermark()` call per page-broken `.summary-page`
-// block), so they never had this bug; the override below keeps their
-// already-correct, unrelated `position: absolute` behavior byte-for-byte
-// unchanged.
+// payroll renders exactly one `.draft-watermark` div for the ENTIRE document,
+// positioned `top: 45%` of `body`. With `position: absolute` that 45% is
+// relative to the whole flowed document's height, not each physical page, so
+// on a payroll spanning N printed pages the watermark only ever lands once,
+// on whichever single page happens to sit at the document's vertical
+// midpoint — confirmed by rendering a 150-row payroll to a 5-page PDF: pages
+// 1, 2, 4 and 5 came back completely unmarked, only page 3 (the midpoint)
+// showed it. `position: fixed` is anchored to each page box during paginated
+// media instead of the document's total height, so browsers repaint it on
+// every physical page — confirmed by re-rendering the same 5-page PDF after
+// this change: all 5 pages now show it.
 const WATERMARK_STYLES = `
   .draft-watermark {
     position: fixed;
@@ -263,54 +285,25 @@ const WATERMARK_STYLES = `
     pointer-events: none;
     z-index: -1;
   }
-  /* The two paginated (.summary-page) generators already emit one watermark
-     div per physical page — position: fixed is unnecessary there and, more
-     importantly, must not be introduced there: this scopes those two back to
-     the original position: absolute so their already-verified-correct output
-     (Task 6) is untouched by this fix. */
-  .summary-page .draft-watermark {
-    position: absolute;
-  }
 `;
 
 /**
- * Rendered first inside the printed page's container (`<body>` for
- * single-page documents, `.summary-page` for the paginated ones). DOM order
- * doesn't matter for stacking here — `.draft-watermark`'s negative z-index
- * (see WATERMARK_STYLES above) is what actually keeps it behind the table.
- * Returns "" (not rendered) when not draft.
+ * Rendered first inside `<body>`. DOM order doesn't matter for stacking here —
+ * `.draft-watermark`'s negative z-index (see WATERMARK_STYLES above) is what
+ * actually keeps it behind the table. Returns "" (not rendered) when not
+ * draft.
  */
 function renderDraftWatermark(draft: boolean | undefined): string {
   if (!draft) return "";
   return `<div class="draft-watermark">DRAFT</div>`;
 }
 
-const BASE_STYLES = `
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { position: relative; font-family: Arial, sans-serif; font-size: 9pt; line-height: 1.2; color: #000; }
-  ${WATERMARK_STYLES}
-  h1.title { text-align: center; font-size: 13pt; font-weight: bold; margin-bottom: 2px; }
-  h2.subtitle { text-align: center; font-size: 10pt; margin-bottom: 4px; }
-  h3.particulars { text-align: center; font-size: 9pt; font-weight: normal; margin-bottom: 6px; }
-  table.payroll { width: 100%; border-collapse: collapse; }
-  table.payroll th, table.payroll td { border: 1px solid #000; padding: 3px 4px; vertical-align: middle; }
-  table.payroll thead th { background-color: #e5e7eb; text-align: center; font-size: 8pt; }
-  table.payroll tbody td { font-size: 8pt; }
-  .text-right { text-align: right; }
-  .text-center { text-align: center; }
-  .group-header td { background-color: #f9fafb; font-weight: bold; font-size: 9pt; }
-  .group-total td { background-color: #f3f4f6; font-weight: bold; }
-  .grand-total td { background-color: #e5e7eb; font-weight: bold; }
-  @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
-`;
-
 // ---------------------------------------------------------------------------
-// 1 & 2. Daily Wages Payroll (LGU Ozamiz template) — with / without SSS
+// Daily Wages Payroll (LGU Ozamiz template)
 // ---------------------------------------------------------------------------
-// The two variants share one rendering function. `showSss` controls whether
-// the SS / EC deduction columns are populated and subtracted from net pay.
-// The column layout is identical in both cases so the office's preprinted
-// forms align consistently.
+// `withAtm` swaps only the trailing column group; everything to its left is
+// identical. `showSss` is the second, independent axis. Neither changes which
+// members are listed — see GenerateJoPayrollPrintParams.
 
 const DAILY_WAGES_STYLES = `
   @page { size: legal landscape; margin: 0.3in; }
@@ -351,12 +344,8 @@ const DAILY_WAGES_STYLES = `
 
 function renderDailyWagesHeader(
   periodHeader: string,
-  areas: string | null | undefined,
 ): string {
-  const headerArea = areas?.trim();
-  const agencyLine = headerArea
-    ? `<u>${escapeHtml(DAILY_WAGES_SIGNATORIES.agencyName)}</u> - ${escapeHtml(headerArea)}`
-    : `<u>${escapeHtml(DAILY_WAGES_SIGNATORIES.agencyName)}</u>`;
+  const agencyLine = `<u>${escapeHtml(DAILY_WAGES_SIGNATORIES.agencyName)}</u> - ${escapeHtml(DAILY_WAGES_SIGNATORIES.officeName)}`;
 
   return `
     <div class="report-header">
@@ -407,18 +396,14 @@ function renderDailyWagesFooter(): string {
     </table>`;
 }
 
-interface RenderDailyWagesParams extends GenerateJoPayrollPrintParams {
-  showSss: boolean;
-}
-
 function renderDailyWagesPayroll({
   rows,
   periodStart,
   periodEnd,
-  areas,
+  withAtm,
   showSss,
   draft,
-}: RenderDailyWagesParams): string {
+}: GenerateJoPayrollPrintParams): string {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   const sorted = [...rows].sort((a, b) => a.fullname.localeCompare(b.fullname));
 
@@ -444,6 +429,12 @@ function renderDailyWagesPayroll({
 
       const hasOt = (m.hours ?? 0) > 0;
 
+      const trailingCells = withAtm
+        ? `<td class="text-center">${escapeHtml(m.account_number)}</td>`
+        : `<td class="text-center">${escapeHtml(m.tax_number)}</td>
+          <td class="text-center">${escapeHtml(m.tax_date)}</td>
+          <td class="text-center">${escapeHtml(m.tax_issued)}</td>`;
+
       return `
         <tr>
           <td class="text-center">${i + 1}</td>
@@ -460,36 +451,46 @@ function renderDailyWagesPayroll({
           <td class="text-right">${showSss ? fmtInt(m.sss_ec) : ""}</td>
           <td class="text-right">${fmt(net)}</td>
           <td class="signature-cell"><span class="sig-num">${i + 1}</span></td>
-          <td class="text-center">${escapeHtml(m.account_number)}</td>
+          ${trailingCells}
         </tr>`;
     })
     .join("");
 
+  // NO. through SIGNATURE — identical in both variants.
+  const leadingColWidths = [
+    "0.4in", "1.9in", "0.85in", "0.55in", "0.5in", "0.85in", "0.6in",
+    "0.55in", "0.7in", "0.85in", "0.45in", "0.45in", "0.85in", "1.1in",
+  ];
+  const colgroup = [
+    ...leadingColWidths,
+    ...(withAtm ? ["1.1in"] : ["0.9in", "0.75in", "0.6in"]),
+  ]
+    .map((w) => `<col style="width:${w}">`)
+    .join("");
+
+  // The Community Tax group spans the top two header bands so its three
+  // sub-heads land on the same bottom band as SSS's SS / EC.
+  const trailingHeader = withAtm
+    ? `<th rowspan="3">LANDBANK ATM SAVINGS ACCT. NUMBER</th>`
+    : `<th colspan="3" rowspan="2">Community Tax</th>`;
+  const trailingSubHeader = withAtm
+    ? ""
+    : `<th>Number</th><th>Date</th><th>Place Issued</th>`;
+
+  // Trailing blanks on SUB TOTAL: signature + (ATM | the three CT columns).
+  const trailingSubtotalCells = withAtm
+    ? `<td></td><td></td>`
+    : `<td></td><td></td><td></td><td></td>`;
+
   return `<!DOCTYPE html>
 <html>
-<head><meta charset="UTF-8"><title>Daily Wages Payroll</title>
+<head><meta charset="UTF-8"><title>Daily Wages Payroll${withAtm ? "" : " (Without ATM)"}</title>
 <style>${DAILY_WAGES_STYLES}</style></head>
 <body>
   ${renderDraftWatermark(draft)}
-  ${renderDailyWagesHeader(periodHeader, areas)}
+  ${renderDailyWagesHeader(periodHeader)}
   <table class="payroll">
-    <colgroup>
-      <col style="width:0.4in">
-      <col style="width:1.9in">
-      <col style="width:0.85in">
-      <col style="width:0.55in">
-      <col style="width:0.5in">
-      <col style="width:0.85in">
-      <col style="width:0.6in">
-      <col style="width:0.55in">
-      <col style="width:0.7in">
-      <col style="width:0.85in">
-      <col style="width:0.45in">
-      <col style="width:0.45in">
-      <col style="width:0.85in">
-      <col style="width:1.1in">
-      <col style="width:1.1in">
-    </colgroup>
+    <colgroup>${colgroup}</colgroup>
     <thead>
       <tr>
         <th rowspan="3">NO.</th>
@@ -505,7 +506,7 @@ function renderDailyWagesPayroll({
         <th colspan="2">DEDUCTIONS</th>
         <th rowspan="3">NET PAY</th>
         <th rowspan="3">SIGNATURE</th>
-        <th rowspan="3">LANDBANK ATM SAVINGS ACCT. NUMBER</th>
+        ${trailingHeader}
       </tr>
       <tr>
         <th colspan="2">SSS</th>
@@ -513,6 +514,7 @@ function renderDailyWagesPayroll({
       <tr>
         <th>SS</th>
         <th>EC</th>
+        ${trailingSubHeader}
       </tr>
     </thead>
     <tbody>
@@ -525,8 +527,7 @@ function renderDailyWagesPayroll({
         <td class="text-right">${showSss ? fmt(totalSs) : ""}</td>
         <td class="text-right">${showSss ? fmt(totalEc) : ""}</td>
         <td class="text-right">${fmt(totalNet)}</td>
-        <td></td>
-        <td></td>
+        ${trailingSubtotalCells}
       </tr>
     </tbody>
   </table>
@@ -537,584 +538,176 @@ function renderDailyWagesPayroll({
 export function generateJoPayrollPrint(
   params: GenerateJoPayrollPrintParams,
 ): void {
-  printHTMLContent(renderDailyWagesPayroll({ ...params, showSss: true }));
-}
-
-export function generateJoPayrollNoSssPrint(
-  params: GenerateJoPayrollPrintParams,
-): void {
-  printHTMLContent(renderDailyWagesPayroll({ ...params, showSss: false }));
+  printHTMLContent(renderDailyWagesPayroll(params));
 }
 
 // ---------------------------------------------------------------------------
-// 3. By-department flat payroll (no rate grouping; primary working list)
+// Summary of Payrolls
 // ---------------------------------------------------------------------------
+// One line per distinct daily rate — the "payroll number" on this form is the
+// rate group's position, not a database id. Amounts are NET (gross less the
+// SSS shares), which is why `showSss` reaches this document too: with the
+// deductions switched off, net collapses back to gross and the two amount
+// columns still agree with the Daily Wages form's NET PAY column.
+//
+// "Amount paid on payroll" repeats the amount and "Amount unpaid on rolls" is
+// left blank: nothing in this module tracks partial disbursement, so the
+// office fills that column in by hand when a payee does not collect.
 
-export function generateJoPayrollByDeptPrint({
-  rows,
-  periodStart,
-  periodEnd,
-  particulars,
-  draft,
-}: GenerateJoPayrollPrintParams): void {
-  const periodHeader = formatPeriodHeader(periodStart, periodEnd);
-  const sorted = [...rows].sort((a, b) => a.fullname.localeCompare(b.fullname));
+/** Blank rows are padded out to this many body rows so the ruled form keeps a
+ * constant height regardless of how many rates a payroll happens to have. */
+const SUMMARY_BODY_ROWS = 25;
 
-  let total = 0;
-  const rowHtml = sorted
-    .map((m, i) => {
-      const amount = computeJoGross(m.rate, m.days);
-      total += amount;
-      return `
-        <tr>
-          <td class="text-center">${i + 1}</td>
-          <td>${escapeHtml(m.fullname)}</td>
-          <td class="text-center">${fmt(m.days)}</td>
-          <td class="text-right">${fmt(m.rate)}</td>
-          <td class="text-right">${fmt(amount)}</td>
-          <td>${escapeHtml(m.account_number)}</td>
-          <td></td>
-        </tr>`;
-    })
-    .join("");
-
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>JO Payroll (By Department)</title>
-<style>${BASE_STYLES}
-@page { size: legal landscape; margin: 0.3in; }
-</style></head>
-<body>
-  ${renderDraftWatermark(draft)}
-  <h1 class="title">JOB ORDER PAYROLL</h1>
-  <h2 class="subtitle">${periodHeader}</h2>
-  ${particulars ? `<h3 class="particulars">${escapeHtml(particulars)}</h3>` : ""}
-  <table class="payroll">
-    <thead><tr>
-      <th style="width:0.4in">#</th>
-      <th>Name</th>
-      <th style="width:0.9in">Days</th>
-      <th style="width:0.9in">Rate</th>
-      <th style="width:1.2in">Amount</th>
-      <th style="width:1.6in">ATM Account</th>
-      <th style="width:1.6in">Signature</th>
-    </tr></thead>
-    <tbody>
-      ${rowHtml}
-      <tr class="grand-total">
-        <td colspan="4" class="text-right">GRAND TOTAL</td>
-        <td class="text-right">${fmt(total)}</td>
-        <td colspan="2"></td>
-      </tr>
-    </tbody>
-  </table>
-</body></html>`;
-
-  printHTMLContent(html);
-}
-
-// ---------------------------------------------------------------------------
-// 4. Summary — paginated 14 rows per page with running totals (legacy behaviour)
-// ---------------------------------------------------------------------------
-
-const SUMMARY_ROWS_PER_PAGE = 14;
+const SUMMARY_STYLES = `
+  @page { size: legal portrait; margin: 0.5in; }
+  body { position: relative; font-family: "Times New Roman", Times, serif; font-size: 11pt; line-height: 1.2; color: #000; }
+  ${WATERMARK_STYLES}
+  .report-title { text-align: center; font-size: 14pt; font-weight: bold; }
+  .report-sub { text-align: center; font-size: 13pt; font-weight: bold; margin-top: 6px; }
+  .meta-row { display: flex; justify-content: space-between; align-items: baseline; margin: 10px 0 4px; font-weight: bold; font-size: 10.5pt; }
+  table.summary { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  table.summary th, table.summary td { border: 1px solid #000; padding: 3px 6px; height: 22px; }
+  table.summary thead th { font-weight: bold; text-align: center; font-size: 10.5pt; }
+  .text-right { text-align: right; }
+  .text-center { text-align: center; }
+  tr.total td { font-weight: bold; }
+  .certified { font-style: italic; }
+  .ledger-block td { height: 1.6in; vertical-align: top; }
+  @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+`;
 
 export function generateJoPayrollSummaryPrint({
   rows,
   periodStart,
   periodEnd,
-  particulars,
+  showSss,
   draft,
 }: GenerateJoPayrollPrintParams): void {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   const groups = groupMembersByRate(rows);
 
-  // Flatten into pages of up to SUMMARY_ROWS_PER_PAGE rows each, then compute
-  // a per-page net subtotal — matches the legacy `printSummary` blade.
-  const flat = groups.flatMap((g) =>
-    [...g.members]
-      .sort((a, b) => a.fullname.localeCompare(b.fullname))
-      .map((m) => ({ rate: g.rate, member: m })),
-  );
-
-  const pages: typeof flat[] = [];
-  for (let i = 0; i < flat.length; i += SUMMARY_ROWS_PER_PAGE) {
-    pages.push(flat.slice(i, i + SUMMARY_ROWS_PER_PAGE));
-  }
-
-  let grandNet = 0;
-  const pagesHtml = pages
-    .map((page, pi) => {
-      let subTotal = 0;
-      const rowHtml = page
-        .map(({ member: m }, idx) => {
-          const net = computeJoNetAmount({
-            rate: m.rate,
-            days: m.days,
-            sss_ss: m.sss_ss,
-            sss_ec: m.sss_ec,
-          });
-          subTotal += net;
-          return `
-            <tr>
-              <td class="text-center">${pi * SUMMARY_ROWS_PER_PAGE + idx + 1}</td>
-              <td>${escapeHtml(m.fullname)}</td>
-              <td class="text-center">${fmt(m.days)}</td>
-              <td class="text-right">${fmt(m.rate)}</td>
-              <td class="text-right">${fmt(net)}</td>
-            </tr>`;
-        })
-        .join("");
-
-      grandNet += subTotal;
-
-      return `
-        <div class="summary-page" style="page-break-after: ${pi === pages.length - 1 ? "auto" : "always"};">
-          ${renderDraftWatermark(draft)}
-          <h1 class="title">JOB ORDER PAYROLL — SUMMARY</h1>
-          <h2 class="subtitle">${periodHeader}</h2>
-          ${particulars ? `<h3 class="particulars">${escapeHtml(particulars)}</h3>` : ""}
-          <table class="payroll">
-            <thead><tr>
-              <th style="width:0.5in">#</th>
-              <th>Name</th>
-              <th style="width:0.9in">Days</th>
-              <th style="width:1in">Rate</th>
-              <th style="width:1.4in">Net Amount</th>
-            </tr></thead>
-            <tbody>
-              ${rowHtml}
-              <tr class="group-total">
-                <td colspan="4" class="text-right">Page sub-total</td>
-                <td class="text-right">${fmt(subTotal)}</td>
-              </tr>
-              ${
-                pi === pages.length - 1
-                  ? `<tr class="grand-total"><td colspan="4" class="text-right">GRAND TOTAL</td><td class="text-right">${fmt(grandNet)}</td></tr>`
-                  : ""
-              }
-            </tbody>
-          </table>
-        </div>`;
-    })
-    .join("");
-
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>JO Payroll Summary</title>
-<style>${BASE_STYLES}
-@page { size: legal portrait; margin: 0.4in; }
-.summary-page { position: relative; padding-bottom: 0.2in; }
-</style></head>
-<body>${pagesHtml}</body></html>`;
-
-  printHTMLContent(html);
-}
-
-// ---------------------------------------------------------------------------
-// 5. No-ATM payroll (cash-payable employees only)
-// ---------------------------------------------------------------------------
-
-export function generateJoPayrollNoAtmPrint({
-  rows,
-  periodStart,
-  periodEnd,
-  particulars,
-  draft,
-}: GenerateJoPayrollPrintParams): void {
-  const periodHeader = formatPeriodHeader(periodStart, periodEnd);
-  // Filter to employees without an ATM account number.
-  const subset = rows.filter((m) => !m.account_number?.trim());
-  const sorted = [...subset].sort((a, b) => a.fullname.localeCompare(b.fullname));
-
   let total = 0;
-  const rowHtml = sorted
-    .map((m, i) => {
-      const amount = computeJoGross(m.rate, m.days);
+  const bodyRows = groups
+    .map((g, i) => {
+      const amount = showSss ? g.totalNet : g.totalGross;
       total += amount;
       return `
         <tr>
           <td class="text-center">${i + 1}</td>
-          <td>${escapeHtml(m.fullname)}</td>
-          <td class="text-center">${fmt(m.days)}</td>
-          <td class="text-right">${fmt(m.rate)}</td>
-          <td class="text-right">${fmt(amount)}</td>
-          <td>${escapeHtml(m.tax_number)}</td>
+          <td class="text-center">${fmt(amount)}</td>
+          <td class="text-center">${fmt(amount)}</td>
           <td></td>
         </tr>`;
     })
     .join("");
 
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>JO Payroll (No ATM)</title>
-<style>${BASE_STYLES}
-@page { size: legal landscape; margin: 0.3in; }
-</style></head>
-<body>
-  ${renderDraftWatermark(draft)}
-  <h1 class="title">JOB ORDER PAYROLL — CASH PAYABLE</h1>
-  <h2 class="subtitle">${periodHeader}</h2>
-  ${particulars ? `<h3 class="particulars">${escapeHtml(particulars)}</h3>` : ""}
-  <table class="payroll">
-    <thead><tr>
-      <th style="width:0.4in">#</th>
-      <th>Name</th>
-      <th style="width:0.9in">Days</th>
-      <th style="width:0.9in">Rate</th>
-      <th style="width:1.2in">Amount</th>
-      <th style="width:1.5in">TIN</th>
-      <th style="width:1.6in">Signature</th>
-    </tr></thead>
-    <tbody>
-      ${
-        rowHtml ||
-        `<tr><td colspan="7" class="text-center">No cash-payable employees in this payroll.</td></tr>`
-      }
-      <tr class="grand-total">
-        <td colspan="4" class="text-right">GRAND TOTAL</td>
-        <td class="text-right">${fmt(total)}</td>
-        <td colspan="2"></td>
-      </tr>
-    </tbody>
-  </table>
-</body></html>`;
-
-  printHTMLContent(html);
-}
-
-// ---------------------------------------------------------------------------
-// 6 & 7. Overtime Daily Wages Payroll — with ATM / no ATM (Community Tax)
-// ---------------------------------------------------------------------------
-// Body shows the OT pay formula expanded: (Rate/Day ÷ 8) × hours = AMOUNT.
-// `withAtm = true`  → rightmost column is LANDBANK ATM, all rows shown.
-// `withAtm = false` → rightmost columns are Community Tax (Number/Date/Place),
-//                     filtered to employees with no ATM account on file.
-
-function renderDailyWagesOvertimePayroll({
-  rows,
-  periodStart,
-  periodEnd,
-  areas,
-  withAtm,
-  draft,
-}: GenerateJoPayrollPrintParams & { withAtm: boolean }): string {
-  const periodHeader = formatPeriodHeader(periodStart, periodEnd);
-  const subset = withAtm
-    ? rows
-    : rows.filter((m) => !m.account_number?.trim());
-  const sorted = [...subset].sort((a, b) =>
-    a.fullname.localeCompare(b.fullname),
+  const fillerCount = Math.max(0, SUMMARY_BODY_ROWS - groups.length - 1);
+  const fillerRows = `<tr><td></td><td></td><td></td><td></td></tr>`.repeat(
+    fillerCount,
   );
 
-  let totalAmount = 0;
-  let totalNet = 0;
-
-  const bodyRows = sorted
-    .map((m, i) => {
-      const amount = computeJoOvertimeGross(m.rate, m.hours);
-      const net = amount;
-      totalAmount += amount;
-      totalNet += net;
-
-      const rightCols = withAtm
-        ? `<td class="text-center">${escapeHtml(m.account_number)}</td>`
-        : `
-          <td class="text-center">${escapeHtml(m.tax_number)}</td>
-          <td class="text-center">${escapeHtml(m.tax_date)}</td>
-          <td class="text-center">${escapeHtml(m.tax_issued)}</td>`;
-
-      return `
-        <tr>
-          <td class="text-center">${i + 1}</td>
-          <td class="text-left">${escapeHtml(m.fullname)}</td>
-          <td class="text-center">JOB ORDER</td>
-          <td class="text-right">${fmtInt(m.rate)}</td>
-          <td class="text-right">${fmt(amount)}</td>
-          <td class="text-right">${fmtInt(m.rate)}</td>
-          <td class="text-center">8</td>
-          <td class="text-center">${(m.hours ?? 0) > 0 ? fmt(m.hours) : ""}</td>
-          <td class="text-right">${fmt(net)}</td>
-          <td class="signature-cell"><span class="sig-num">${i + 1}</span></td>
-          ${rightCols}
-        </tr>`;
-    })
-    .join("");
-
-  // Column counts: 10 left columns (NO..SIGNATURE) + 1 (ATM) or 3 (CT) right.
-  const colWidths = withAtm
-    ? [
-        "0.4in", "1.9in", "0.85in", "0.55in", "0.9in",
-        "0.55in", "0.7in", "0.55in", "0.85in", "1in", "1.4in",
-      ]
-    : [
-        "0.4in", "1.7in", "0.85in", "0.5in", "0.85in",
-        "0.5in", "0.65in", "0.5in", "0.85in", "0.9in",
-        "0.85in", "0.85in", "0.85in",
-      ];
-
-  const colgroup = colWidths
-    .map((w) => `<col style="width:${w}">`)
-    .join("");
-
-  // Right-side header cells
-  const rightHeader = withAtm
-    ? `<th rowspan="2">LANDBANK ATM SAVINGS ACCT. NUMBER</th>`
-    : `<th colspan="3">Community Tax</th>`;
-  const rightSubHeader = withAtm
-    ? ""
-    : `<th>Number</th><th>Date</th><th>Place Issued</th>`;
-
-  // Sub-total row: empty leading cells, AMOUNT total, empty formula cells, NET total, empty right
-  const subtotalCells = withAtm
-    ? `<td></td><td></td>` // signature + ATM
-    : `<td></td><td></td><td></td><td></td>`; // signature + CT (3)
-
-  const emptyBodyMessage = `<tr><td colspan="${colWidths.length}" class="text-center">No ${withAtm ? "" : "cash-payable "}employees in this payroll.</td></tr>`;
-
-  return `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html>
-<head><meta charset="UTF-8"><title>Daily Wages Payroll — Overtime${withAtm ? "" : " (No ATM)"}</title>
-<style>${DAILY_WAGES_STYLES}</style></head>
+<head><meta charset="UTF-8"><title>Summary of Payrolls</title>
+<style>${SUMMARY_STYLES}</style></head>
 <body>
   ${renderDraftWatermark(draft)}
-  ${renderDailyWagesHeader(periodHeader, areas)}
-  <table class="payroll">
-    <colgroup>${colgroup}</colgroup>
+  <div class="report-title">SUMMARY OF PAYROLLS</div>
+  <div class="report-sub">JOB ORDER SERVICES</div>
+  <div class="meta-row">
+    <div>AGENCY: ${escapeHtml(DAILY_WAGES_SIGNATORIES.officeName.toUpperCase())}</div>
+    <div>${periodHeader}</div>
+  </div>
+  <table class="summary">
+    <colgroup>
+      <col style="width:22%">
+      <col style="width:24%">
+      <col style="width:27%">
+      <col style="width:27%">
+    </colgroup>
     <thead>
       <tr>
-        <th rowspan="2">NO.</th>
-        <th rowspan="2">NAME</th>
-        <th rowspan="2">Designation</th>
-        <th rowspan="2">Rate Per Day</th>
-        <th rowspan="2">AMOUNT ACCURED</th>
-        <th colspan="3">OVERTIME PAY FORMULA</th>
-        <th rowspan="2">NET PAY</th>
-        <th rowspan="2">SIGNATURE</th>
-        ${rightHeader}
-      </tr>
-      <tr>
-        <th>RATE/DAY</th>
-        <th>CONSTANT FORMULA</th>
-        <th>NO. OF HOURS</th>
-        ${rightSubHeader}
+        <th>PAYROLL NUMBER</th>
+        <th>AMOUNT OF PAYROLL</th>
+        <th>AMOUNT PAID ON PAYROLL</th>
+        <th>AMOUNT UNPAID ON ROLLS</th>
       </tr>
     </thead>
     <tbody>
-      ${bodyRows || emptyBodyMessage}
-      <tr class="subtotal">
+      ${bodyRows}
+      <tr class="total">
+        <td class="text-center">TOTAL</td>
+        <td class="text-center">${fmt(total)}</td>
+        <td class="text-center">${fmt(total)}</td>
         <td></td>
-        <td class="text-left">SUB TOTAL</td>
-        <td colspan="2"></td>
-        <td class="text-right">${fmt(totalAmount)}</td>
-        <td colspan="3"></td>
-        <td class="text-right">${fmt(totalNet)}</td>
-        ${subtotalCells}
+      </tr>
+      ${fillerRows}
+      <tr>
+        <td></td>
+        <td></td>
+        <td class="certified">CERTIFIED CORRECT:</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>ACCOUNT CODE</td>
+        <td>DEBIT</td>
+        <td class="text-right">CREDIT</td>
+        <td>CERTIFIED CORRECT:</td>
+      </tr>
+      <tr class="ledger-block">
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
       </tr>
     </tbody>
   </table>
-  ${renderDailyWagesFooter()}
 </body></html>`;
-}
-
-export function generateJoPayrollOvertimePrint(
-  params: GenerateJoPayrollPrintParams,
-): void {
-  printHTMLContent(
-    renderDailyWagesOvertimePayroll({ ...params, withAtm: true }),
-  );
-}
-
-export function generateJoPayrollOvertimeNoAtmPrint(
-  params: GenerateJoPayrollPrintParams,
-): void {
-  printHTMLContent(
-    renderDailyWagesOvertimePayroll({ ...params, withAtm: false }),
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 8. Summary + overtime — combined paginated summary
-// ---------------------------------------------------------------------------
-
-export function generateJoPayrollSummaryOvertimePrint({
-  rows,
-  periodStart,
-  periodEnd,
-  particulars,
-  draft,
-}: GenerateJoPayrollPrintParams): void {
-  const periodHeader = formatPeriodHeader(periodStart, periodEnd);
-  const sorted = [...rows].sort((a, b) =>
-    a.fullname.localeCompare(b.fullname),
-  );
-
-  const pages: typeof sorted[] = [];
-  for (let i = 0; i < sorted.length; i += SUMMARY_ROWS_PER_PAGE) {
-    pages.push(sorted.slice(i, i + SUMMARY_ROWS_PER_PAGE));
-  }
-
-  let grandRegular = 0;
-  let grandOt = 0;
-  const pagesHtml = pages
-    .map((page, pi) => {
-      let pageReg = 0;
-      let pageOt = 0;
-      const rowHtml = page
-        .map((m, idx) => {
-          const reg = computeJoGross(m.rate, m.days);
-          const ot = computeJoOvertimeGross(m.rate, m.hours);
-          pageReg += reg;
-          pageOt += ot;
-          return `
-            <tr>
-              <td class="text-center">${pi * SUMMARY_ROWS_PER_PAGE + idx + 1}</td>
-              <td>${escapeHtml(m.fullname)}</td>
-              <td class="text-right">${fmt(m.rate)}</td>
-              <td class="text-center">${fmt(m.days)}</td>
-              <td class="text-center">${fmt(m.hours)}</td>
-              <td class="text-right">${fmt(reg)}</td>
-              <td class="text-right">${fmt(ot)}</td>
-              <td class="text-right">${fmt(reg + ot)}</td>
-            </tr>`;
-        })
-        .join("");
-      grandRegular += pageReg;
-      grandOt += pageOt;
-      return `
-        <div class="summary-page" style="page-break-after: ${pi === pages.length - 1 ? "auto" : "always"};">
-          ${renderDraftWatermark(draft)}
-          <h1 class="title">JOB ORDER PAYROLL — REGULAR + OVERTIME SUMMARY</h1>
-          <h2 class="subtitle">${periodHeader}</h2>
-          ${particulars ? `<h3 class="particulars">${escapeHtml(particulars)}</h3>` : ""}
-          <table class="payroll">
-            <thead><tr>
-              <th style="width:0.4in">#</th>
-              <th>Name</th>
-              <th style="width:0.9in">Rate</th>
-              <th style="width:0.8in">Days</th>
-              <th style="width:0.8in">Hours</th>
-              <th style="width:1.1in">Regular</th>
-              <th style="width:1.1in">Overtime</th>
-              <th style="width:1.2in">Total</th>
-            </tr></thead>
-            <tbody>
-              ${rowHtml}
-              <tr class="group-total">
-                <td colspan="5" class="text-right">Page sub-total</td>
-                <td class="text-right">${fmt(pageReg)}</td>
-                <td class="text-right">${fmt(pageOt)}</td>
-                <td class="text-right">${fmt(pageReg + pageOt)}</td>
-              </tr>
-              ${
-                pi === pages.length - 1
-                  ? `<tr class="grand-total"><td colspan="5" class="text-right">GRAND TOTAL</td><td class="text-right">${fmt(grandRegular)}</td><td class="text-right">${fmt(grandOt)}</td><td class="text-right">${fmt(grandRegular + grandOt)}</td></tr>`
-                  : ""
-              }
-            </tbody>
-          </table>
-        </div>`;
-    })
-    .join("");
-
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>JO Payroll Summary (with OT)</title>
-<style>${BASE_STYLES}
-@page { size: legal landscape; margin: 0.3in; }
-.summary-page { position: relative; padding-bottom: 0.2in; }
-</style></head>
-<body>${pagesHtml}</body></html>`;
 
   printHTMLContent(html);
 }
 
 // ---------------------------------------------------------------------------
-// 9. Official Business Request (OBR) — one row per rate, sums net amounts
+// Obligation Request (OBR)
 // ---------------------------------------------------------------------------
 
-interface RenderObrParams {
-  rows: JoPayrollPrintRow[];
-  periodStart: string;
-  periodEnd: string;
-  particulars?: string | null;
-  description?: string | null;
-  overtime?: boolean;
-  draft?: boolean;
-}
+/** Job Order services — "Other General Services" in the chart of accounts. */
+const JO_OBR_ACCOUNT_CODE = "5-02-12-020";
 
-function renderObr({
+/**
+ * One OBR for the whole payroll, at GROSS.
+ *
+ * Gross, not net, because the obligation charged against the appropriation is
+ * the full payroll cost — the SSS employee share is withheld at disbursement,
+ * not subtracted from what is obligated. So unlike the Summary this total does
+ * not follow `showSss`.
+ *
+ * The form itself is the regular payroll module's OBR (`generatePayrollOBRPrint`),
+ * reused rather than reimplemented: same office, same signatories, same
+ * responsibility center, so a second copy would be one more place to update
+ * when a signatory changes. Only the payee, particulars, account code and
+ * amount differ.
+ */
+export function generateJoPayrollObrPrint({
   rows,
-  periodStart,
-  periodEnd,
   particulars,
-  description,
-  overtime,
-  draft,
-}: RenderObrParams): string {
-  const periodHeader = formatPeriodHeader(periodStart, periodEnd);
-  const groups = groupMembersByRate(rows);
+}: GenerateJoPayrollPrintParams): void {
+  // Alphabetical, matching the order the Daily Wages form prints in, so the
+  // payee is literally the first name on page 1 of the payroll.
+  const firstName =
+    [...rows].sort((a, b) => a.fullname.localeCompare(b.fullname))[0]
+      ?.fullname ?? "";
 
-  let grand = 0;
-  const groupRows = groups
-    .map((g) => {
-      // Pick the alphabetically-first member; legacy code labels the OBR with
-      // "<NAME> AND COMPANY" when more than one member shares the rate.
-      const firstName = [...g.members]
-        .sort((a, b) => a.fullname.localeCompare(b.fullname))[0]?.fullname ?? "";
-      const total = overtime
-        ? g.members.reduce(
-            (s, m) => s + computeJoOvertimeGross(m.rate, m.hours),
-            0,
-          )
-        : g.members.reduce((s, m) => s + computeJoGross(m.rate, m.days), 0);
-      grand += total;
-      const label =
-        g.members.length > 1 ? `${firstName}. AND COMPANY` : firstName;
-      return `
-        <tr>
-          <td>${escapeHtml(label)}</td>
-          <td>${escapeHtml(particulars ?? description ?? "")}</td>
-          <td class="text-right">${fmt(total)}</td>
-        </tr>`;
-    })
-    .join("");
+  const totalGross = rows.reduce(
+    (sum, m) =>
+      sum + computeJoGross(m.rate, m.days) + computeJoOvertimeGross(m.rate, m.hours),
+    0,
+  );
 
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>JO ${overtime ? "OT " : ""}OBR</title>
-<style>${BASE_STYLES}
-@page { size: legal portrait; margin: 0.4in; }
-</style></head>
-<body>
-  ${renderDraftWatermark(draft)}
-  <h1 class="title">OBLIGATION REQUEST AND STATUS</h1>
-  <h2 class="subtitle">${overtime ? "Overtime · " : ""}${periodHeader}</h2>
-  <table class="payroll">
-    <thead><tr>
-      <th>Payee</th>
-      <th>Particulars</th>
-      <th style="width:1.5in">Amount</th>
-    </tr></thead>
-    <tbody>
-      ${groupRows || `<tr><td colspan="3" class="text-center">No items.</td></tr>`}
-      <tr class="grand-total">
-        <td colspan="2" class="text-right">GRAND TOTAL</td>
-        <td class="text-right">${fmt(grand)}</td>
-      </tr>
-    </tbody>
-  </table>
-</body></html>`;
-}
-
-export function generateJoPayrollObrPrint(
-  params: GenerateJoPayrollPrintParams,
-): void {
-  printHTMLContent(renderObr({ ...params, overtime: false }));
-}
-
-export function generateJoPayrollObrOvertimePrint(
-  params: GenerateJoPayrollPrintParams,
-): void {
-  printHTMLContent(renderObr({ ...params, overtime: true }));
+  generatePayrollOBRPrint({
+    particulars: particulars ?? "",
+    totalAmount: totalGross,
+    accountCode: JO_OBR_ACCOUNT_CODE,
+    payee: firstName ? `${firstName} AND COMPANY` : "",
+  });
 }
