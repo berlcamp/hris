@@ -38,6 +38,7 @@ import {
   Hammer,
   ClipboardCheck,
   FileClock,
+  Mail,
 } from "lucide-react";
 
 import {
@@ -321,6 +322,7 @@ const navGroups: NavGroup[] = [
       { title: "Job Order Employees", href: "/job-orders", icon: HardHat, roles: jobOrderRoles },
       { title: "Area Assignments", href: "/job-orders/areas", icon: MapPin, roles: jobOrderRoles },
       { title: "Payroll", href: "/job-orders/payroll", icon: Hammer, roles: jobOrderRoles },
+      { title: "Memorandum", href: "/job-orders/memos", icon: Mail, roles: jobOrderRoles },
     ],
   },
   {
@@ -459,13 +461,13 @@ export function AppSidebar() {
                       pathname.startsWith(`${item.href}/`)) ||
                     (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits")))) ||
                     (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits")))) ||
-                    // "/job-orders/areas" and "/job-orders/payroll" are
-                    // sibling sections, not detail pages under "/job-orders"
-                    // — without this they would also highlight "Job Order
-                    // Employees" while viewing "Area Assignments" or
-                    // "Payroll", the same class of bug fixed above for
-                    // /leaves and /cto.
-                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas") && !pathname.startsWith("/job-orders/payroll"))));
+                    // "/job-orders/areas", "/job-orders/payroll" and
+                    // "/job-orders/memos" are sibling sections, not detail
+                    // pages under "/job-orders" — without this they would also
+                    // highlight "Job Order Employees" while viewing "Area
+                    // Assignments", "Payroll" or "Memorandum", the same class
+                    // of bug fixed above for /leaves and /cto.
+                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas") && !pathname.startsWith("/job-orders/payroll") && !pathname.startsWith("/job-orders/memos"))));
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
