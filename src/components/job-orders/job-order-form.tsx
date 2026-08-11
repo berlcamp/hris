@@ -102,6 +102,13 @@ export function JobOrderForm({
     (a) => a.is_active || a.id === defaultValues?.area_id,
   );
 
+  // The trigger renders the raw value unless the label is declared here, so a
+  // selected area would otherwise read as its UUID.
+  const areaItems = selectableAreas.map((a) => ({
+    value: a.id,
+    label: a.is_active ? a.name : `${a.name} (Inactive)`,
+  }));
+
   const onSubmit = async (data: JobOrderEmployeeValues) => {
     setLoading(true);
     const result =
@@ -151,6 +158,11 @@ export function JobOrderForm({
             <Label>Sex</Label>
             <Select
               value={sex ?? "none"}
+              items={[
+                { value: "none", label: "Not specified" },
+                { value: "male", label: "Male" },
+                { value: "female", label: "Female" },
+              ]}
               onValueChange={(val) =>
                 setValue(
                   "sex",
@@ -197,6 +209,7 @@ export function JobOrderForm({
               <Label>Area Assignment *</Label>
               <Select
                 value={areaId || undefined}
+                items={areaItems}
                 onValueChange={(val) =>
                   setValue("area_id", val ?? "", { shouldValidate: true })
                 }
@@ -205,10 +218,9 @@ export function JobOrderForm({
                   <SelectValue placeholder="Select area" />
                 </SelectTrigger>
                 <SelectContent>
-                  {selectableAreas.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.name}
-                      {!a.is_active && " (Inactive)"}
+                  {areaItems.map((a) => (
+                    <SelectItem key={a.value} value={a.value}>
+                      {a.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -267,6 +279,10 @@ export function JobOrderForm({
               <Label>Status</Label>
               <Select
                 value={status}
+                items={[
+                  { value: "active", label: "Active" },
+                  { value: "inactive", label: "Inactive" },
+                ]}
                 onValueChange={(val) =>
                   setValue("status", val as "active" | "inactive", {
                     shouldValidate: true,

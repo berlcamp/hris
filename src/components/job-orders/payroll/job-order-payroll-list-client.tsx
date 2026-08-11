@@ -190,7 +190,15 @@ export function JobOrderPayrollListClient({
           </Button>
         </div>
 
-        <Select value={status} onValueChange={onStatusChange}>
+        <Select
+          value={status}
+          items={[
+            { value: "all", label: "All" },
+            { value: "draft", label: "Draft" },
+            { value: "finalized", label: "Finalized" },
+          ]}
+          onValueChange={onStatusChange}
+        >
           <SelectTrigger className="h-8 w-[130px]">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
