@@ -1,19 +1,19 @@
 // Which duty dates a Department Admin may still file a correction for.
 //
 // The rule is the payroll month: a department fixes attendance while the months
-// it belongs to are still being closed, and HR owns anything older. Two payroll
-// months stay open (CORRECTION_OPEN_MONTHS) — the current one and the one
-// before it — and payroll is cut early in the following month, so the oldest
-// open month hangs on through the first week of the next one.
+// it belongs to are still being closed, and HR owns anything older. Three
+// payroll months stay open (CORRECTION_OPEN_MONTHS) — the current one and the
+// two before it — and payroll is cut early in the following month, so the
+// oldest open month hangs on through the first week of the next one.
 //
-//   Today 2026-07-31  ->  Jun 1 .. Jul 31
-//   Today 2026-08-05  ->  Jun 1 .. Aug 5     (grace week; June is still open)
-//   Today 2026-08-07  ->  Jun 1 .. Aug 7     (last day of grace)
-//   Today 2026-08-08  ->  Jul 1 .. Aug 8     (June is closed)
+//   Today 2026-07-31  ->  May 1 .. Jul 31
+//   Today 2026-08-05  ->  May 1 .. Aug 5     (grace week; May is still open)
+//   Today 2026-08-07  ->  May 1 .. Aug 7     (last day of grace)
+//   Today 2026-08-08  ->  Jun 1 .. Aug 8     (May is closed)
 //
 // Two properties that are easy to get wrong and are deliberate:
 //
-//   * During the grace week the extra month is open ON TOP of the usual two.
+//   * During the grace week the extra month is open ON TOP of the usual three.
 //     Dropping the oldest one to make room would leave a department unable to
 //     correct the month payroll is closing right now, which is the case the
 //     grace week exists for.
@@ -35,9 +35,9 @@ export const CORRECTION_GRACE_DAYS = 7;
 
 /**
  * How many payroll months a department may reach back into, counting the
- * current one. 2 = this month and last month.
+ * current one. 3 = this month and the two before it.
  */
-export const CORRECTION_OPEN_MONTHS = 2;
+export const CORRECTION_OPEN_MONTHS = 3;
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -58,7 +58,7 @@ export interface CorrectionWindow {
  * shift a day in a runtime whose timezone differs from the one `today` was
  * computed in. Year rollover falls out of the month arithmetic — counting in
  * absolute months makes it fall out for any number of months back, so on
- * 2027-01-09 the window still opens on 2026-12-01.
+ * 2027-01-09 the window still opens on 2026-11-01.
  */
 export function correctionWindow(today: string): CorrectionWindow {
   const [year, month, day] = today.split("-").map(Number) as [

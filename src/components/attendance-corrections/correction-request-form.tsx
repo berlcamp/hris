@@ -552,7 +552,7 @@ export function CorrectionRequestForm({
               <span className="font-medium text-foreground">
                 {describeCorrectionWindow(correctionWindow)}
               </span>
-              . The current payroll month and the one before it stay open, and
+              . The current payroll month and the two before it stay open, and
               the oldest of them hangs on through the first 7 days of the month
               after it — ask HR to correct anything older.
             </p>
