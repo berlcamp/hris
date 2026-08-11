@@ -26,6 +26,9 @@ npm run lint     # eslint (flat config, eslint-config-next core-web-vitals + typ
 
 ### Local Supabase stack (Docker) + tests
 
+> **All testing happens here, never against `.env.local`** — that env points at the
+> production database. See "`.env.local` is the PRODUCTION database" in `AGENTS.md`.
+
 Requires **Node 22** (`nvm use` — the tests use `--experimental-strip-types`) and Docker
 via **Colima** (`colima start`, no Docker Desktop / no sudo). The Supabase CLI is a
 devDependency, so `npm run db:*` resolves it from `node_modules/.bin`.
