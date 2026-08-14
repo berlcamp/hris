@@ -32,12 +32,16 @@ import {
   type CorrectionWindow,
 } from "@/lib/correction-window";
 import { manilaToday } from "@/lib/format-date";
+import {
+  PROOF_BUCKET,
+  proofObjectPath,
+  proofRejection,
+} from "@/lib/attendance-proof";
 import type { CorrectionReason } from "@/lib/constants";
 import type { UserRole } from "@/lib/types";
 
-const PROOF_BUCKET = "attendance-proofs";
-const MAX_PROOF_BYTES = 10 * 1024 * 1024;
-const ALLOWED_PROOF_TYPES = ["application/pdf", "image/jpeg", "image/png"];
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Columns compared by the apply-time drift check. Keep in sync with migration 067. */
 function snapshotOf(log: Record<string, unknown>) {
@@ -293,9 +297,63 @@ export async function getCorrectionDraftDays(
   });
 }
 
+/** What the browser gets back to upload a proof with — see createProofUploadTicket. */
+export interface ProofUploadTicket {
+  /** The id the request row will be created under, and the proof's folder. */
+  requestId: string;
+  path: string;
+  /** One-shot upload credential for exactly that path. */
+  token: string;
+}
+
+/** The reference a filed request carries instead of the file itself. */
+export interface CorrectionProofRef {
+  requestId: string;
+  path: string;
+  /** The name to show a reader. Cosmetic — the stored key is sanitized. */
+  filename: string;
+}
+
+// Mints a one-shot credential the BROWSER uses to put the supporting document
+// straight into Storage, so the file never travels through a Server Action body.
+//
+// It cannot: Next caps an action's request body (serverActions.bodySizeLimit)
+// and Vercel caps it again, lower, at the platform edge. A 9 MB scan sent as an
+// action argument is rejected before the action runs, and the only thing the
+// browser can say about that is "An unexpected response was received from the
+// server" — no message this code writes ever reaches the user. Uploading
+// directly sidesteps both limits and keeps the documented 10 MB allowance real.
+//
+// Authority is checked here, not at the edge: the token is issued only for a
+// path under an employee this caller may file for, and only to a caller who may
+// file at all.
+export async function createProofUploadTicket(
+  employeeId: string,
+  filename: string,
+): Promise<ProofUploadTicket> {
+  const user = await getCurrentUser();
+  if (!user || !canFileAttendanceCorrection(user)) {
+    throw new Error("Unauthorized");
+  }
+  await assertReach(employeeId);
+
+  const requestId = crypto.randomUUID();
+  const path = proofObjectPath(employeeId, requestId, filename);
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.storage
+    .from(PROOF_BUCKET)
+    .createSignedUploadUrl(path);
+  if (error || !data) {
+    throw new Error(
+      `Could not start the upload: ${error?.message ?? "no upload URL was issued"}`,
+    );
+  }
+  return { requestId, path, token: data.token };
+}
+
 export async function createCorrectionRequest(
   input: CorrectionRequestInput,
-  proof: FormData,
+  proof: CorrectionProofRef | null,
 ) {
   const user = await getCurrentUser();
   if (!user || !canFileAttendanceCorrection(user)) {
@@ -321,21 +379,52 @@ export async function createCorrectionRequest(
   // reviewer-level role filing directly is the party that would have judged it.
   // Migration 068's acr_proof_unless_direct enforces the same rule in the
   // schema, so this cannot be bypassed by calling the action directly.
-  const file = proof.get("proof");
-  const hasFile = file instanceof File && file.size > 0;
-  if (!hasFile && !directApply) {
+  if (!proof && !directApply) {
     throw new Error("A supporting document is required");
-  }
-  if (hasFile) {
-    if (file.size > MAX_PROOF_BYTES) {
-      throw new Error("The supporting document must be 10 MB or smaller");
-    }
-    if (!ALLOWED_PROOF_TYPES.includes(file.type)) {
-      throw new Error("The supporting document must be a PDF, JPEG or PNG");
-    }
   }
 
   const supabase = createAdminClient();
+
+  // The document itself was uploaded by the browser (see createProofUploadTicket);
+  // what arrives here is a claim about an object in the bucket. Verify the claim
+  // rather than record it: the path must sit under the ticket's own folder for
+  // THIS employee, the object must actually exist, and its size and type are
+  // read back from Storage instead of taken from the client. The request id
+  // comes from the ticket too, so a replayed one collides with the primary key
+  // of the row it already created.
+  const requestId = proof?.requestId ?? crypto.randomUUID();
+  const path = proof?.path ?? null;
+  let proofSize: number | null = null;
+  let proofMime: string | null = null;
+  if (proof && path) {
+    if (
+      !UUID_RE.test(proof.requestId) ||
+      !path.startsWith(`${parsed.employee_id}/${proof.requestId}/`)
+    ) {
+      throw new Error("That supporting document does not belong to this request");
+    }
+    // list() rather than info(): the latter is a newer Storage endpoint, and a
+    // verification step that can 404 on an older project would recreate exactly
+    // the failure this rewrite exists to remove.
+    const slash = path.lastIndexOf("/");
+    const objectName = path.slice(slash + 1);
+    const { data: objects } = await supabase.storage
+      .from(PROOF_BUCKET)
+      .list(path.slice(0, slash), { limit: 100, search: objectName });
+    const object = (objects ?? []).find((o) => o.name === objectName);
+    if (!object) {
+      throw new Error(
+        "The supporting document did not finish uploading. Attach it again.",
+      );
+    }
+    proofSize = (object.metadata?.size as number | undefined) ?? null;
+    proofMime = (object.metadata?.mimetype as string | undefined) ?? null;
+    const rejection = proofRejection(proofSize, proofMime);
+    if (rejection) {
+      await supabase.storage.from(PROOF_BUCKET).remove([path]);
+      throw new Error(rejection);
+    }
+  }
 
   // Effective department, snapshot at submit time so a later re-detail does not
   // orphan the request.
@@ -390,16 +479,6 @@ export async function createCorrectionRequest(
     }
   }
 
-  // Upload first: a failed upload must not leave a request row behind.
-  const requestId = crypto.randomUUID();
-  const path = hasFile ? `${parsed.employee_id}/${requestId}/${file.name}` : null;
-  if (hasFile && path) {
-    const { error: uploadError } = await supabase.storage
-      .from(PROOF_BUCKET)
-      .upload(path, file, { contentType: file.type, upsert: false });
-    if (uploadError) throw new Error(`Could not upload the proof: ${uploadError.message}`);
-  }
-
   const { error: reqError } = await supabase
     .schema("hris")
     .from("attendance_correction_requests")
@@ -412,9 +491,9 @@ export async function createCorrectionRequest(
       reason: parsed.reason,
       direct_apply: directApply,
       proof_path: path,
-      proof_filename: hasFile ? file.name : null,
-      proof_mime: hasFile ? file.type : null,
-      proof_size: hasFile ? file.size : null,
+      proof_filename: proof?.filename ?? null,
+      proof_mime: proofMime,
+      proof_size: proofSize,
       requested_by: user.id,
       requested_by_email: user.email,
     });
@@ -507,7 +586,7 @@ export async function createCorrectionRequest(
       date_to: parsed.date_to,
       days: parsed.items.length,
       direct_apply: directApply,
-      has_proof: hasFile,
+      has_proof: !!proof,
       ...(outcome ? { outcome } : {}),
     },
   });

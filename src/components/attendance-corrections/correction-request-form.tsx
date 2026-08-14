@@ -40,10 +40,18 @@ import {
 } from "@/components/ui/popover";
 import {
   createCorrectionRequest,
+  createProofUploadTicket,
   getCorrectionDraftDays,
   type CorrectableEmployee,
   type CorrectionDraftDay,
+  type CorrectionProofRef,
 } from "@/lib/actions/attendance-correction-actions";
+import { createClient } from "@/lib/supabase/client";
+import {
+  ALLOWED_PROOF_TYPES,
+  PROOF_BUCKET,
+  proofRejection,
+} from "@/lib/attendance-proof";
 import { commandSubstringFilter } from "@/lib/command-filter";
 import { employeeSearchKeywords } from "@/lib/employee-name-match";
 import type { ScheduleRow } from "@/lib/actions/schedule-actions";
@@ -207,6 +215,7 @@ export function CorrectionRequestForm({
   const [reason, setReason] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const selectedEmployee = employees.find((e) => e.id === employeeId);
 
@@ -477,6 +486,16 @@ export function CorrectionRequestForm({
       toast.error("Attach the supporting document.");
       return;
     }
+    // Judged here as well as on the server, because the server only ever sees
+    // the uploaded object: a file that breaks the rules should be refused
+    // before it is sent anywhere, not after a 10 MB round trip.
+    if (file) {
+      const rejection = proofRejection(file.size, file.type);
+      if (rejection) {
+        toast.error(rejection);
+        return;
+      }
+    }
 
     const byDate = new Map((days ?? []).map((d) => [d.date, d]));
     const items: CorrectionItemFormValues[] = includedDates.map((date) => {
@@ -502,11 +521,41 @@ export function CorrectionRequestForm({
       };
     });
 
-    const proof = new FormData();
-    if (file) proof.append("proof", file);
-
     setSubmitting(true);
     try {
+      // The document goes straight from this browser into Storage, using a
+      // one-shot URL the server mints for a path it chooses. It deliberately
+      // does NOT ride along as a Server Action argument: Next caps an action's
+      // request body and Vercel caps it again, lower, at the edge — a scan over
+      // that cap was rejected before the action ran, and all the user saw was
+      // "An unexpected response was received from the server". The action below
+      // then carries only a reference, and re-reads the file's real size and
+      // type from Storage.
+      let proofRef: CorrectionProofRef | null = null;
+      if (file) {
+        setUploading(true);
+        try {
+          const ticket = await createProofUploadTicket(employeeId, file.name);
+          const { error: uploadError } = await createClient()
+            .storage.from(PROOF_BUCKET)
+            .uploadToSignedUrl(ticket.path, ticket.token, file, {
+              contentType: file.type,
+            });
+          if (uploadError) {
+            throw new Error(
+              `Could not upload the supporting document: ${uploadError.message}`,
+            );
+          }
+          proofRef = {
+            requestId: ticket.requestId,
+            path: ticket.path,
+            filename: file.name,
+          };
+        } finally {
+          setUploading(false);
+        }
+      }
+
       const { id, outcome } = await createCorrectionRequest(
         {
           employee_id: employeeId,
@@ -515,7 +564,7 @@ export function CorrectionRequestForm({
           reason: reason.trim(),
           items,
         },
-        proof,
+        proofRef,
       );
       if (!directApply) {
         toast.success("Correction request submitted for HR review.");
@@ -1034,7 +1083,7 @@ export function CorrectionRequestForm({
               <Input
                 id="proof"
                 type="file"
-                accept="application/pdf,image/jpeg,image/png"
+                accept={ALLOWED_PROOF_TYPES.join(",")}
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
               <p className="text-xs text-muted-foreground">
@@ -1055,7 +1104,11 @@ export function CorrectionRequestForm({
             <div className="flex justify-end">
               <Button onClick={handleSubmit} disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                {directApply ? "Save attendance" : "Submit for review"}
+                {uploading
+                  ? "Uploading document…"
+                  : directApply
+                    ? "Save attendance"
+                    : "Submit for review"}
               </Button>
             </div>
           </CardContent>
