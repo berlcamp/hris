@@ -24,10 +24,45 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DataTable } from "@/components/tables/data-table";
+import { ExportExcelButton } from "@/components/tables/export-excel-button";
 import { jobOrderColumns } from "@/components/tables/columns/job-order-columns";
 import { JobOrderForm } from "@/components/job-orders/job-order-form";
 import { deleteJobOrderEmployee } from "@/lib/actions/job-order-actions";
+import { formatJoAddress } from "@/lib/job-order-helpers";
+import type { XlsxColumn } from "@/lib/xlsx";
 import type { JobOrderArea, JobOrderEmployee } from "@/lib/types";
+
+/**
+ * The export carries the payout-side fields (bank, SSS, community tax) that the
+ * table leaves out — the sheet is what payroll works from.
+ */
+const EXPORT_COLUMNS: XlsxColumn<JobOrderEmployee>[] = [
+  { header: "Name", value: (e) => e.full_name },
+  { header: "Sex", value: (e) => (e.sex === "male" ? "Male" : e.sex === "female" ? "Female" : "") },
+  { header: "Purok", value: (e) => e.purok },
+  { header: "Barangay", value: (e) => e.barangay },
+  { header: "Address", value: (e) => formatJoAddress(e.purok, e.barangay) },
+  { header: "Area", value: (e) => e.area_name },
+  { header: "Sub-Area", value: (e) => e.sub_area },
+  // Numbers, not formatted strings, so Excel can sum/average the columns.
+  { header: "Daily Rate", value: (e) => e.daily_rate },
+  { header: "Previous Daily Rate", value: (e) => e.previous_daily_rate },
+  { header: "Working Hours", value: (e) => e.working_hours },
+  { header: "Date Started", value: (e) => e.date_started },
+  { header: "Eligibility", value: (e) => e.eligibility },
+  { header: "Recommended By", value: (e) => e.recommended_by },
+  { header: "ATM", value: (e) => (e.has_atm ? "Yes" : "No") },
+  { header: "Landbank Account No.", value: (e) => e.landbank_account_number },
+  { header: "SSS No.", value: (e) => e.sss_no },
+  { header: "SSS SS", value: (e) => e.sss_ss },
+  { header: "SSS EC", value: (e) => e.sss_ec },
+  { header: "Community Tax No.", value: (e) => e.community_tax_number },
+  { header: "Community Tax Date", value: (e) => e.community_tax_date },
+  { header: "Place Issued", value: (e) => e.community_tax_place_issued },
+  { header: "Status", value: (e) => (e.status === "active" ? "Active" : "Inactive") },
+  { header: "Remarks", value: (e) => e.remarks },
+  { header: "Remarks 2", value: (e) => e.remarks_2 },
+];
 
 interface JobOrderListClientProps {
   initialEmployees: JobOrderEmployee[];
@@ -111,12 +146,20 @@ export function JobOrderListClient({
             ],
           },
         ]}
-        toolbar={
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" />
-            New Employee
-          </Button>
-        }
+        toolbar={(table) => (
+          <>
+            <ExportExcelButton
+              rows={table.getFilteredRowModel().rows.map((r) => r.original)}
+              columns={EXPORT_COLUMNS}
+              filename="job-order-employees"
+              sheetName="Job Order Employees"
+            />
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              New Employee
+            </Button>
+          </>
+        )}
       />
 
       <Dialog
