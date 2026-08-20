@@ -91,6 +91,7 @@ export interface BulkDtrEmployee {
   first_name: string;
   last_name: string;
   middle_name: string | null;
+  suffix: string | null;
   departments: { name: string } | null;
   positions: { title: string } | null;
   plantilla: { position_title: string | null }[] | null;
@@ -143,7 +144,7 @@ export type DtrEmployeeRow = BulkDtrEmployee &
  * three hand-written select strings that must agree.
  */
 export const DTR_EMPLOYEE_SELECT =
-  "id, first_name, last_name, middle_name, department_id, detailed_department_id, " +
+  "id, first_name, last_name, middle_name, suffix, department_id, detailed_department_id, " +
   "user_profile_id, is_department_head, " +
   "departments!employees_department_id_fkey(id, name, code), " +
   "detailed_department:departments!employees_detailed_department_id_fkey(id, name, code), " +
@@ -728,6 +729,7 @@ export async function buildDtrResults(
         first_name: emp.first_name,
         last_name: emp.last_name,
         middle_name: emp.middle_name,
+        suffix: emp.suffix,
         departments: emp.departments,
         positions: emp.positions,
         plantilla: emp.plantilla,

@@ -30,7 +30,12 @@ export function BulkDtrPdf({ results, periodLabel }: BulkDtrPdfProps) {
   return (
     <Document>
       {results.map(({ employee, entries, summary, schedule, signatory }) => {
-        const fullName = [employee.first_name, employee.middle_name, employee.last_name]
+        const fullName = [
+          employee.first_name,
+          employee.middle_name,
+          employee.last_name,
+          employee.suffix,
+        ]
           .filter(Boolean)
           .join(" ");
 

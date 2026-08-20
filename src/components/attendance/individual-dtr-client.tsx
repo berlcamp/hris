@@ -18,7 +18,10 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
-import { employeeSearchKeywords } from "@/lib/employee-name-match";
+import {
+  employeeSearchKeywords,
+  formatEmployeeDisplayName,
+} from "@/lib/employee-name-match";
 import { commandSubstringFilter } from "@/lib/command-filter";
 import { getEmployeeDtrRange } from "@/lib/actions/attendance-actions";
 import { formatManilaLongDate } from "@/lib/format-date";
@@ -111,7 +114,7 @@ export function IndividualDtrClient({
                   }
                 >
                   {selectedEmployee
-                    ? `${selectedEmployee.last_name}, ${selectedEmployee.first_name}`
+                    ? formatEmployeeDisplayName(selectedEmployee)
                     : "Select employee..."}
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </PopoverTrigger>
@@ -140,7 +143,7 @@ export function IndividualDtrClient({
                               )}
                             />
                             <p className="text-sm">
-                              {emp.last_name}, {emp.first_name}
+                              {formatEmployeeDisplayName(emp)}
                             </p>
                           </CommandItem>
                         ))}
@@ -152,7 +155,7 @@ export function IndividualDtrClient({
             ) : (
               <div className="w-[280px] h-9 flex items-center px-3 border rounded-md bg-muted/50 text-sm">
                 {selectedEmployee
-                  ? `${selectedEmployee.last_name}, ${selectedEmployee.first_name}`
+                  ? formatEmployeeDisplayName(selectedEmployee)
                   : "—"}
               </div>
             )}

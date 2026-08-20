@@ -49,6 +49,7 @@ import {
   type DtrEmployeeRow,
   type DtrSignatoryDeptRow,
 } from "@/lib/dtr-builder";
+import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
 import { manilaToday } from "@/lib/format-date";
 import {
   endOfMonth,
@@ -226,7 +227,7 @@ export async function getMonthlyDtrRoster(
     department,
     employees: employees.map((emp) => ({
       id: emp.id,
-      name: `${emp.last_name}, ${emp.first_name}`,
+      name: formatEmployeeDisplayName(emp),
       position: positionOf(emp),
     })),
   };
