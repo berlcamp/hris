@@ -171,6 +171,9 @@ function buildStyles(): string {
     /* The template sets the whole TO/FROM/SUBJECT/DATE block in regular
        weight — only the MEMORANDUM NO. heading is bold. */
     .fields .value { font-weight: normal; }
+    /* The addressee's name carries the block; his title and office sit a step
+       down from it, as they do on the office's Word template. */
+    .fields .addressee-sub { font-size: 10pt; }
     .xrule {
       display: flex;
       align-items: center;
@@ -281,8 +284,8 @@ function buildAddressee(memoType: JobOrderMemoType): string {
   }
   return `
         <div>${escapeHtml(CITY_ADMINISTRATOR.name)}</div>
-        <div>${escapeHtml(CITY_ADMINISTRATOR.title)}</div>
-        <div>${escapeHtml(CITY_ADMINISTRATOR.office)}</div>`;
+        <div class="addressee-sub">${escapeHtml(CITY_ADMINISTRATOR.title)}</div>
+        <div class="addressee-sub">${escapeHtml(CITY_ADMINISTRATOR.office)}</div>`;
 }
 
 function buildBody(
