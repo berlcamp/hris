@@ -185,3 +185,96 @@ test("schema: creating a memo requires at least one employee", () => {
     true,
   );
 });
+
+// --- page geometry: what the printed sheet must guarantee -------------------
+// The layout rules themselves (a fixed validity band, the copies-furnished
+// list pushed down by `margin-top: auto`) only resolve in the print engine, so
+// what is asserted here is the structure they depend on: the last few rows and
+// the signature share one unbreakable group, and the two footer blocks are
+// separate — one repeats per page, the other prints once at the end.
+
+/** The unbreakable group: tail rows, closing, signature, copies furnished. */
+function tailGroup(html: string): string {
+  const start = html.indexOf('<div class="tail">');
+  const end = html.indexOf("</td></tr></tbody>");
+  assert.ok(start !== -1 && end > start, "expected a .tail group inside the frame");
+  return html.slice(start, end);
+}
+
+const manyRows = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({
+    full_name: `EMPLOYEE, NUMBER ${i + 1}`,
+    office_assignment: "OFFICE OF THE CITY MAYOR",
+    daily_rate: 480,
+  }));
+
+test("a long list keeps its last three rows in the same group as the signature", () => {
+  const html = renderJobOrderMemo({
+    memoType: "retain",
+    memoNo: "X",
+    subject: "S",
+    memoDate: "2026-07-24",
+    periodCovered: "AUGUST 2026",
+    rows: manyRows(10),
+  });
+
+  const tail = tailGroup(html);
+  // Rows 8, 9, 10 travel with the signature; 7 stays in the main table.
+  assert.match(tail, /<td class="no">8<\/td>/);
+  assert.match(tail, /<td class="no">10<\/td>/);
+  assert.doesNotMatch(tail, /<td class="no">7<\/td>/);
+  assert.match(tail, /SAM NORMAN G\. FUENTES/);
+  // The continuation table repeats no header row — the main table's own
+  // <thead> is what re-prints on each page it spans.
+  assert.match(tail, /class="members continued"/);
+  assert.doesNotMatch(tail, /<th>NAMES<\/th>/);
+  // Numbering runs 1..10 once each, across both tables.
+  for (let i = 1; i <= 10; i++) {
+    const hits = html.match(new RegExp(`<td class="no">${i}</td>`, "g")) ?? [];
+    assert.equal(hits.length, 1, `row ${i} printed ${hits.length} times`);
+  }
+});
+
+test("a short list is not split — the whole table rides with the signature", () => {
+  const html = renderJobOrderMemo({
+    memoType: "new",
+    memoNo: "X",
+    subject: "S",
+    memoDate: "2026-07-22",
+    periodCovered: "July 2026",
+    rows: manyRows(3),
+  });
+
+  const tail = tailGroup(html);
+  assert.match(tail, /<th>NAMES<\/th>/);
+  assert.match(tail, /<td class="no">1<\/td>/);
+  assert.doesNotMatch(html, /class="members continued"/);
+  // Exactly one table in the document.
+  assert.equal((html.match(/<table class="members/g) ?? []).length, 1);
+});
+
+test("copies furnished prints once, above the per-page validity note", () => {
+  const html = renderJobOrderMemo({
+    memoType: "retain",
+    memoNo: "X",
+    subject: "S",
+    memoDate: "2026-07-24",
+    periodCovered: "AUGUST 2026",
+    rows: manyRows(8),
+  });
+
+  const copies = html.indexOf('<div class="copies">');
+  const validity = html.indexOf('<div class="validity">');
+  assert.ok(copies !== -1 && validity > copies);
+  const signature = html.indexOf('<div class="signature">');
+  assert.ok(signature !== -1 && copies > signature);
+  assert.match(html, /Copies furnished:/);
+  assert.equal((html.match(/Copies furnished:/g) ?? []).length, 1);
+  // The note lives in the frame table's <tfoot>: that is what makes the print
+  // engine reprint it at the foot of every page and reserve its height, so a
+  // row can never run under it.
+  assert.match(html, /<tfoot><tr><td>\s*<div class="validity">/);
+  assert.match(html, /<\/table>\s*<\/body>/);
+  // Copies furnished rides inside the unbreakable group, never on its own page.
+  assert.match(tailGroup(html), /Copies furnished:/);
+});
