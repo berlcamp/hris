@@ -23,9 +23,14 @@ import { formatManilaLongDate } from "@/lib/format-date";
 interface LeavePdfButtonProps {
   leave: LeaveApplicationWithRelations;
   credits: LeaveCreditRow[];
+  /**
+   * Paid days already charged against each leave type before this application,
+   * keyed by leave_type_id — see getPaidUsageBeforeApplication().
+   */
+  priorPaidUsage: Record<string, number>;
 }
 
-export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
+export function LeavePdfButton({ leave, credits, priorPaidUsage }: LeavePdfButtonProps) {
   const [open, setOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [signatory7A, setSignatory7A] = useState("");
@@ -46,24 +51,27 @@ export function LeavePdfButton({ leave, credits }: LeavePdfButtonProps) {
 
   // CSC Form 6 §7.A is a running ledger: Total Earned − Less this application = Balance.
   // Only the paid portion (days_with_pay) consumes credits; LWOP excess is shown
-  // separately in §7.C. The DB `balance` already excludes approved paid usage, so
-  // for an already-approved leave we add the paid days back to recover the
-  // pre-deduction "Total Earned" value.
+  // separately in §7.C.
+  //
+  // "Total Earned" is the credits still available at this application's place in
+  // the filing queue: total_credits minus the paid days of the applications
+  // deducted ahead of it (priorPaidUsage). Deriving it from the *current*
+  // balance instead would make an already-printed form shrink every time a
+  // later leave is approved, and would double-count that later leave.
   const code = leave.leave_types?.code ?? "";
   // §7.A only certifies VL and SL credits — any other leave type (FL, SPL, ML,
   // PL, …) leaves the ledger untouched on the printed form.
   const debitsVl = code === "VL";
   const debitsSl = code === "SL";
-  const isApproved = leave.status === "approved";
   const daysWithPay = Number(leave.days_with_pay ?? leave.days_applied);
 
-  const vlBalanceNow = vlCredit ? Number(vlCredit.balance) : 0;
-  const slBalanceNow = slCredit ? Number(slCredit.balance) : 0;
-  const addBackVl = isApproved && debitsVl ? daysWithPay : 0;
-  const addBackSl = isApproved && debitsSl ? daysWithPay : 0;
+  const earnedAsOfFiling = (credit: LeaveCreditRow | undefined) =>
+    credit
+      ? Number(credit.total_credits) - (priorPaidUsage[credit.leave_type_id] ?? 0)
+      : 0;
 
-  const vlTotalEarned = vlBalanceNow + addBackVl;
-  const slTotalEarned = slBalanceNow + addBackSl;
+  const vlTotalEarned = earnedAsOfFiling(vlCredit);
+  const slTotalEarned = earnedAsOfFiling(slCredit);
   const vlBalanceAfter = vlTotalEarned - (debitsVl ? daysWithPay : 0);
   const slBalanceAfter = slTotalEarned - (debitsSl ? daysWithPay : 0);
 

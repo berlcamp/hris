@@ -18,7 +18,11 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-import { getLeaveApplicationById, getEmployeeLeaveCredits } from "@/lib/actions/leave-actions";
+import {
+  getLeaveApplicationById,
+  getEmployeeLeaveCredits,
+  getPaidUsageBeforeApplication,
+} from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { isDeptScoped } from "@/lib/auth-helpers";
 import { getEffectivePosition } from "@/lib/employee-position";
@@ -65,6 +69,10 @@ export default async function LeaveDetailPage({
   const year = new Date(leave.start_date).getFullYear();
   const allCredits = await getEmployeeLeaveCredits(leave.employee_id, year);
   const credit = allCredits.find((c) => c.leave_type_id === leave.leave_type_id);
+
+  // Credits consumed ahead of this application in the filing queue — CSC Form 6
+  // §7.A certifies the balance "as of" the filing date, not today's.
+  const priorPaidUsage = await getPaidUsageBeforeApplication(leave.id);
 
   // The view's `balance` already subtracts approved leave usage, so projecting
   // "balance after this leave" only makes sense before a decision is made.
@@ -130,6 +138,7 @@ export default async function LeaveDetailPage({
             <LeavePdfButton
               leave={leave}
               credits={allCredits}
+              priorPaidUsage={priorPaidUsage}
             />
           )}
           <LeaveApprovalActions

@@ -207,6 +207,85 @@ export async function getEmployeeLeaveCredits(employeeId: string, year: number) 
 }
 
 /**
+ * Paid days already charged against each leave type *before* a given
+ * application, keyed by `leave_type_id`.
+ *
+ * CSC Form 6 §7.A is a running ledger certified "as of" the filing date, so
+ * the printed "Total Earned" must be the credits still available at that
+ * point in the queue — `total_credits` minus the applications deducted ahead
+ * of this one — not today's balance. Using today's balance would make an
+ * already-printed form change value every time a *later* leave is approved.
+ *
+ * Ordering is by filing time (`created_at`, tie-broken by id) so each approved
+ * application sees only the ones filed before it. An application that is not
+ * approved has not been deducted at all, so every approved application counts
+ * as prior to it — that reduces to the current balance, which is what an
+ * approver should be certifying.
+ *
+ * Only approved applications and only the `days_with_pay` portion count, and
+ * the year is scoped by `start_date`, matching `hris.leave_credit_balances`.
+ */
+export async function getPaidUsageBeforeApplication(
+  leaveId: string
+): Promise<Record<string, number>> {
+  const user = await getCurrentUser();
+  if (!user) return {};
+
+  const supabase = createAdminClient();
+
+  const { data: target } = await supabase
+    .schema("hris")
+    .from("leave_applications")
+    .select("id, employee_id, start_date, created_at, status")
+    .eq("id", leaveId)
+    .maybeSingle();
+  if (!target) return {};
+
+  // Same department scoping as getEmployeeLeaveCredits — this returns credit
+  // usage for an employee, so it must not be readable across departments.
+  if (isDeptScoped(user.role) && !isCompositeDeptAdminHead(user.role)) {
+    if (!user.departmentId) return {};
+    const { data: emp } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("department_id")
+      .eq("id", target.employee_id)
+      .maybeSingle();
+    if (!emp || emp.department_id !== user.departmentId) return {};
+  }
+
+  const year = String(target.start_date).slice(0, 4);
+
+  const { data: siblings, error } = await supabase
+    .schema("hris")
+    .from("leave_applications")
+    .select("id, leave_type_id, days_with_pay, start_date, created_at")
+    .eq("employee_id", target.employee_id)
+    .eq("status", "approved");
+  if (error) throw error;
+
+  const targetIsApproved = target.status === "approved";
+  const targetKey = Date.parse(target.created_at);
+
+  const usage: Record<string, number> = {};
+  for (const s of siblings ?? []) {
+    if (s.id === target.id) continue;
+    if (String(s.start_date).slice(0, 4) !== year) continue;
+    if (targetIsApproved) {
+      // Strictly earlier in the filing queue; identical timestamps fall back
+      // to a stable id comparison so the two forms never both claim the
+      // same starting balance.
+      const key = Date.parse(s.created_at);
+      const isPrior = key < targetKey || (key === targetKey && s.id < target.id);
+      if (!isPrior) continue;
+    }
+    usage[s.leave_type_id] =
+      (usage[s.leave_type_id] ?? 0) + Number(s.days_with_pay ?? 0);
+  }
+  return usage;
+}
+
+/**
  * Provision a year's leave-credit baseline for one employee.
  *
  * Behavior (ledger-based):
