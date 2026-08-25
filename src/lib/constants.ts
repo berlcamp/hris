@@ -128,8 +128,9 @@ export const NOSI_BASIS_SALARY_REASONS = [
 ] as const;
 
 // Reasons a manual attendance entry has no time punches but is not an absence
-// (employee out on official duty, or the slot fell on a declared holiday). The
-// label is what prints on the DTR row.
+// (employee out on official duty, the slot fell on a declared holiday, or the
+// employee had already retired by that date). The label is what prints on the
+// DTR row.
 export const NO_TIME_REASONS = [
   "travel",
   "field_work",
@@ -140,6 +141,7 @@ export const NO_TIME_REASONS = [
   "saturday",
   "sunday",
   "leave",
+  "retired",
 ] as const;
 
 export type NoTimeReason = (typeof NO_TIME_REASONS)[number];
@@ -154,6 +156,7 @@ export const NON_DUTY_REASONS = [
   "sunday",
   "leave",
   "holiday",
+  "retired",
 ] as const;
 
 export const NO_TIME_REASON_LABELS: Record<NoTimeReason, string> = {
@@ -166,6 +169,7 @@ export const NO_TIME_REASON_LABELS: Record<NoTimeReason, string> = {
   saturday: "SATURDAY",
   sunday: "SUNDAY",
   leave: "LEAVE",
+  retired: "RETIRED",
 };
 
 // Short labels printed inside a single DTR time cell.
@@ -179,6 +183,7 @@ export const NO_TIME_REASON_SHORT: Record<NoTimeReason, string> = {
   saturday: "SAT",
   sunday: "SUN",
   leave: "LEAVE",
+  retired: "RETIRED",
 };
 
 // Reason codes a Department Admin may choose on a correction request.
@@ -194,6 +199,7 @@ export const CORRECTION_REASONS = [
   "saturday",
   "sunday",
   "leave",
+  "retired",
 ] as const;
 
 export type CorrectionReason = (typeof CORRECTION_REASONS)[number];
