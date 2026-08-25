@@ -173,7 +173,7 @@ function buildStyles(): string {
     .fields .value { font-weight: normal; }
     /* The addressee's name carries the block; his title and office sit a step
        down from it, as they do on the office's Word template. */
-    .fields .addressee-sub { font-size: 10pt; }
+    .fields .addressee-sub { font-size: 10pt; font-style: italic; }
     .xrule {
       display: flex;
       align-items: center;
