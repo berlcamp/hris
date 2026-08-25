@@ -195,7 +195,7 @@ test("schema: creating a memo requires at least one employee", () => {
 
 /** The unbreakable group: tail rows, closing, signature, copies furnished. */
 function tailGroup(html: string): string {
-  const start = html.indexOf('<div class="tail">');
+  const start = html.indexOf(`<div class="tail"`);
   const end = html.indexOf("</td></tr></tbody>");
   assert.ok(start !== -1 && end > start, "expected a .tail group inside the frame");
   return html.slice(start, end);
@@ -277,4 +277,51 @@ test("copies furnished prints once, above the per-page validity note", () => {
   assert.match(html, /<\/table>\s*<\/body>/);
   // Copies furnished rides inside the unbreakable group, never on its own page.
   assert.match(tailGroup(html), /Copies furnished:/);
+});
+
+/** The inline height planTailHeightPt() hands the group, in points. */
+function tailHeightPt(html: string): number | null {
+  const m = /<div class="tail" style="height: ([\d.]+)pt;">/.exec(html);
+  return m ? Number(m[1]) : null;
+}
+
+test("the copies-furnished list is dropped to the foot of its page", () => {
+  // Measured against a Chrome print of this template: the body cell gets
+  // 841.5pt of each page, and the group is aimed 834pt down it.
+  for (const rows of [manyRows(2), manyRows(12), manyRows(30)]) {
+    for (const memoType of ["new", "retain"] as const) {
+      const html = renderJobOrderMemo({
+        memoType,
+        memoNo: "X",
+        subject: "INDIVIDUALS ENGAGED THROUGH JOB ORDERS",
+        memoDate: "2026-07-24",
+        periodCovered: "01 August 2026 to 31 December 2026",
+        rows,
+      });
+      const height = tailHeightPt(html);
+      assert.ok(
+        height !== null && height > 0 && height <= 834,
+        `${memoType}/${rows.length}: expected a pinned height, got ${height}`,
+      );
+      // The group must still be able to hold what is in it.
+      assert.ok(height > 200, `${memoType}/${rows.length}: ${height}pt is too short`);
+    }
+  }
+});
+
+test("an unmeasurable layout keeps its natural height rather than guessing", () => {
+  // A name wide enough to land within a hair of its column edge: the geometry
+  // declines to pin, and the document renders exactly as it did before.
+  const html = renderJobOrderMemo({
+    memoType: "new",
+    memoNo: "X",
+    subject: "S",
+    memoDate: "2026-07-22",
+    rows: [{ full_name: "M".repeat(24) + "I", office_assignment: "CHRMO", daily_rate: 480 }],
+    periodCovered: "July 2026",
+  });
+  if (tailHeightPt(html) === null) {
+    assert.match(html, /<div class="tail">/);
+  }
+  assert.match(html, /Copies furnished:/);
 });

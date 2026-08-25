@@ -134,18 +134,11 @@ function buildStyles(): string {
       border: none;
       vertical-align: top;
     }
-    /* A column flex box one page-content tall less the footer band (a hair
-       under, so a rounding error cannot spill a blank page): the
-       margin-top:auto on .copies then drops the copies-furnished list to the
-       foot of the page on a memo that fits on one. On a memo that runs over,
-       there is no free space left to absorb and the list simply follows the
-       signature on the last page. .sheet keeps every other block in normal
-       flow, so the margins between them collapse exactly as they did before. */
-    .frame-body {
-      display: flex;
-      flex-direction: column;
-      min-height: 11.5in;
-    }
+    /* One page of content tall, less the footer band (a hair under, so a
+       rounding error cannot spill a blank page). That keeps the validity note
+       at the foot of the sheet on a memo far too short to reach it, instead of
+       tucked under the signature halfway up the page. */
+    .frame-body { min-height: 11.5in; }
     .header { display: flex; align-items: center; gap: 10px; }
     .header-logos { display: flex; align-items: center; gap: 8px; }
     .logo { width: 62px; height: 62px; object-fit: contain; }
@@ -216,14 +209,13 @@ function buildStyles(): string {
        opens with his own name — and the copies-furnished list can never be
        stranded alone on a page of its own (Chrome ignores break-before:avoid,
        so keeping it inside this group is the only way to hold it back).
-       flex:1 lets the group swallow whatever .frame-body has left over, and
-       the margin-top:auto inside it spends that slack between the signature
-       and the copies — which is what drops the copies, and the validity note
-       under them, to the foot of a memo that fits on one page. */
+       planTailHeightPt() gives the group an inline height reaching the foot of
+       whatever page it lands on; the margin-top:auto below then spends that
+       slack between the signature and the copies, which is what drops the
+       list — and only the list — to the bottom of the sheet. */
     .tail {
       display: flex;
       flex-direction: column;
-      flex: 1 0 auto;
       page-break-inside: avoid;
       break-inside: avoid;
     }
@@ -288,31 +280,43 @@ function buildAddressee(memoType: JobOrderMemoType): string {
         <div class="addressee-sub">${escapeHtml(CITY_ADMINISTRATOR.office)}</div>`;
 }
 
+/** The single body sentence as plain text — the geometry below measures it. */
+function bodyText(
+  memoType: JobOrderMemoType,
+  periodCovered: string | null,
+): string {
+  const period = periodCovered ?? "";
+  if (memoType === "retain") {
+    return `Individuals whose name appear in the list below are hereby notified that their engagements as Job Orders are hereby extended until ${period} under the same terms and conditions of your previous contracts:`;
+  }
+  return `In the exigencies of public service, you are hereby assigned to process the job order contract for the period of ${period} of the person, subject to pertinent rules, laws and/or ordinances:`;
+}
+
 function buildBody(
   memoType: JobOrderMemoType,
   periodCovered: string | null,
 ): string {
-  const period = escapeHtml(periodCovered ?? "");
-  if (memoType === "retain") {
-    return `
-  <p class="body-text">Individuals whose name appear in the list below are hereby
-  notified that their engagements as Job Orders are hereby extended until
-  ${period} under the same terms and conditions of your previous contracts:</p>`;
-  }
   return `
-  <p class="body-text">In the exigencies of public service, you are hereby assigned
-  to process the job order contract for the period of ${period} of the person,
-  subject to pertinent rules, laws and/or ordinances:</p>`;
+  <p class="body-text">${escapeHtml(bodyText(memoType, periodCovered))}</p>`;
 }
 
 /** The three paragraphs that only the extension (retain) memo carries. */
+const RETAIN_CLOSING_PARAGRAPHS = [
+  "In view of the foregoing, you are all hereby formally advised <u>not to report for work after the said date in the absence of a notice extending your engagements.</u>",
+  "All Department Heads are mandated to strictly implement this order.",
+  "For guidance of everyone concerned.",
+];
+
+/** They carry markup of their own; the geometry measures the words only. */
+function stripTags(html: string): string {
+  return html.replace(/<[^>]*>/g, "");
+}
+
 function buildRetainClosing(): string {
-  return `
-  <p class="closing">In view of the foregoing, you are all hereby formally advised
-  <u>not to report for work after the said date in the absence of a notice
-  extending your engagements.</u></p>
-  <p class="closing">All Department Heads are mandated to strictly implement this order.</p>
-  <p class="closing">For guidance of everyone concerned.</p>`;
+  return RETAIN_CLOSING_PARAGRAPHS.map(
+    (p) => `
+  <p class="closing">${p}</p>`,
+  ).join("");
 }
 
 /**
@@ -386,6 +390,276 @@ function buildMembersTable(
   </table>`;
 }
 
+/* ---------------------------------------------------------------------------
+ * Pinning the copies-furnished list to the foot of the page
+ *
+ * The list belongs at the very bottom of the last page, immediately above the
+ * validity note, which means the .tail group has to be as tall as whatever is
+ * left of the page it lands on — its `margin-top: auto` on .copies then spends
+ * the difference between the signature and the list.
+ *
+ * Chrome offers no way to bottom-align a box on the *last* page only:
+ * position:fixed and a repeating <tfoot> both print on every page. So the
+ * distance is measured here instead. Everything below models this exact
+ * template's printed geometry, walks the member rows the way the printer will
+ * fragment them, and returns the height the .tail group needs. Every constant
+ * is derived from the stylesheet above; the two page constants were measured
+ * off a Chrome print of this template at 8.5in x 13in.
+ *
+ * When the model is not sure of itself — a cell whose text wraps within a hair
+ * of its column edge, a page break that falls within a few points of a row
+ * edge — it declines to pin and the list simply follows the signature, which
+ * is what every memo did before this existed.
+ * ------------------------------------------------------------------------ */
+
+/** The stylesheet is written in px and inches; the geometry works in points. */
+const fromPx = (n: number) => n * 0.75;
+const fromIn = (n: number) => n * 72;
+/** A line box: body line-height is 1.35 and is inherited unless overridden. */
+const lineBox = (fontPt: number, lineHeight = 1.35) => fontPt * lineHeight;
+
+/** Printable width inside the @page margins: 8.5in less 0.6in on each side. */
+const CONTENT_WIDTH_PT = fromIn(7.3);
+
+/**
+ * How much of a page the frame table's body cell gets before the repeating
+ * validity footer claims the rest — measured off a Chrome print, where the
+ * footer's band starts 841.5pt below the top of the content area.
+ */
+const PAGE_CAPACITY_PT = 841.5;
+
+/**
+ * Where the copies list's bottom edge is aimed. A few points short of
+ * PAGE_CAPACITY_PT so an estimate that runs slightly long still fits on the
+ * page it was measured for instead of being bumped onto the next one.
+ */
+const TAIL_BOTTOM_PT = 834;
+
+/** A page break landing this close to a row edge is a coin toss — don't pin. */
+const BREAK_CONFIDENCE_PT = 1.5;
+
+/**
+ * How close a word may come to its column edge before the line it lands on is
+ * called a coin toss too. The widths below reproduce Chrome's breaking of this
+ * template's text exactly, so the only slack this has to cover is rounding.
+ */
+const WRAP_CONFIDENCE_PT = 0.75;
+
+/**
+ * Times New Roman advance widths in 1/1000 em, which Monotype shares with
+ * Adobe's Times. Enough to reproduce Chrome's line breaking for the plain
+ * ASCII this template prints; anything outside the table (an accented letter,
+ * a typographic dash) is charged the 500 that most glyphs carry.
+ */
+const TIMES_WIDTHS: Record<string, number> = {
+  " ": 250, "!": 333, '"': 408, "#": 500, $: 500, "%": 833, "&": 778, "'": 333,
+  "(": 333, ")": 333, "*": 500, "+": 564, ",": 250, "-": 333, ".": 250, "/": 278,
+  "0": 500, "1": 500, "2": 500, "3": 500, "4": 500, "5": 500, "6": 500, "7": 500,
+  "8": 500, "9": 500, ":": 278, ";": 278, "<": 564, "=": 564, ">": 444, "?": 444,
+  "@": 921,
+  A: 722, B: 667, C: 667, D: 722, E: 611, F: 556, G: 722, H: 722, I: 333,
+  J: 389, K: 722, L: 611, M: 889, N: 722, O: 722, P: 556, Q: 722, R: 667,
+  S: 556, T: 611, U: 722, V: 722, W: 944, X: 722, Y: 722, Z: 611,
+  "[": 333, "\\": 278, "]": 333, "^": 469, _: 500, "`": 333,
+  a: 444, b: 500, c: 444, d: 500, e: 444, f: 333, g: 500, h: 500, i: 278,
+  j: 278, k: 500, l: 278, m: 778, n: 500, o: 500, p: 500, q: 500, r: 333,
+  s: 389, t: 278, u: 500, v: 500, w: 722, x: 500, y: 500, z: 444,
+  "{": 480, "|": 200, "}": 480, "~": 541,
+};
+const DEFAULT_GLYPH_WIDTH = 500;
+
+function textWidthPt(text: string, fontPt: number): number {
+  let units = 0;
+  for (const ch of text) units += TIMES_WIDTHS[ch] ?? DEFAULT_GLYPH_WIDTH;
+  return (units / 1000) * fontPt;
+}
+
+interface WrapResult {
+  lines: number;
+  /** A break decision fell within WRAP_CONFIDENCE of the column edge. */
+  tight: boolean;
+}
+
+/**
+ * Greedy line breaking, the way a browser does it. `tight` reports that some
+ * word landed within a whisker of the edge, i.e. that a font metric this
+ * table only approximates could have put it on the other line.
+ */
+function wrapLines(
+  text: string,
+  widthPt: number,
+  fontPt: number,
+  firstLineIndentPt = 0,
+): WrapResult {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { lines: 1, tight: false };
+
+  const spacePt = textWidthPt(" ", fontPt);
+  let lines = 1;
+  let used = firstLineIndentPt;
+  let atLineStart = true;
+  let tight = false;
+
+  for (const word of words) {
+    const wordPt = textWidthPt(word, fontPt);
+    const advance = atLineStart ? wordPt : spacePt + wordPt;
+    if (Math.abs(widthPt - (used + advance)) < WRAP_CONFIDENCE_PT) tight = true;
+    if (!atLineStart && used + advance > widthPt) {
+      lines++;
+      used = wordPt;
+    } else {
+      used += advance;
+    }
+    atLineStart = false;
+    // word-wrap: break-word — a word wider than the column splits mid-word.
+    while (used > widthPt) {
+      lines++;
+      used -= widthPt;
+    }
+  }
+  return { lines, tight };
+}
+
+/** The label column is 1.25in wide (border-box), the value takes the rest. */
+const FIELD_VALUE_WIDTH_PT = CONTENT_WIDTH_PT - fromIn(1.25);
+
+/** Members table columns, and what a cell loses to padding and its border. */
+const CELL_CHROME_PT = fromPx(6) * 2 + fromPx(1);
+const COL_NAME_PT = CONTENT_WIDTH_PT * 0.44;
+const COL_OFFICE_PT =
+  CONTENT_WIDTH_PT - fromIn(0.42) - COL_NAME_PT - fromIn(0.8);
+
+/** A one-line row: 3px of padding above and below, an 11pt line, one border. */
+const ROW_BASE_PT = fromPx(6) + fromPx(1) + lineBox(11);
+const ROW_EXTRA_LINE_PT = lineBox(11);
+/** The table's own closing border, counted once. */
+const TABLE_EDGE_PT = fromPx(1);
+
+function rowHeightPt(row: JobOrderMemoPrintRow): { height: number; tight: boolean } {
+  const name = wrapLines(row.full_name, COL_NAME_PT - CELL_CHROME_PT, 11);
+  const office = wrapLines(
+    row.office_assignment ?? "",
+    COL_OFFICE_PT - CELL_CHROME_PT,
+    11,
+  );
+  const lines = Math.max(name.lines, office.lines);
+  return {
+    height: ROW_BASE_PT + (lines - 1) * ROW_EXTRA_LINE_PT,
+    tight: name.tight || office.tight,
+  };
+}
+
+/** Letterhead through the body paragraph — everything above the table. */
+function headHeightPt(
+  memoType: JobOrderMemoType,
+  subject: string,
+  periodCovered: string | null,
+): { height: number; tight: boolean } {
+  const letterhead =
+    lineBox(15) + lineBox(15) + lineBox(13) + CONTACT_LINES.length * lineBox(7.5);
+  const rule = fromPx(6) + fromPx(6) + fromPx(14);
+  const title = lineBox(15) + fromPx(18);
+
+  const fieldRow = (content: number) => content + fromPx(6);
+  const addressee =
+    memoType === "retain" ? lineBox(12) : lineBox(12) + 2 * lineBox(10);
+  const subjectWrap = wrapLines(subject, FIELD_VALUE_WIDTH_PT, 12);
+  const fields =
+    fieldRow(addressee) +
+    fieldRow(lineBox(12)) +
+    fieldRow(lineBox(12) * subjectWrap.lines) +
+    fieldRow(lineBox(12)) +
+    // .fields' 12px bottom margin collapses with .xrule's 10px top margin.
+    fromPx(12);
+
+  const xrule = lineBox(11) + fromPx(14);
+  const bodyWrap = wrapLines(
+    bodyText(memoType, periodCovered),
+    CONTENT_WIDTH_PT,
+    12,
+    fromIn(0.5),
+  );
+  // .body-text's 12px bottom margin collapses with the table's 6px top margin.
+  const paragraph = lineBox(12) * bodyWrap.lines + fromPx(12);
+
+  return {
+    height: letterhead + rule + title + fields + xrule + paragraph,
+    tight: subjectWrap.tight || bodyWrap.tight,
+  };
+}
+
+/** Everything in .tail that is not a member row. */
+function tailExtraPt(memoType: JobOrderMemoType): {
+  height: number;
+  tight: boolean;
+} {
+  let closing = 0;
+  let tight = false;
+  if (memoType === "retain") {
+    for (const paragraph of RETAIN_CLOSING_PARAGRAPHS) {
+      const wrap = wrapLines(stripTags(paragraph), CONTENT_WIDTH_PT, 12);
+      tight = tight || wrap.tight;
+      closing += fromPx(12) + lineBox(12) * wrap.lines;
+    }
+  }
+  const signature = fromIn(0.95) + lineBox(13) + lineBox(12);
+  const copies =
+    fromIn(0.4) +
+    lineBox(7.5, 1.25) * (1 + COPIES_FURNISHED.length) +
+    fromPx(6) +
+    lineBox(7.5, 1.25);
+  return { height: closing + signature + copies, tight };
+}
+
+/**
+ * The height .tail needs for its copies-furnished list to sit at the foot of
+ * the page it lands on, or null when the geometry is too close to call and the
+ * group should keep its natural height.
+ */
+function planTailHeightPt(
+  params: GenerateJobOrderMemoPrintParams,
+  headRows: JobOrderMemoPrintRow[],
+  tailRows: JobOrderMemoPrintRow[],
+  isSplit: boolean,
+): number | null {
+  const { memoType, subject, periodCovered } = params;
+  const head = headHeightPt(memoType, subject, periodCovered);
+  const extra = tailExtraPt(memoType);
+  let uncertain = head.tight || extra.tight;
+
+  // The header row plus the table's own closing border. The row repeats at the
+  // top of every page the table spans; on a memo too short to split, the whole
+  // table — header row and all — rides inside .tail instead.
+  const tableTop = ROW_BASE_PT + TABLE_EDGE_PT;
+  let y = head.height + (isSplit ? tableTop : 0);
+
+  for (const row of headRows) {
+    const { height, tight } = rowHeightPt(row);
+    uncertain = uncertain || tight;
+    if (Math.abs(PAGE_CAPACITY_PT - (y + height)) < BREAK_CONFIDENCE_PT) {
+      uncertain = true;
+    }
+    y = y + height > PAGE_CAPACITY_PT ? tableTop + height : y + height;
+  }
+
+  let tailHeight = extra.height + (isSplit ? 0 : tableTop);
+  for (const row of tailRows) {
+    const { height, tight } = rowHeightPt(row);
+    uncertain = uncertain || tight;
+    tailHeight += height;
+  }
+  if (Math.abs(PAGE_CAPACITY_PT - (y + tailHeight)) < BREAK_CONFIDENCE_PT) {
+    uncertain = true;
+  }
+  // .tail cannot be broken, so it moves whole to the next page when it does
+  // not fit — and then starts at the very top of that page.
+  if (y + tailHeight > PAGE_CAPACITY_PT) y = 0;
+
+  if (uncertain) return null;
+  const height = TAIL_BOTTOM_PT - y;
+  return height > tailHeight ? height : null;
+}
+
 export function renderJobOrderMemo(
   params: GenerateJobOrderMemoPrintParams,
 ): string {
@@ -395,6 +669,13 @@ export function renderJobOrderMemo(
   const isSplit = rows.length >= MIN_ROWS_TO_SPLIT;
   const headRows = isSplit ? rows.slice(0, rows.length - SIGNATURE_TAIL_ROWS) : [];
   const tailRows = isSplit ? rows.slice(rows.length - SIGNATURE_TAIL_ROWS) : rows;
+
+  // The height that puts the copies-furnished list at the foot of the page,
+  // or null when the geometry is too close to call and the group keeps its
+  // natural height.
+  const tailHeightPt = planTailHeightPt(params, headRows, tailRows, isSplit);
+  const tailStyle =
+    tailHeightPt === null ? "" : ` style="height: ${tailHeightPt.toFixed(1)}pt;"`;
 
   return `
 <!DOCTYPE html>
@@ -438,7 +719,7 @@ export function renderJobOrderMemo(
 
   ${isSplit ? buildMembersTable(headRows, 0, true) : ""}
 
-  <div class="tail">
+  <div class="tail"${tailStyle}>
     ${buildMembersTable(tailRows, rows.length - tailRows.length, !isSplit)}
 
     ${memoType === "retain" ? buildRetainClosing() : ""}
