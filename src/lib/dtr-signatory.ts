@@ -9,8 +9,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 //   2. else employee heads CADMO (City Administrator's
 //      Office) — the head *is* the City Administrator, so
 //      their own DTR is signed by the City Mayor           -> City Mayor
-//   3. else employee is a department head               -> City Administrator
-//   4. else                                             -> that department's head
+//   3. else employee heads CHRMO (City Human Resource
+//      Management Office)                                  -> City Mayor
+//   4. else employee is a department head               -> City Administrator
+//   5. else                                             -> that department's head
 //
 // The City Mayor and City Administrator names come from env so they can be
 // updated without a code change.
@@ -54,6 +56,13 @@ function isCmo(dept: SignatoryDepartment | null): boolean {
 function isCadmo(dept: SignatoryDepartment | null): boolean {
   if (!dept) return false;
   return `${dept.name} ${dept.code}`.toUpperCase().includes("CADMO");
+}
+
+// The City Human Resource Management Office. Its head signs the DTRs of the
+// whole HR office, so their own DTR goes up to the City Mayor instead.
+function isChrmo(dept: SignatoryDepartment | null): boolean {
+  if (!dept) return false;
+  return `${dept.name} ${dept.code}`.toUpperCase().includes("CHRMO");
 }
 
 function formatHeadName(e: {
@@ -148,9 +157,10 @@ export async function resolveSignatories(
     const dept = effectiveDept(e);
     if (isCmo(dept)) {
       result.set(e.id, { name: CITY_MAYOR, title: "City Mayor" });
-    } else if (e.is_department_head && isCadmo(dept)) {
+    } else if (e.is_department_head && (isCadmo(dept) || isChrmo(dept))) {
       // The head of CADMO is the City Administrator, who cannot sign their own
-      // DTR — the City Mayor signs instead.
+      // DTR — the City Mayor signs instead. The head of CHRMO likewise signs
+      // for HR, so their own DTR is signed by the City Mayor.
       result.set(e.id, { name: CITY_MAYOR, title: "City Mayor" });
     } else if (e.is_department_head) {
       result.set(e.id, { name: CITY_ADMINISTRATOR, title: "City Administrator" });
