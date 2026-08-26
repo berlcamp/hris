@@ -151,6 +151,49 @@ export async function lookupToken(
   );
 }
 
+/** The schema cap on client_scan_id (see eventScanSchema). */
+const MAX_SCAN_ID = 64;
+
+/**
+ * A fresh idempotency key for one scan.
+ *
+ * A UUID rather than something descriptive: the id only has to be STABLE — it
+ * is minted once, stored in the queue, and resent verbatim on every retry — and
+ * it has to fit in 64 characters. An earlier version composed it from the event
+ * id, the token and the timestamp, which came to 83 characters and made every
+ * single sync fail validation.
+ */
+export function newScanId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/**
+ * Rewrites queued scans whose id predates the length fix.
+ *
+ * Those scans are real attendance the officer recorded at a door; they would
+ * otherwise sit on the device failing validation forever. Rekeying is safe:
+ * the id exists only to make a retry idempotent, and a scan that never reached
+ * the server has nothing to be idempotent against yet. The per-day unique index
+ * still catches a genuine double-record.
+ */
+export async function repairQueueIds(eventId: string): Promise<number> {
+  const queued = await getQueue(eventId);
+  const oversized = queued.filter((s) => s.client_scan_id.length > MAX_SCAN_ID);
+  if (oversized.length === 0) return 0;
+
+  await run([STORE_QUEUE], "readwrite", (tx) => {
+    const store = tx.objectStore(STORE_QUEUE);
+    for (const scan of oversized) {
+      store.delete(scan.client_scan_id);
+      store.put({ ...scan, client_scan_id: newScanId() });
+    }
+  });
+  return oversized.length;
+}
+
 export async function enqueueScan(scan: QueuedScan): Promise<void> {
   await run([STORE_QUEUE], "readwrite", (tx) => {
     tx.objectStore(STORE_QUEUE).put(scan);

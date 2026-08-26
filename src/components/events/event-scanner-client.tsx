@@ -27,7 +27,9 @@ import {
   getCachedRoster,
   getQueue,
   lookupToken,
+  newScanId,
   offlineStorageAvailable,
+  repairQueueIds,
   type QueuedScan,
 } from "@/lib/event-scan-queue";
 import {
@@ -105,6 +107,9 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
         setEvent(cached.event);
         setRoster(await getCachedRoster(eventId));
       }
+      // Rekeys scans queued by a build whose ids were too long to validate.
+      // Without this they never leave the device.
+      await repairQueueIds(eventId);
       await refreshQueue();
 
       try {
@@ -233,7 +238,7 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
 
       const entry = await lookupToken(eventId, token);
       const scannedAt = new Date().toISOString();
-      const clientScanId = `${eventId}-${token}-${scannedAt}`;
+      const clientScanId = newScanId();
 
       await enqueueScan({
         client_scan_id: clientScanId,
