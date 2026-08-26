@@ -1,5 +1,6 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
+import { idText } from "@/lib/id-text";
 import type { EventCandidate, EventSubjectKind } from "@/lib/types";
 
 // Page sizes live here rather than in the actions file: a `"use server"` module
@@ -57,7 +58,10 @@ interface PlantillaRow {
   middle_name: string | null;
   last_name: string;
   suffix: string | null;
-  employee_no: string | null;
+  // Typed loosely on purpose — see idText(). employee_no comes back as a number
+  // from the production database.
+  id_number: string | number | null;
+  employee_no: string | number | null;
   department_id: string | null;
   departments: { name: string } | null;
 }
@@ -75,7 +79,7 @@ interface CosRow {
   middle_name: string | null;
   last_name: string;
   suffix: string | null;
-  cos_no: string | null;
+  cos_no: string | number | null;
   department_id: string | null;
   departments: { name: string } | null;
 }
@@ -110,7 +114,7 @@ export async function loadEventCandidates(
         .schema("hris")
         .from("employees")
         .select(
-          "id, first_name, middle_name, last_name, suffix, employee_no, department_id, departments!employees_department_id_fkey(name)",
+          "id, first_name, middle_name, last_name, suffix, id_number, employee_no, department_id, departments!employees_department_id_fkey(name)",
         )
         .eq("employment_type", "plantilla")
         .eq("status", "active");
@@ -122,7 +126,11 @@ export async function loadEventCandidates(
         subject_kind: "employee",
         subject_id: r.id,
         full_name: formatEmployeeDisplayName(r),
-        id_number: r.employee_no,
+        // id_number is the human-assigned ID people actually recognise
+        // ("CSWD-1576"); employee_no is a bare internal counter ("1964") and
+        // is only a fallback. Same field the public employee QR keys on — see
+        // src/lib/employee-qr.ts.
+        id_number: idText(r.id_number) ?? idText(r.employee_no),
         group_name: r.departments?.name ?? null,
         group_id: r.department_id,
         employment_label: EMPLOYMENT_LABELS.employee,
@@ -175,7 +183,7 @@ export async function loadEventCandidates(
         subject_kind: "cos",
         subject_id: r.id,
         full_name: formatEmployeeDisplayName(r),
-        id_number: r.cos_no,
+        id_number: idText(r.cos_no),
         group_name: r.departments?.name ?? null,
         group_id: r.department_id,
         employment_label: EMPLOYMENT_LABELS.cos,

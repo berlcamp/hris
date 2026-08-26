@@ -1,5 +1,7 @@
 import { Document, Page, StyleSheet, Text, View, Image } from "@react-pdf/renderer";
 
+import { idText } from "@/lib/id-text";
+
 /**
  * Printable QR ID cards, 10 to an A4 sheet.
  *
@@ -76,7 +78,9 @@ const styles = StyleSheet.create({
  * the card falls back to the tail of the token — every card carries something.
  */
 export function cardCode(item: Pick<QrCardPrintItem, "id_number" | "token">): string {
-  return item.id_number?.trim() || item.token.slice(-6);
+  // idText rather than a bare .trim(): these id columns are not reliably text
+  // in the production database, and a throw here takes down the print screen.
+  return idText(item.id_number) ?? item.token.slice(-6);
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
