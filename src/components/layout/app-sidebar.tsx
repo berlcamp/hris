@@ -39,6 +39,8 @@ import {
   ClipboardCheck,
   FileClock,
   Mail,
+  PartyPopper,
+  QrCode,
 } from "lucide-react";
 
 import {
@@ -97,6 +99,7 @@ const allRoles: UserRole[] = [
   "dtr_manager",
   "cos_manager",
   "jo_manager",
+  "event_attendance_officer",
   "employee",
 ];
 const adminRoles: UserRole[] = ["super_admin", "hr_admin"];
@@ -120,6 +123,12 @@ const employeesViewRoles: UserRole[] = [
   "dtr_manager",
   "hr_record_manager",
 ];
+// Events. The Event Attendance Officer is scan-only: it reaches the event list
+// and the scanner and nothing else in this application — no employees, no
+// attendance/DTR, no payroll, and not even the attendance report for the event
+// it just worked. Card printing and every event write stay with HR.
+const eventManagerRoles: UserRole[] = ["super_admin", "hr_admin"];
+const eventAccessRoles: UserRole[] = [...eventManagerRoles, "event_attendance_officer"];
 const leaveAttendanceRoles: UserRole[] = [
   "super_admin",
   "ocm_admin",
@@ -326,6 +335,14 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "Events",
+    roles: eventAccessRoles,
+    items: [
+      { title: "Events", href: "/events", icon: PartyPopper, roles: eventAccessRoles },
+      { title: "QR ID Cards", href: "/events/cards", icon: QrCode, roles: eventManagerRoles },
+    ],
+  },
+  {
     label: "Reports",
     roles: deptManagerRoles,
     items: [
@@ -387,6 +404,7 @@ const roleLabels: Record<UserRole, string> = {
   dtr_manager: "DTR Manager",
   cos_manager: "COS Manager",
   jo_manager: "JO Manager",
+  event_attendance_officer: "Event Attendance Officer",
   employee: "Employee",
 };
 

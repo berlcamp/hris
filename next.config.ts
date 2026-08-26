@@ -40,6 +40,27 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      // The event scanner is the ONE route that needs the camera. The blanket
+      // `camera=()` above disables getUserMedia everywhere, including here, so
+      // this narrower rule re-enables it for the scanner alone.
+      //
+      // Order matters and this must stay last: Next resolves duplicate header
+      // keys by "the last one wins" (see next/dist/docs .../headers.md,
+      // "Header Overriding Behavior"). Moving this above the catch-all silently
+      // turns the camera back off and the scanner stops working with a
+      // NotAllowedError that looks like a permissions prompt the user declined.
+      //
+      // Note the camera also requires a SECURE CONTEXT: over plain http:// the
+      // browser refuses getUserMedia no matter what this header says.
+      {
+        source: "/events/:id/scan",
+        headers: [
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), microphone=(), geolocation=()",
+          },
+        ],
+      },
     ];
   },
 };

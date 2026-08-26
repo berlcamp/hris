@@ -20,6 +20,7 @@ export type UserRole =
   | "dtr_manager"
   | "cos_manager"
   | "jo_manager"
+  | "event_attendance_officer"
   | "employee";
 export type EmploymentType = "plantilla" | "jo" | "cos";
 export type EmployeeStatus =
@@ -723,4 +724,103 @@ export interface RspAppointment {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ── Events ────────────────────────────────────────────────────────────────
+// The three person registries this database keeps share no key, so every
+// attendee reference is (kind, id). See migration 081 for why there is no FK.
+export type EventSubjectKind = "employee" | "job_order" | "cos";
+export type EventStatus = "draft" | "open" | "closed";
+export type EventAttendanceMethod = "scan" | "manual";
+
+export interface EventRecord {
+  id: string;
+  title: string;
+  description: string | null;
+  venue: string | null;
+  start_date: string;
+  end_date: string;
+  status: EventStatus;
+  closed_at: string | null;
+  closed_by: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+}
+
+/** An events list row, with the counts the list page shows. */
+export interface EventListRow extends EventRecord {
+  roster_count: number;
+  attendance_count: number;
+}
+
+export interface EventRosterEntry {
+  id: string;
+  event_id: string;
+  subject_kind: EventSubjectKind;
+  subject_id: string;
+  full_name: string;
+  /** employee_no / cos_no. Always null for Job Order — that registry has none. */
+  id_number: string | null;
+  /** Department name for plantilla/COS; AREA name for Job Order. */
+  group_name: string | null;
+  employment_label: string;
+  created_at: string;
+}
+
+export interface EventAttendanceRecord {
+  id: string;
+  event_id: string;
+  attendance_date: string;
+  subject_kind: EventSubjectKind;
+  subject_id: string;
+  full_name: string;
+  method: EventAttendanceMethod;
+  is_walk_in: boolean;
+  scanned_at: string;
+  recorded_at: string;
+  synced_late: boolean;
+  client_scan_id: string | null;
+  qr_token: string | null;
+  scanned_by: string;
+  created_at: string;
+}
+
+/**
+ * One roster entry plus its live QR token — the payload the scanner caches on
+ * the device so it can resolve a scan and show a name while offline. Scoped to
+ * a single event's roster, never the whole LGU.
+ */
+export interface EventScanRosterEntry {
+  subject_kind: EventSubjectKind;
+  subject_id: string;
+  full_name: string;
+  id_number: string | null;
+  group_name: string | null;
+  employment_label: string;
+  token: string | null;
+}
+
+/** A person eligible for a roster, from any of the three registries. */
+export interface EventCandidate {
+  subject_kind: EventSubjectKind;
+  subject_id: string;
+  full_name: string;
+  id_number: string | null;
+  group_name: string | null;
+  group_id: string | null;
+  employment_label: string;
+}
+
+/** A printable card: one person, one live token. */
+export interface QrCardSubject {
+  subject_kind: EventSubjectKind;
+  subject_id: string;
+  full_name: string;
+  id_number: string | null;
+  group_name: string | null;
+  employment_label: string;
+  token: string;
 }

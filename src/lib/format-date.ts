@@ -39,3 +39,22 @@ export function manilaToday(): string {
     day: "2-digit",
   }).format(new Date());
 }
+
+const manilaIsoDate = new Intl.DateTimeFormat("en-CA", {
+  timeZone: MANILA_TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * The Asia/Manila calendar date (YYYY-MM-DD) of an arbitrary instant.
+ *
+ * Event scans carry the DEVICE clock, and a phone can be in any timezone or
+ * simply wrong. Bucketing the instant in Manila time is what makes a scan taken
+ * at 23:58 belong to the day it happened rather than to whatever day it was in
+ * UTC when the queue finally synced.
+ */
+export function manilaDateOf(input: string | Date): string {
+  return manilaIsoDate.format(typeof input === "string" ? new Date(input) : input);
+}

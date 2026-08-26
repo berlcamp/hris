@@ -457,3 +457,37 @@ export function canOpenAttendanceCorrections(actor: CorrectionActor): boolean {
     canViewAttendanceCorrections(actor.role)
   );
 }
+
+// ── Events ────────────────────────────────────────────────────────────────
+// Roles that manage events end to end: create/edit/open/close, build rosters,
+// print QR cards, read attendance reports. Reporting is HR-only in v1 — a
+// department head would see a roster with every Job Order attendee missing
+// (job_order_employees has no department_id at all) and no way to tell that
+// from a bug.
+const EVENT_MANAGER_ROLES: readonly UserRole[] = [
+  "super_admin",
+  "hr_admin",
+] as const;
+
+export function canManageEvents(role: UserRole | null | undefined): boolean {
+  return !!role && EVENT_MANAGER_ROLES.includes(role);
+}
+
+/**
+ * May this account record attendance at the door. The Event Attendance Officer
+ * is scan-only and deliberately un-scoped: it may scan anyone, at any open
+ * event, regardless of department. Event managers can scan too, so an admin can
+ * cover a door without swapping accounts.
+ */
+export function canScanEvents(role: UserRole | null | undefined): boolean {
+  return canManageEvents(role) || role === "event_attendance_officer";
+}
+
+/**
+ * May this account open the Events module at all. The officer reaches only the
+ * event list and the scanner — never the roster editor, the report, or the card
+ * printing screen. Those are gated on canManageEvents.
+ */
+export function canAccessEvents(role: UserRole | null | undefined): boolean {
+  return canScanEvents(role);
+}
