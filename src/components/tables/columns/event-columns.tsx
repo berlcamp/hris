@@ -79,7 +79,7 @@ export function eventColumns(opts: {
       cell: ({ row }) => (
         <div className="flex justify-end gap-1">
           {row.original.status === "open" ? (
-            <Link href={`/events/${row.original.id}/scan`}>
+            <Link href={`/scan/${row.original.id}`}>
               <Button variant="outline" size="sm">
                 <ScanLine className="h-4 w-4" />
                 Scan

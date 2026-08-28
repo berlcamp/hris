@@ -44,6 +44,11 @@ const nextConfig: NextConfig = {
       // `camera=()` above disables getUserMedia everywhere, including here, so
       // this narrower rule re-enables it for the scanner alone.
       //
+      // /scan/:id is the Attendance Checker app's scanner. /events/:id/scan is
+      // its old address, which now only redirects here — but a redirect is a
+      // navigation, and dropping its rule would mean a phone that still has the
+      // old URL pinned loads the scanner with the camera already refused.
+      //
       // Order matters and this must stay last: Next resolves duplicate header
       // keys by "the last one wins" (see next/dist/docs .../headers.md,
       // "Header Overriding Behavior"). Moving this above the catch-all silently
@@ -52,6 +57,15 @@ const nextConfig: NextConfig = {
       //
       // Note the camera also requires a SECURE CONTEXT: over plain http:// the
       // browser refuses getUserMedia no matter what this header says.
+      {
+        source: "/scan/:id",
+        headers: [
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), microphone=(), geolocation=()",
+          },
+        ],
+      },
       {
         source: "/events/:id/scan",
         headers: [

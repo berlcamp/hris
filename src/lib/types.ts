@@ -803,6 +803,28 @@ export interface EventScanRosterEntry {
   token: string | null;
 }
 
+/**
+ * One open event as the Attendance Checker's mobile app lists it.
+ *
+ * Deliberately not EventListRow: that carries a lifetime attendance_count,
+ * which on a three-day training reads as a number nobody at the door can act
+ * on. The checker needs today's count and the roster size, and nothing else.
+ */
+export interface ScannableEvent {
+  id: string;
+  title: string;
+  description: string | null;
+  venue: string | null;
+  start_date: string;
+  end_date: string;
+  status: EventStatus;
+  roster_count: number;
+  /** Recorded so far for the Manila date this was fetched on. */
+  attendance_today: number;
+  /** The Manila date attendance_today was counted for. */
+  counted_for: string;
+}
+
 /** A person eligible for a roster, from any of the three registries. */
 export interface EventCandidate {
   subject_kind: EventSubjectKind;

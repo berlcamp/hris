@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { redirect } from "next/navigation";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import {
@@ -7,12 +8,25 @@ import {
   BreadcrumbItem,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
+import { getServerUser } from "@/lib/auth";
 
-export default function DashboardLayout({
+/**
+ * The signed-in shell: sidebar, header, every HRIS module.
+ *
+ * An Attendance Checker never sees it. That account exists to work a door on a
+ * phone and has its own app at /scan — a card grid and a scanner, and nothing
+ * else. Bouncing here rather than in src/proxy.ts keeps the role lookup off
+ * every request in the application; this layout is the one thing every
+ * dashboard route already has in common.
+ */
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const user = await getServerUser();
+  if (user?.role === "event_attendance_officer") redirect("/scan");
+
   return (
     <SidebarProvider>
       <AppSidebar />

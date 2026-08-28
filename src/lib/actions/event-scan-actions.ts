@@ -11,6 +11,7 @@ import type {
   EventRecord,
   EventScanRosterEntry,
   EventSubjectKind,
+  ScannableEvent,
 } from "@/lib/types";
 
 /** Per-scan outcome, returned so the device can clear its queue precisely. */
@@ -28,6 +29,95 @@ export interface ScanResult {
   is_walk_in: boolean;
   synced_late: boolean;
   message?: string;
+}
+
+/**
+ * The open events the checker's mobile app lists as cards.
+ *
+ * Only `open` events, for every role that can scan — including the HR admins,
+ * who can cover a door without swapping accounts. A draft event has a roster
+ * still being assembled and a closed one has a final report, so neither can be
+ * scanned into from the app; the server would reject a draft scan anyway
+ * (submitEventScans), and this keeps the door from ever seeing the card.
+ *
+ * THROWS for an unauthorized caller rather than returning []. An empty array is
+ * a real answer — "HR has closed every event" — and the home screen acts on it
+ * by clearing the list saved on the device. A session that lapsed while the
+ * phone sat in a pocket must not be able to say that: the officer would walk
+ * back into the venue to an empty app. Throwing sends the client to its cached
+ * list instead. Nobody who cannot scan reaches this page anyway — the (scanner)
+ * layout redirects them before it renders.
+ */
+export async function getScannableEvents(): Promise<ScannableEvent[]> {
+  const user = await getCurrentUser();
+  if (!canScanEvents(user?.role)) throw new Error("Not authorized");
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("events")
+    .select("id, title, description, venue, start_date, end_date, status")
+    .eq("status", "open")
+    .is("deleted_at", null)
+    .order("start_date", { ascending: true });
+  if (error) throw new Error(error.message);
+
+  const events = (data ?? []) as unknown as Omit<
+    ScannableEvent,
+    "roster_count" | "attendance_today" | "counted_for"
+  >[];
+  if (events.length === 0) return [];
+
+  const ids = events.map((e) => e.id);
+  const today = manilaDateOf(new Date());
+
+  const [rosterCounts, todayCounts] = await Promise.all([
+    countRows(supabase, "event_roster", ids, null),
+    countRows(supabase, "event_attendance", ids, today),
+  ]);
+
+  return events.map((e) => ({
+    ...e,
+    roster_count: rosterCounts.get(e.id) ?? 0,
+    attendance_today: todayCounts.get(e.id) ?? 0,
+    counted_for: today,
+  }));
+}
+
+/**
+ * Per-event row counts in one paged round trip.
+ *
+ * Paged for the same reason countByEvent in event-actions.ts is: PostgREST caps
+ * a response at 1000 rows, and a silent truncation would zero the counts of
+ * whichever events landed past the cut.
+ */
+async function countRows(
+  supabase: ReturnType<typeof createAdminClient>,
+  table: "event_roster" | "event_attendance",
+  eventIds: string[],
+  attendanceDate: string | null,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  const CHUNK = 1000;
+  let from = 0;
+  for (;;) {
+    let query = supabase
+      .schema("hris")
+      .from(table)
+      .select("event_id")
+      .in("event_id", eventIds);
+    if (attendanceDate) query = query.eq("attendance_date", attendanceDate);
+
+    const { data, error } = await query
+      .order("event_id")
+      .range(from, from + CHUNK - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as { event_id: string }[];
+    for (const r of rows) counts.set(r.event_id, (counts.get(r.event_id) ?? 0) + 1);
+    if (rows.length < CHUNK) break;
+    from += CHUNK;
+  }
+  return counts;
 }
 
 /**

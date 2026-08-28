@@ -148,7 +148,7 @@ export function EventDetailClient({
 
         <div className="flex flex-wrap items-center gap-2">
           {event.status === "open" && (
-            <Link href={`/events/${event.id}/scan`}>
+            <Link href={`/scan/${event.id}`}>
               <Button variant="outline" size="sm">
                 <ScanLine className="h-4 w-4" />
                 Open scanner

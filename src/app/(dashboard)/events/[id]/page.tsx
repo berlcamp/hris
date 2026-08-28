@@ -17,7 +17,7 @@ export default async function EventDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await getServerUser();
-  // The Event Attendance Officer is scan-only: this page carries the roster and
+  // The Attendance Checker is scan-only: this page carries the roster and
   // the attendance report, neither of which is theirs to see.
   if (!canManageEvents(user?.role)) redirect("/events");
 

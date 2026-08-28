@@ -94,3 +94,119 @@
     @apply font-sans;
   }
 }
+/* ──────────────────────────────────────────────────────────────────────────
+ * Attendance Checker (the /scan app)
+ *
+ * A dark, high-contrast field terminal. This is not a taste preference: the
+ * app is used one-handed at a venue door, often at night or under a tent, and
+ * the camera viewfinder covers most of the screen — a light chrome around a
+ * dark video feed is glare in the officer's eyes and washes out the one thing
+ * they need to read at arm's length, which is the name that just scanned.
+ *
+ * The tokens below are the app's OWN dark theme, scoped to .checker-shell so
+ * every shadcn primitive inside it (Button, Badge, Input) turns dark with no
+ * per-component overrides and the rest of the HRIS is untouched. Hue 255 and
+ * the amber accent are lifted from the sidebar in :root above, so the app reads
+ * as the same product rather than a bolt-on.
+ *
+ * No new webfont is loaded here on purpose. DM Sans and JetBrains Mono are
+ * already in the bundle, and this is the one screen in the application that has
+ * to boot on a phone with no signal — a font request that cannot resolve is a
+ * screen of invisible text at the exact moment it matters.
+ * ────────────────────────────────────────────────────────────────────────── */
+.checker-shell {
+  --background: oklch(0.16 0.028 258);
+  --foreground: oklch(0.97 0.006 250);
+  --card: oklch(0.21 0.03 258);
+  --card-foreground: oklch(0.97 0.006 250);
+  --popover: oklch(0.21 0.03 258);
+  --popover-foreground: oklch(0.97 0.006 250);
+  --primary: oklch(0.80 0.14 78);
+  --primary-foreground: oklch(0.18 0.03 258);
+  --secondary: oklch(0.27 0.03 258);
+  --secondary-foreground: oklch(0.95 0.006 250);
+  --muted: oklch(0.25 0.03 258);
+  --muted-foreground: oklch(0.72 0.02 255);
+  --accent: oklch(0.30 0.035 258);
+  --accent-foreground: oklch(0.97 0.006 250);
+  --destructive: oklch(0.62 0.20 25);
+  --border: oklch(0.32 0.03 258);
+  --input: oklch(0.32 0.03 258);
+  --ring: oklch(0.80 0.14 78);
+
+  /* Outcome signals. One vivid hue per state, so the officer reads the COLOUR
+   * across a room and only reads the words if it is not green. */
+  --signal-ok: oklch(0.75 0.17 152);
+  --signal-walkin: oklch(0.80 0.15 80);
+  --signal-dup: oklch(0.72 0.13 235);
+  --signal-reject: oklch(0.66 0.20 22);
+
+  color-scheme: dark;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Atmosphere: a cold overhead wash plus a faint engineering grid, so the very
+ * dark ground has depth instead of reading as an unloaded page. */
+.checker-ground {
+  background-image:
+    radial-gradient(
+      120% 70% at 50% -10%,
+      oklch(0.34 0.06 258 / 0.85) 0%,
+      transparent 60%
+    ),
+    linear-gradient(oklch(1 0 0 / 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(1 0 0 / 0.022) 1px, transparent 1px);
+  background-size: 100% 100%, 44px 44px, 44px 44px;
+}
+
+/* Each event card carries a hue derived from its id (see accentForEvent), fed
+ * in as --evt. The whole card — rule, glow, numerals — is tinted from it, so
+ * two events sitting next to each other in the grid are told apart by colour
+ * before a word is read. */
+.checker-card {
+  background-image: linear-gradient(
+    145deg,
+    oklch(0.72 0.16 var(--evt) / 0.16) 0%,
+    transparent 55%
+  );
+}
+
+/* The reticle's sweep. Kept to a slow single axis: a busy animation over a live
+ * camera feed reads as interference, not as feedback. */
+@keyframes checker-sweep {
+  0% { transform: translateY(-50%); opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translateY(50%); opacity: 0; }
+}
+.checker-sweep {
+  animation: checker-sweep 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* The result banner. Enters fast and settles — the officer's eye is already
+ * moving to the next card. */
+@keyframes checker-result-in {
+  from { transform: translateY(12px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.checker-result {
+  animation: checker-result-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Staggered card reveal on the home screen. */
+@keyframes checker-rise {
+  from { transform: translateY(14px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.checker-rise {
+  animation: checker-rise 420ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checker-sweep,
+  .checker-result,
+  .checker-rise {
+    animation: none;
+  }
+}

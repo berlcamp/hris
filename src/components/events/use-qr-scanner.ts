@@ -15,8 +15,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * both reported verbatim so nobody debugs the wrong one:
  *  - the page is not a secure context (plain http://), so getUserMedia refuses;
  *  - Permissions-Policy blocks it. This app sends `camera=()` on every route
- *    except /events/:id/scan (see next.config.ts) — reach the scanner by any
- *    other URL and the camera is off by policy.
+ *    except /scan/:id (see next.config.ts) — reach the scanner by any other URL
+ *    and the camera is off by policy.
  */
 
 interface BarcodeDetectorLike {
@@ -38,8 +38,14 @@ export function useQrScanner(onDecode: (value: string) => void) {
   const onDecodeRef = useRef(onDecode);
   onDecodeRef.current = onDecode;
 
+  const trackRef = useRef<MediaStreamTrack | null>(null);
+
   const [state, setState] = useState<ScannerState>("idle");
   const [error, setError] = useState<string | null>(null);
+  // The lamp on the back of the phone. Half of these events are evening
+  // assemblies under a tent, where a laminated card is unreadable without it.
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
 
   const stop = useCallback(() => {
     runningRef.current = false;
@@ -49,6 +55,9 @@ export function useQrScanner(onDecode: (value: string) => void) {
     }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    trackRef.current = null;
+    setTorchAvailable(false);
+    setTorchOn(false);
     setState("idle");
   }, []);
 
@@ -77,6 +86,16 @@ export function useQrScanner(onDecode: (value: string) => void) {
       });
       streamRef.current = stream;
 
+      // `torch` is a non-standard constraint: Chrome on Android has it, Safari
+      // does not, and neither ships it in TypeScript's DOM lib. Absence is the
+      // normal case, so it is detected rather than assumed.
+      const track = stream.getVideoTracks()[0] ?? null;
+      trackRef.current = track;
+      const capabilities = (
+        track?.getCapabilities as undefined | (() => { torch?: boolean })
+      )?.call(track);
+      setTorchAvailable(Boolean(capabilities?.torch));
+
       const video = videoRef.current;
       if (!video) throw new Error("Camera preview is not ready.");
       video.srcObject = stream;
@@ -101,7 +120,7 @@ export function useQrScanner(onDecode: (value: string) => void) {
       const name = err instanceof DOMException ? err.name : "";
       if (name === "NotAllowedError") {
         setError(
-          "Camera access was refused. Allow the camera for this site, and check that the page URL ends in /scan — the camera is disabled by policy everywhere else in this app.",
+          "Camera access was refused. Allow the camera for this site, and check that the page URL starts with /scan — the camera is disabled by policy everywhere else in this app.",
         );
       } else if (name === "NotFoundError") {
         setError("No camera was found on this device.");
@@ -154,7 +173,33 @@ export function useQrScanner(onDecode: (value: string) => void) {
     rafRef.current = requestAnimationFrame(() => void tick());
   }, []);
 
+  const toggleTorch = useCallback(async () => {
+    const track = trackRef.current;
+    if (!track) return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({
+        advanced: [{ torch: next }],
+      } as unknown as MediaTrackConstraints);
+      setTorchOn(next);
+    } catch {
+      // Some devices advertise the capability and then refuse the constraint.
+      // Nothing to tell the officer: the button simply does not latch.
+      setTorchAvailable(false);
+    }
+  }, [torchOn]);
+
   useEffect(() => stop, [stop]);
 
-  return { videoRef, canvasRef, state, error, start, stop };
+  return {
+    videoRef,
+    canvasRef,
+    state,
+    error,
+    start,
+    stop,
+    torchAvailable,
+    torchOn,
+    toggleTorch,
+  };
 }

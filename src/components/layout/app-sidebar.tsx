@@ -123,10 +123,12 @@ const employeesViewRoles: UserRole[] = [
   "dtr_manager",
   "hr_record_manager",
 ];
-// Events. The Event Attendance Officer is scan-only: it reaches the event list
-// and the scanner and nothing else in this application — no employees, no
-// attendance/DTR, no payroll, and not even the attendance report for the event
-// it just worked. Card printing and every event write stay with HR.
+// Events. The Attendance Checker never sees this sidebar at all: the role has
+// its own app at /scan and (dashboard)/layout.tsx redirects it there before any
+// of this renders. It is listed here only so the sets stay readable — it is
+// scan-only, with no employees, no attendance/DTR, no payroll, and not even the
+// attendance report for the event it just worked. Card printing and every event
+// write stay with HR.
 const eventManagerRoles: UserRole[] = ["super_admin", "hr_admin"];
 const eventAccessRoles: UserRole[] = [...eventManagerRoles, "event_attendance_officer"];
 const leaveAttendanceRoles: UserRole[] = [
@@ -404,7 +406,7 @@ const roleLabels: Record<UserRole, string> = {
   dtr_manager: "DTR Manager",
   cos_manager: "COS Manager",
   jo_manager: "JO Manager",
-  event_attendance_officer: "Event Attendance Officer",
+  event_attendance_officer: "Attendance Checker",
   employee: "Employee",
 };
 

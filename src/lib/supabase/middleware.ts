@@ -42,7 +42,15 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/auth/callback") || pathname.startsWith("/api/auth");
-  const isPublicRoute = pathname === "/";
+  // The manifest and the service worker must be fetchable by a browser that is
+  // not carrying a session yet — an installed PWA asks for both while it is
+  // still deciding whether to show the officer a sign-in page. Redirecting them
+  // to /login serves HTML where a manifest or a script was expected, and the
+  // install silently degrades to a browser bookmark.
+  const isPublicRoute =
+    pathname === "/" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/scan-sw.js";
 
   // Redirect authenticated users away from login page — but only if their
   // user_profiles row exists and is active. Without this check, an auth
@@ -50,6 +58,10 @@ export async function updateSession(request: NextRequest) {
   // /dashboard → getCurrentUser() returns null → redirect("/login") →
   // proxy sees user → redirect("/dashboard") → repeat.
   if (user && pathname === "/login") {
+    // True when this account is scan-only, so the redirect below can send it
+    // to /scan without a second lookup.
+    let isChecker = false;
+
     if (user.email && process.env.NEXT_PUBLIC_SERVICE_ROLE_KEY) {
       const admin = createClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -58,7 +70,7 @@ export async function updateSession(request: NextRequest) {
       const { data: profile, error: profileError } = await admin
         .schema("hris")
         .from("user_profiles")
-        .select("is_active, email")
+        .select("is_active, email, role")
         .eq("email", user.email)
         .maybeSingle();
 
@@ -81,10 +93,15 @@ export async function updateSession(request: NextRequest) {
         });
         return redirectResponse;
       }
+
+      isChecker = profile.role === "event_attendance_officer";
     }
 
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    // An Attendance Checker has no dashboard — see the same branch in
+    // src/app/auth/callback/route.ts. The lookup above already fetched the row,
+    // so reading the role here costs nothing extra.
+    url.pathname = isChecker ? "/scan" : "/dashboard";
     return NextResponse.redirect(url);
   }
 

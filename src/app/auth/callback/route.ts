@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     const { data: profile, error: profileError } = await adminClient
       .schema("hris")
       .from("user_profiles")
-      .select("id, is_active")
+      .select("id, is_active, role")
       .eq("email", user.email)
       .maybeSingle();
 
@@ -78,7 +78,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/login?error=unauthorized", origin));
     }
 
-    return NextResponse.redirect(new URL("/dashboard", origin));
+    // An Attendance Checker has no dashboard to land on — the role reaches the
+    // scanner and nothing else — so it goes straight to its own app. This is
+    // also the PWA's start_url, which is what makes signing in from the home
+    // screen shortcut end where the shortcut promised.
+    return NextResponse.redirect(
+      new URL(profile.role === "event_attendance_officer" ? "/scan" : "/dashboard", origin),
+    );
   } catch (err) {
     console.error("[auth/callback] Unexpected error:", err);
     return NextResponse.redirect(new URL("/login?error=unexpected", origin));

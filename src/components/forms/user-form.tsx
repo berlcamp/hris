@@ -55,6 +55,9 @@ const roleOptions = [
   { value: "dtr_manager", label: "DTR Manager" },
   { value: "cos_manager", label: "COS Manager" },
   { value: "jo_manager", label: "JO Manager" },
+  // Scan-only: this account sees the mobile Attendance Checker app at /scan and
+  // nothing else in this application. See canScanEvents in src/lib/auth-helpers.
+  { value: "event_attendance_officer", label: "Attendance Checker" },
   { value: "employee", label: "Employee" },
 ];
 

@@ -1,23 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import {
   ArrowLeft,
   CameraOff,
   CheckCircle2,
   CloudOff,
+  Flashlight,
   Loader2,
   RefreshCw,
   ScanLine,
+  Search,
   TriangleAlert,
   UserPlus,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQrScanner } from "@/components/events/use-qr-scanner";
 import {
   cacheEventPayload,
@@ -37,7 +37,10 @@ import {
   submitEventScans,
 } from "@/lib/actions/event-scan-actions";
 import { recordManualAttendance } from "@/lib/actions/event-actions";
+import { accentForEvent } from "@/lib/event-accent";
 import { manilaDateOf } from "@/lib/format-date";
+import { primeScanFeedback, playScanFeedback } from "@/lib/scan-feedback";
+import { registerScannerWorker } from "@/lib/scanner-pwa";
 import type { EventRecord, EventScanRosterEntry } from "@/lib/types";
 
 /** Matches the token shape minted by migration 081 and qr-card-actions. */
@@ -46,10 +49,42 @@ const TOKEN_PATTERN = /^H[0-9A-F]{20}$/;
 /** Ignore repeat reads of the same card within this window (ms). */
 const RESCAN_COOLDOWN_MS = 2500;
 
+type FeedbackKind = "ok" | "duplicate" | "walk_in" | "reject";
+
 type Feedback = {
-  kind: "ok" | "duplicate" | "walk_in" | "reject";
+  kind: FeedbackKind;
   title: string;
   detail?: string;
+  /** Bumped on every scan so a repeat of the same result still re-animates. */
+  seq: number;
+};
+
+/**
+ * The signal colours, matched to --signal-* in globals.css. Held as literals
+ * rather than composed at runtime because Tailwind cannot see a class name
+ * built from a variable.
+ */
+const TONE: Record<FeedbackKind, { ring: string; chip: string; text: string }> = {
+  ok: {
+    ring: "border-[oklch(0.75_0.17_152/0.9)]",
+    chip: "bg-[oklch(0.75_0.17_152/0.16)] text-[oklch(0.85_0.15_152)]",
+    text: "text-[oklch(0.88_0.14_152)]",
+  },
+  walk_in: {
+    ring: "border-[oklch(0.80_0.15_80/0.9)]",
+    chip: "bg-[oklch(0.80_0.15_80/0.16)] text-[oklch(0.87_0.13_80)]",
+    text: "text-[oklch(0.88_0.13_80)]",
+  },
+  duplicate: {
+    ring: "border-[oklch(0.72_0.13_235/0.9)]",
+    chip: "bg-[oklch(0.72_0.13_235/0.16)] text-[oklch(0.82_0.12_235)]",
+    text: "text-[oklch(0.84_0.12_235)]",
+  },
+  reject: {
+    ring: "border-[oklch(0.66_0.20_22/0.9)]",
+    chip: "bg-[oklch(0.66_0.20_22/0.18)] text-[oklch(0.80_0.17_22)]",
+    text: "text-[oklch(0.80_0.17_22)]",
+  },
 };
 
 export function EventScannerClient({ eventId }: { eventId: string }) {
@@ -63,12 +98,25 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
   const [history, setHistory] = useState<{ name: string; at: string }[]>([]);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
+  const [manualSaving, setManualSaving] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
 
   // Tokens already accepted on THIS device, so the officer gets an instant
   // "already scanned" instead of waiting for a sync round trip to say so.
   const seenRef = useRef<Set<string>>(new Set());
   const lastReadRef = useRef<{ token: string; at: number } | null>(null);
+  const feedbackSeq = useRef(0);
+
+  const accent = accentForEvent(eventId);
+
+  const say = useCallback(
+    (kind: FeedbackKind, title: string, detail?: string) => {
+      feedbackSeq.current += 1;
+      setFeedback({ kind, title, detail, seq: feedbackSeq.current });
+      playScanFeedback(kind);
+    },
+    [],
+  );
 
   const refreshQueue = useCallback(async () => {
     if (!offlineStorageAvailable()) return;
@@ -77,15 +125,7 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
 
   // ── Boot: register the worker, then hydrate from the network or the cache ──
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
-    // Scope /events/ rather than / — see public/events-scan-sw.js for why the
-    // worker must never control the rest of this application.
-    navigator.serviceWorker
-      .register("/events-scan-sw.js", { scope: "/events/" })
-      .catch(() => {
-        // No worker means no offline reload. Scanning and queueing still work
-        // for as long as the tab stays open, so this is not fatal.
-      });
+    void registerScannerWorker();
   }, []);
 
   useEffect(() => {
@@ -173,7 +213,7 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
           })),
         });
         if (!result.success) {
-          setFeedback({ kind: "reject", title: "Sync failed", detail: result.error });
+          say("reject", "Sync failed", result.error);
           break;
         }
         // A duplicate is accounted for — the record already exists — so it must
@@ -188,18 +228,18 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
           (r) => r.outcome === "unknown_token" || r.outcome === "out_of_range",
         );
         if (problems.length > 0) {
-          setFeedback({
-            kind: "reject",
-            title: `${problems.length} scan${problems.length === 1 ? "" : "s"} rejected`,
-            detail: problems[0].message ?? undefined,
-          });
+          say(
+            "reject",
+            `${problems.length} scan${problems.length === 1 ? "" : "s"} rejected`,
+            problems[0].message ?? undefined,
+          );
         }
       }
     } finally {
       setSyncing(false);
       await refreshQueue();
     }
-  }, [eventId, refreshQueue, syncing]);
+  }, [eventId, refreshQueue, say, syncing]);
 
   // Flush whenever the connection comes back.
   useEffect(() => {
@@ -222,17 +262,16 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
       lastReadRef.current = { token, at: now };
 
       if (!TOKEN_PATTERN.test(token)) {
-        setFeedback({
-          kind: "reject",
-          title: "Not an attendance card",
-          detail:
-            "That QR is something else — the employee profile code, or a code from another system.",
-        });
+        say(
+          "reject",
+          "Not an attendance card",
+          "That QR is something else — the employee profile code, or a code from another system.",
+        );
         return;
       }
 
       if (seenRef.current.has(token)) {
-        setFeedback({ kind: "duplicate", title: "Already scanned" });
+        say("duplicate", "Already scanned", "This card was recorded on this device.");
         return;
       }
 
@@ -251,29 +290,38 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
       await refreshQueue();
 
       if (entry) {
-        setFeedback({
-          kind: "ok",
-          title: entry.full_name,
-          detail: [entry.group_name, entry.employment_label].filter(Boolean).join(" · "),
-        });
+        say(
+          "ok",
+          entry.full_name,
+          [entry.group_name, entry.employment_label].filter(Boolean).join(" · "),
+        );
         setHistory((h) => [{ name: entry.full_name, at: scannedAt }, ...h].slice(0, 50));
       } else {
         // Not on this event's roster — recorded as a walk-in, never refused.
         // Offline the name cannot be resolved; the server fills it in on sync.
-        setFeedback({
-          kind: "walk_in",
-          title: "Recorded — not on the roster",
-          detail: "Saved as a walk-in. The name is filled in when this syncs.",
-        });
+        say(
+          "walk_in",
+          "Recorded — not on the roster",
+          "Saved as a walk-in. The name is filled in when this syncs.",
+        );
         setHistory((h) => [{ name: "Walk-in", at: scannedAt }, ...h].slice(0, 50));
       }
 
       if (navigator.onLine) void sync();
     },
-    [eventId, refreshQueue, sync],
+    [eventId, refreshQueue, say, sync],
   );
 
   const scanner = useQrScanner((value) => void handleDecode(value));
+
+  // Open the camera the moment the event is loaded. An officer with a queue
+  // forming in front of them should not have to find a button first; the manual
+  // Start below is the fallback for the browsers that refuse without a tap.
+  const startCamera = scanner.start;
+  useEffect(() => {
+    if (loading || bootError) return;
+    void startCamera();
+  }, [loading, bootError, startCamera]);
 
   const manualMatches = useMemo(() => {
     const q = manualQuery.trim().toLowerCase();
@@ -286,94 +334,80 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
   const handleManual = useCallback(
     async (entry: EventScanRosterEntry) => {
       if (!navigator.onLine) {
-        setFeedback({
-          kind: "reject",
-          title: "Manual entry needs a connection",
-          detail: "Scan the card if you can, or add this person once you are back online.",
-        });
+        say(
+          "reject",
+          "Manual entry needs a connection",
+          "Scan the card if you can, or add this person once you are back online.",
+        );
         return;
       }
+      setManualSaving(true);
       const result = await recordManualAttendance({
         event_id: eventId,
         subject_kind: entry.subject_kind,
         subject_id: entry.subject_id,
         attendance_date: manilaDateOf(new Date()),
       });
+      setManualSaving(false);
       if (result.success) {
-        setFeedback({
-          kind: "ok",
-          title: entry.full_name,
-          detail: "Recorded manually — no card scanned.",
-        });
+        say("ok", entry.full_name, "Recorded manually — no card scanned.");
         setHistory((h) =>
           [{ name: `${entry.full_name} (manual)`, at: new Date().toISOString() }, ...h].slice(0, 50),
         );
         setManualQuery("");
         setManualOpen(false);
       } else {
-        setFeedback({ kind: "reject", title: "Not recorded", detail: result.error });
+        say("reject", "Not recorded", result.error);
       }
     },
-    [eventId],
+    [eventId, say],
   );
 
   if (loading) {
     return (
-      <div className="flex min-h-svh items-center justify-center">
-        <Loader2 className="text-muted-foreground h-6 w-6 animate-spin" />
+      <div className="checker-ground flex min-h-svh flex-col items-center justify-center gap-3">
+        <Loader2 className="text-primary h-7 w-7 animate-spin" />
+        <p className="text-muted-foreground font-mono text-xs tracking-[0.2em] uppercase">
+          Opening event
+        </p>
       </div>
     );
   }
 
   if (bootError) {
     return (
-      <div className="mx-auto flex min-h-svh max-w-md flex-col items-center justify-center gap-4 p-6 text-center">
-        <TriangleAlert className="text-muted-foreground h-8 w-8" />
+      <div className="checker-ground mx-auto flex min-h-svh max-w-md flex-col items-center justify-center gap-4 p-6 text-center">
+        <span className="bg-card grid h-14 w-14 place-items-center rounded-2xl">
+          <TriangleAlert className="text-muted-foreground h-6 w-6" />
+        </span>
         <p className="text-sm">{bootError}</p>
-        <Link href="/events">
-          <Button variant="outline" size="sm">
-            Back to events
+        {/* A hard navigation, not next/link: the client-side transition would
+            fetch an RSC payload over a connection the venue may not have,
+            whereas a plain navigation is a request the service worker can
+            answer from its cache. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+        <a href="/scan">
+          <Button variant="outline" size="lg" className="rounded-full">
+            <ArrowLeft className="h-4 w-4" />
+            All events
           </Button>
-        </Link>
+        </a>
       </div>
     );
   }
 
-  const feedbackTone =
-    feedback?.kind === "ok"
-      ? "border-emerald-500/40 bg-emerald-500/10"
-      : feedback?.kind === "walk_in"
-        ? "border-amber-500/40 bg-amber-500/10"
-        : feedback?.kind === "duplicate"
-          ? "border-sky-500/40 bg-sky-500/10"
-          : "border-destructive/40 bg-destructive/10";
+  const tone = feedback ? TONE[feedback.kind] : null;
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-md flex-col gap-3 p-3">
-      <header className="flex items-center gap-2">
-        <Link href="/events" aria-label="Back to events" className="shrink-0">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{event?.title ?? "Event"}</p>
-          <p className="text-muted-foreground truncate text-xs">
-            {roster.length} on the roster
-          </p>
-        </div>
-        {online ? (
-          <Badge variant="outline" className="shrink-0 gap-1 text-xs">
-            Online
-          </Badge>
-        ) : (
-          <Badge variant="secondary" className="shrink-0 gap-1 text-xs">
-            <CloudOff className="h-3 w-3" /> Offline
-          </Badge>
-        )}
-      </header>
-
-      <div className="bg-muted relative aspect-square overflow-hidden rounded-lg">
+    <div
+      style={{ "--evt": accent } as React.CSSProperties}
+      className="checker-ground relative flex min-h-svh flex-col"
+      // The first touch anywhere is what unlocks audio on iOS and Chrome; the
+      // Start button alone would leave an auto-started camera beeping silently.
+      onPointerDown={primeScanFeedback}
+    >
+      {/* ── Viewfinder. Fills the screen; every control floats over it. ── */}
+      <div className="absolute inset-0 overflow-hidden">
         <video
           ref={scanner.videoRef}
           className="h-full w-full object-cover"
@@ -381,23 +415,91 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
           playsInline
         />
         <canvas ref={scanner.canvasRef} className="hidden" />
+        {/* Vignette: heavy behind the header and the result banner, where white
+            text has to stay readable over a sunlit tiled floor, and nearly
+            clear across the middle band, which is the part the officer is
+            actually aiming with. */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,oklch(0.16_0.028_258/0.88)_0%,oklch(0.16_0.028_258/0.12)_20%,oklch(0.16_0.028_258/0.12)_55%,oklch(0.16_0.028_258/0.94)_82%)]" />
+      </div>
+
+      {/* ── Header ── */}
+      <header className="relative z-10 flex items-center gap-2 px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+        <a href="/scan" aria-label="All events" className="shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="bg-card/70 h-11 w-11 rounded-full backdrop-blur-sm"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        </a>
+        <div className="bg-card/70 min-w-0 flex-1 rounded-2xl px-3.5 py-2 backdrop-blur-sm">
+          <p className="truncate text-sm leading-tight font-semibold">
+            {event?.title ?? "Event"}
+          </p>
+          <p className="text-muted-foreground truncate font-mono text-[0.65rem] tracking-wider uppercase">
+            {roster.length} on roster · {history.length} scanned here
+          </p>
+        </div>
+        {scanner.torchAvailable && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={scanner.torchOn ? "Turn the light off" : "Turn the light on"}
+            aria-pressed={scanner.torchOn}
+            onClick={() => void scanner.toggleTorch()}
+            className={`h-11 w-11 shrink-0 rounded-full backdrop-blur-sm ${
+              scanner.torchOn
+                ? "bg-primary text-primary-foreground hover:bg-primary"
+                : "bg-card/70"
+            }`}
+          >
+            <Flashlight className="h-5 w-5" />
+          </Button>
+        )}
+      </header>
+
+      {/* ── Reticle ── */}
+      <div className="relative z-10 flex flex-1 items-center justify-center px-10">
+        <div className="relative aspect-square w-full max-w-[17rem]">
+          {(["left-0 top-0 border-l-3 border-t-3 rounded-tl-2xl",
+             "right-0 top-0 border-r-3 border-t-3 rounded-tr-2xl",
+             "left-0 bottom-0 border-l-3 border-b-3 rounded-bl-2xl",
+             "right-0 bottom-0 border-r-3 border-b-3 rounded-br-2xl"] as const).map(
+            (corner) => (
+              <span
+                key={corner}
+                className={`absolute h-12 w-12 border-[oklch(0.85_0.13_var(--evt))] ${corner}`}
+              />
+            ),
+          )}
+          {scanner.state === "running" && (
+            <span className="checker-sweep absolute inset-x-4 top-1/2 h-px bg-[oklch(0.85_0.13_var(--evt))] shadow-[0_0_14px_2px_oklch(0.85_0.13_var(--evt)/0.7)]" />
+          )}
+        </div>
+
         {scanner.state !== "running" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+          <div className="bg-background/85 absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 p-8 text-center backdrop-blur-sm">
             {scanner.state === "error" ? (
               <>
                 <CameraOff className="text-muted-foreground h-8 w-8" />
-                <p className="text-xs">{scanner.error}</p>
+                <p className="max-w-xs text-sm">{scanner.error}</p>
               </>
             ) : (
               <ScanLine className="text-muted-foreground h-8 w-8" />
             )}
             <Button
-              size="sm"
-              onClick={() => void scanner.start()}
+              size="lg"
+              className="h-13 rounded-full px-8 text-base"
+              onClick={() => {
+                primeScanFeedback();
+                void scanner.start();
+              }}
               disabled={scanner.state === "starting"}
             >
               {scanner.state === "starting" ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-5 w-5 animate-spin" />
               ) : null}
               Start camera
             </Button>
@@ -405,100 +507,195 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
         )}
       </div>
 
-      {feedback && (
-        <div className={`rounded-lg border p-3 ${feedbackTone}`}>
-          <p className="flex items-center gap-2 text-sm font-semibold">
-            {feedback.kind === "ok" ? (
-              <CheckCircle2 className="h-4 w-4" />
-            ) : (
-              <TriangleAlert className="h-4 w-4" />
-            )}
-            {feedback.title}
+      {/* ── Result ── */}
+      <div className="relative z-10 min-h-[6.5rem] px-4">
+        {feedback && tone ? (
+          <div
+            key={feedback.seq}
+            role="status"
+            aria-live="polite"
+            className={`checker-result bg-card/90 rounded-2xl border-2 p-4 backdrop-blur-md ${tone.ring}`}
+          >
+            <div className="flex items-start gap-3">
+              <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${tone.chip}`}>
+                {feedback.kind === "ok" ? (
+                  <CheckCircle2 className="h-5 w-5" />
+                ) : (
+                  <TriangleAlert className="h-5 w-5" />
+                )}
+              </span>
+              <div className="min-w-0">
+                <p className={`text-lg leading-tight font-bold text-balance ${tone.text}`}>
+                  {feedback.title}
+                </p>
+                {feedback.detail && (
+                  <p className="text-muted-foreground mt-1 text-xs">{feedback.detail}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-muted-foreground pt-7 text-center font-mono text-xs tracking-[0.2em] uppercase">
+            Point at the QR on the card
           </p>
-          {feedback.detail && (
-            <p className="text-muted-foreground mt-1 text-xs">{feedback.detail}</p>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
-      <div className="flex items-center gap-2">
-        <Badge variant={queue.length > 0 ? "secondary" : "outline"} className="text-xs">
-          {queue.length} queued
-        </Badge>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void sync()}
-          disabled={syncing || queue.length === 0 || !online}
+      {/* ── Action bar ── */}
+      <footer className="relative z-10 flex items-center gap-2 px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <span
+          className={`flex h-12 items-center gap-2 rounded-full border px-4 font-mono text-xs ${
+            online
+              ? "border-[oklch(0.75_0.17_152/0.4)] bg-[oklch(0.75_0.17_152/0.12)] text-[oklch(0.85_0.14_152)]"
+              : "border-[oklch(0.80_0.15_80/0.4)] bg-[oklch(0.80_0.15_80/0.12)] text-[oklch(0.87_0.13_80)]"
+          }`}
         >
-          {syncing ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+          {online ? (
+            <span className="h-2 w-2 rounded-full bg-current" />
           ) : (
-            <RefreshCw className="h-4 w-4" />
+            <CloudOff className="h-4 w-4" />
           )}
-          Sync
-        </Button>
+          {queue.length > 0 ? `${queue.length} unsent` : online ? "Synced" : "Offline"}
+        </span>
+
+        {queue.length > 0 && (
+          <Button
+            variant="outline"
+            size="lg"
+            aria-label="Sync queued scans"
+            onClick={() => void sync()}
+            disabled={syncing || !online}
+            className="bg-card/70 h-12 w-12 shrink-0 rounded-full p-0 backdrop-blur-sm"
+          >
+            {syncing ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-5 w-5" />
+            )}
+          </Button>
+        )}
+
         <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto"
-          onClick={() => setManualOpen((v) => !v)}
+          size="lg"
+          variant="secondary"
+          onClick={() => setManualOpen(true)}
+          className="ml-auto h-12 rounded-full px-5 text-sm"
         >
-          <UserPlus className="h-4 w-4" />
+          <UserPlus className="h-5 w-5" />
           No card
+        </Button>
+      </footer>
+
+      {manualOpen && (
+        <ManualSheet
+          query={manualQuery}
+          onQueryChange={setManualQuery}
+          matches={manualMatches}
+          saving={manualSaving}
+          online={online}
+          onPick={(entry) => void handleManual(entry)}
+          onClose={() => setManualOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The fallback for a forgotten, lost or unreadable card.
+ *
+ * A full-height sheet rather than a panel wedged under the viewfinder: this is
+ * a search-and-pick task done with the phone held up, and it needs the keyboard
+ * and a long list of names more than it needs the camera behind it. The
+ * recorded entry is flagged `manual` in the report either way — see
+ * recordManualAttendance.
+ */
+function ManualSheet({
+  query,
+  onQueryChange,
+  matches,
+  saving,
+  online,
+  onPick,
+  onClose,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  matches: EventScanRosterEntry[];
+  saving: boolean;
+  online: boolean;
+  onPick: (entry: EventScanRosterEntry) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="bg-background/95 fixed inset-0 z-50 flex flex-col backdrop-blur-md">
+      <div className="flex items-center gap-2 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">Record without a card</p>
+          <p className="text-muted-foreground text-xs">
+            Flagged as a manual entry in the report.
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Close"
+          onClick={onClose}
+          className="h-11 w-11 rounded-full"
+        >
+          <X className="h-5 w-5" />
         </Button>
       </div>
 
-      {manualOpen && (
-        <div className="space-y-2 rounded-lg border p-3">
-          <p className="text-muted-foreground text-xs">
-            Forgotten or unreadable card. Recorded as a manual entry and flagged
-            as such in the report.
-          </p>
+      <div className="px-4 pb-3">
+        <div className="relative">
+          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
           <Input
-            value={manualQuery}
-            onChange={(e) => setManualQuery(e.target.value)}
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
             placeholder="Search the roster by name"
             autoComplete="off"
+            autoFocus
+            className="h-13 rounded-2xl pl-10 text-base"
           />
-          <ScrollArea className="max-h-48">
-            <div className="space-y-1">
-              {manualMatches.map((entry) => (
-                <button
-                  key={`${entry.subject_kind}:${entry.subject_id}`}
-                  type="button"
-                  onClick={() => void handleManual(entry)}
-                  className="hover:bg-muted w-full rounded-md p-2 text-left text-sm"
-                >
-                  <span className="block truncate font-medium">{entry.full_name}</span>
-                  <span className="text-muted-foreground block truncate text-xs">
-                    {[entry.group_name, entry.employment_label].filter(Boolean).join(" · ")}
-                  </span>
-                </button>
-              ))}
-              {manualQuery.trim().length >= 2 && manualMatches.length === 0 && (
-                <p className="text-muted-foreground p-2 text-xs">No match on this roster.</p>
-              )}
-            </div>
-          </ScrollArea>
         </div>
-      )}
+        {!online && (
+          <p className="mt-2 font-mono text-[0.7rem] text-[oklch(0.87_0.13_80)]">
+            Offline — a manual entry needs a connection. Scan the card if you can.
+          </p>
+        )}
+      </div>
 
-      {history.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-muted-foreground text-xs font-medium">This session</p>
-          <ScrollArea className="max-h-56">
-            <div className="space-y-1">
-              {history.map((h, i) => (
-                <div key={`${h.at}-${i}`} className="flex items-center gap-2 text-sm">
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                  <span className="truncate">{h.name}</span>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
+      <div className="flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        <div className="space-y-1.5">
+          {matches.map((entry) => (
+            <button
+              key={`${entry.subject_kind}:${entry.subject_id}`}
+              type="button"
+              disabled={saving}
+              onClick={() => onPick(entry)}
+              className="border-border/60 bg-card active:bg-accent w-full rounded-2xl border p-4 text-left disabled:opacity-60"
+            >
+              <span className="block truncate font-medium">{entry.full_name}</span>
+              <span className="text-muted-foreground block truncate text-xs">
+                {[entry.id_number, entry.group_name, entry.employment_label]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </button>
+          ))}
+          {query.trim().length >= 2 && matches.length === 0 && (
+            <p className="text-muted-foreground py-10 text-center text-sm">
+              No match on this roster. Scan the card to record them as a walk-in.
+            </p>
+          )}
+          {query.trim().length < 2 && (
+            <p className="text-muted-foreground py-10 text-center text-sm">
+              Type at least two letters of the name.
+            </p>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

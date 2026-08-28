@@ -474,7 +474,7 @@ export function canManageEvents(role: UserRole | null | undefined): boolean {
 }
 
 /**
- * May this account record attendance at the door. The Event Attendance Officer
+ * May this account record attendance at the door. The Attendance Checker
  * is scan-only and deliberately un-scoped: it may scan anyone, at any open
  * event, regardless of department. Event managers can scan too, so an admin can
  * cover a door without swapping accounts.
@@ -484,9 +484,13 @@ export function canScanEvents(role: UserRole | null | undefined): boolean {
 }
 
 /**
- * May this account open the Events module at all. The officer reaches only the
- * event list and the scanner — never the roster editor, the report, or the card
- * printing screen. Those are gated on canManageEvents.
+ * May this account open the Events module at all — never the roster editor, the
+ * report, or the card printing screen, which are gated on canManageEvents.
+ *
+ * In practice only the managers reach the module's pages now: an Attendance
+ * Checker is redirected out of the dashboard shell to its own app at /scan
+ * (see src/app/(dashboard)/layout.tsx). This stays the union of both so the
+ * module's own guards do not depend on that redirect being the only one.
  */
 export function canAccessEvents(role: UserRole | null | undefined): boolean {
   return canScanEvents(role);

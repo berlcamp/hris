@@ -20,6 +20,10 @@ export const userFormSchema = z.object({
       "dtr_manager",
       "cos_manager",
       "jo_manager",
+      // The scan-only Attendance Checker (enum value event_attendance_officer,
+      // migration 080). Assignable here so HR can appoint one without a SQL
+      // console — the role was gated in code from the start but never offered.
+      "event_attendance_officer",
       "employee",
     ],
     {

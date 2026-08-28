@@ -54,7 +54,7 @@ export async function getEvents(opts: {
     .select(EVENT_SELECT, { count: "exact" })
     .is("deleted_at", null);
 
-  // The Event Attendance Officer is scan-only: a draft roster is still being
+  // The Attendance Checker is scan-only: a draft roster is still being
   // assembled and a closed event's report is final, so neither is his business.
   if (!canManageEvents(user?.role)) {
     query = query.eq("status", "open");
