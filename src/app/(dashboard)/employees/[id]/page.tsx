@@ -123,6 +123,7 @@ export default async function EmployeeProfilePage({
 
   const employmentTypeLabels: Record<string, string> = {
     plantilla: "Plantilla",
+    temporary: "Temporary",
     jo: "Job Order",
     cos: "Contract of Service",
   };

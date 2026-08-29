@@ -130,6 +130,27 @@ export function EmployeeForm({
   });
 
   const watchEmploymentType = watch("employment_type");
+  // A temporary record is a name and an employment type, nothing more: no
+  // plantilla item, no salary grade, no hire date to compute anything from.
+  // Everything the rest of the HRIS hangs off those fields already filters
+  // `employment_type = 'plantilla'`, so leaving them blank costs nothing.
+  const isTemporary = watchEmploymentType === "temporary";
+
+  // Job Order and COS personnel are kept in their own registries and their own
+  // menus, so this form no longer offers those types — creating one here only
+  // ever produced a record the Employees list would not show. An existing
+  // JO/COS row still shows its own type while being edited, rather than
+  // silently reading as something it is not.
+  const employmentTypeOptions = [
+    { value: "plantilla", label: "Plantilla" },
+    { value: "temporary", label: "Temporary" },
+    ...(watchEmploymentType === "jo"
+      ? [{ value: "jo", label: "Job Order" }]
+      : []),
+    ...(watchEmploymentType === "cos"
+      ? [{ value: "cos", label: "Contract of Service" }]
+      : []),
+  ];
   const watchDepartment = watch("department_id");
   const watchDetailedDepartment = watch("detailed_department_id");
   const watchPosition = watch("position_id");
@@ -432,24 +453,17 @@ export function EmployeeForm({
               }
               className="flex gap-4"
             >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="plantilla" id="type-plantilla" />
-                <Label htmlFor="type-plantilla" className="font-normal">
-                  Plantilla
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="jo" id="type-jo" />
-                <Label htmlFor="type-jo" className="font-normal">
-                  Job Order
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="cos" id="type-cos" />
-                <Label htmlFor="type-cos" className="font-normal">
-                  Contract of Service
-                </Label>
-              </div>
+              {employmentTypeOptions.map((opt) => (
+                <div key={opt.value} className="flex items-center space-x-2">
+                  <RadioGroupItem value={opt.value} id={`type-${opt.value}`} />
+                  <Label
+                    htmlFor={`type-${opt.value}`}
+                    className="font-normal"
+                  >
+                    {opt.label}
+                  </Label>
+                </div>
+              ))}
             </RadioGroup>
             {errors.employment_type && (
               <p className="text-sm text-destructive">
@@ -458,223 +472,149 @@ export function EmployeeForm({
             )}
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Department</Label>
-              <Select
-                value={watchDepartment ?? "none"}
-                items={[
-                  { value: "none", label: "No Department" },
-                  ...departments.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })),
-                ]}
-                onValueChange={(val) => {
-                  setValue("department_id", val === "none" ? null : val, {
-                    shouldValidate: true,
-                  });
-                  // Reset position when department changes
-                  setValue("position_id", null);
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No Department</SelectItem>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.code} — {dept.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {isTemporary ? (
+            <p className="text-sm text-muted-foreground">
+              A temporary record carries a name and nothing else — no
+              department, position, salary grade or hire date. It exists so the
+              person can be put on an event roster and issued a QR ID card.
+            </p>
+          ) : (
+            <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Department</Label>
+                <Select
+                  value={watchDepartment ?? "none"}
+                  items={[
+                    { value: "none", label: "No Department" },
+                    ...departments.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })),
+                  ]}
+                  onValueChange={(val) => {
+                    setValue("department_id", val === "none" ? null : val, {
+                      shouldValidate: true,
+                    });
+                    // Reset position when department changes
+                    setValue("position_id", null);
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Department</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.code} — {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Position</Label>
+                <Select
+                  value={watchPosition ?? "none"}
+                  items={[
+                    { value: "none", label: "No Position" },
+                    ...filteredPositions.map((p) => ({
+                      value: p.id,
+                      label: `${p.title}${p.item_number ? ` (${p.item_number})` : ""}`,
+                    })),
+                  ]}
+                  onValueChange={handlePositionChange}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select position" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Position</SelectItem>
+                    {filteredPositions.map((pos) => (
+                      <SelectItem key={pos.id} value={pos.id}>
+                        {pos.title}
+                        {pos.item_number && ` (${pos.item_number})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Position</Label>
-              <Select
-                value={watchPosition ?? "none"}
-                items={[
-                  { value: "none", label: "No Position" },
-                  ...filteredPositions.map((p) => ({
-                    value: p.id,
-                    label: `${p.title}${p.item_number ? ` (${p.item_number})` : ""}`,
-                  })),
-                ]}
-                onValueChange={handlePositionChange}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select position" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No Position</SelectItem>
-                  {filteredPositions.map((pos) => (
-                    <SelectItem key={pos.id} value={pos.id}>
-                      {pos.title}
-                      {pos.item_number && ` (${pos.item_number})`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Detailed To (Department)</Label>
-              <Select
-                value={watchDetailedDepartment ?? "none"}
-                items={[
-                  { value: "none", label: "Not detailed" },
-                  ...departments.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })),
-                ]}
-                onValueChange={(val) =>
-                  setValue(
-                    "detailed_department_id",
-                    val === "none" ? null : val,
-                    { shouldValidate: true }
-                  )
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Not detailed" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Not detailed</SelectItem>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.code} — {dept.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Office the employee is temporarily detailed to. Used by the DTR
-                to pick the verifying signatory.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="salary_grade">Salary Grade *</Label>
-              <Input
-                id="salary_grade"
-                type="number"
-                min={1}
-                max={33}
-                {...register("salary_grade")}
-                aria-invalid={!!errors.salary_grade}
-              />
-              {errors.salary_grade && (
-                <p className="text-sm text-destructive">
-                  {errors.salary_grade.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="step_increment">Step Increment *</Label>
-              <Input
-                id="step_increment"
-                type="number"
-                min={1}
-                max={8}
-                {...register("step_increment")}
-                aria-invalid={!!errors.step_increment}
-              />
-              {errors.step_increment && (
-                <p className="text-sm text-destructive">
-                  {errors.step_increment.message}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Hire Date *</Label>
-              <Popover>
-                <PopoverTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !watchHireDate && "text-muted-foreground"
-                      )}
-                    />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Detailed To (Department)</Label>
+                <Select
+                  value={watchDetailedDepartment ?? "none"}
+                  items={[
+                    { value: "none", label: "Not detailed" },
+                    ...departments.map((d) => ({ value: d.id, label: `${d.code} — ${d.name}` })),
+                  ]}
+                  onValueChange={(val) =>
+                    setValue(
+                      "detailed_department_id",
+                      val === "none" ? null : val,
+                      { shouldValidate: true }
+                    )
                   }
                 >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {watchHireDate
-                    ? format(new Date(watchHireDate), "MMMM d, yyyy")
-                    : "Select date"}
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={
-                      watchHireDate ? new Date(watchHireDate) : undefined
-                    }
-                    onSelect={(date) =>
-                      setValue(
-                        "hire_date",
-                        date ? format(date, "yyyy-MM-dd") : "",
-                        { shouldValidate: true }
-                      )
-                    }
-                    captionLayout="dropdown"
-                    fromYear={1970}
-                    toYear={new Date().getFullYear() + 1}
-                  />
-                </PopoverContent>
-              </Popover>
-              {errors.hire_date && (
-                <p className="text-sm text-destructive">
-                  {errors.hire_date.message}
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Not detailed" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Not detailed</SelectItem>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.code} — {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Office the employee is temporarily detailed to. Used by the DTR
+                  to pick the verifying signatory.
                 </p>
-              )}
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Work Schedule</Label>
-              <Select
-                value={watchScheduleId ?? "none"}
-                items={[
-                  { value: "none", label: "Unassigned" },
-                  ...schedules.map((s) => ({
-                    value: s.id,
-                    label: `${s.name} (${s.time_in.slice(0, 5)}–${s.time_out.slice(0, 5)})`,
-                  })),
-                ]}
-                onValueChange={(val) =>
-                  setValue("schedule_id", val === "none" ? null : val, {
-                    shouldValidate: true,
-                  })
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select schedule" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Unassigned</SelectItem>
-                  {schedules.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name} ({s.time_in.slice(0, 5)}–{s.time_out.slice(0, 5)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Used by attendance import and DTR to compute tardiness and bucket
-                punches.
-              </p>
-            </div>
-
-            {(watchEmploymentType === "jo" ||
-              watchEmploymentType === "cos") && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>End of Contract</Label>
+                <Label htmlFor="salary_grade">Salary Grade *</Label>
+                <Input
+                  id="salary_grade"
+                  type="number"
+                  min={1}
+                  max={33}
+                  {...register("salary_grade")}
+                  aria-invalid={!!errors.salary_grade}
+                />
+                {errors.salary_grade && (
+                  <p className="text-sm text-destructive">
+                    {errors.salary_grade.message}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="step_increment">Step Increment *</Label>
+                <Input
+                  id="step_increment"
+                  type="number"
+                  min={1}
+                  max={8}
+                  {...register("step_increment")}
+                  aria-invalid={!!errors.step_increment}
+                />
+                {errors.step_increment && (
+                  <p className="text-sm text-destructive">
+                    {errors.step_increment.message}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Hire Date *</Label>
                 <Popover>
                   <PopoverTrigger
                     render={
@@ -682,43 +622,127 @@ export function EmployeeForm({
                         variant="outline"
                         className={cn(
                           "w-full justify-start text-left font-normal",
-                          !watchEndOfContract && "text-muted-foreground"
+                          !watchHireDate && "text-muted-foreground"
                         )}
                       />
                     }
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
-                    {watchEndOfContract
-                      ? format(
-                          new Date(watchEndOfContract),
-                          "MMMM d, yyyy"
-                        )
+                    {watchHireDate
+                      ? format(new Date(watchHireDate), "MMMM d, yyyy")
                       : "Select date"}
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
                     <Calendar
                       mode="single"
                       selected={
-                        watchEndOfContract
-                          ? new Date(watchEndOfContract)
-                          : undefined
+                        watchHireDate ? new Date(watchHireDate) : undefined
                       }
                       onSelect={(date) =>
                         setValue(
-                          "end_of_contract",
-                          date ? format(date, "yyyy-MM-dd") : null,
+                          "hire_date",
+                          date ? format(date, "yyyy-MM-dd") : "",
                           { shouldValidate: true }
                         )
                       }
                       captionLayout="dropdown"
-                      fromYear={new Date().getFullYear()}
-                      toYear={new Date().getFullYear() + 5}
+                      fromYear={1970}
+                      toYear={new Date().getFullYear() + 1}
                     />
                   </PopoverContent>
                 </Popover>
+                {errors.hire_date && (
+                  <p className="text-sm text-destructive">
+                    {errors.hire_date.message}
+                  </p>
+                )}
               </div>
-            )}
-          </div>
+
+              <div className="space-y-2">
+                <Label>Work Schedule</Label>
+                <Select
+                  value={watchScheduleId ?? "none"}
+                  items={[
+                    { value: "none", label: "Unassigned" },
+                    ...schedules.map((s) => ({
+                      value: s.id,
+                      label: `${s.name} (${s.time_in.slice(0, 5)}–${s.time_out.slice(0, 5)})`,
+                    })),
+                  ]}
+                  onValueChange={(val) =>
+                    setValue("schedule_id", val === "none" ? null : val, {
+                      shouldValidate: true,
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select schedule" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Unassigned</SelectItem>
+                    {schedules.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name} ({s.time_in.slice(0, 5)}–{s.time_out.slice(0, 5)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Used by attendance import and DTR to compute tardiness and bucket
+                  punches.
+                </p>
+              </div>
+
+              {(watchEmploymentType === "jo" ||
+                watchEmploymentType === "cos") && (
+                <div className="space-y-2">
+                  <Label>End of Contract</Label>
+                  <Popover>
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !watchEndOfContract && "text-muted-foreground"
+                          )}
+                        />
+                      }
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {watchEndOfContract
+                        ? format(
+                            new Date(watchEndOfContract),
+                            "MMMM d, yyyy"
+                          )
+                        : "Select date"}
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={
+                          watchEndOfContract
+                            ? new Date(watchEndOfContract)
+                            : undefined
+                        }
+                        onSelect={(date) =>
+                          setValue(
+                            "end_of_contract",
+                            date ? format(date, "yyyy-MM-dd") : null,
+                            { shouldValidate: true }
+                          )
+                        }
+                        captionLayout="dropdown"
+                        fromYear={new Date().getFullYear()}
+                        toYear={new Date().getFullYear() + 5}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
+            </div>
+            </>
+          )}
         </CardContent>
       </Card>
 

@@ -27,9 +27,12 @@ export default async function EmployeesPage() {
     getDepartments(),
   ]);
 
-  // Job Order employees are managed elsewhere and are not listed on the main
-  // Employees page.
-  const employees = allEmployees.filter((e) => e.employment_type !== "jo");
+  // Job Order and COS personnel have their own menus and their own registries;
+  // listing them here as well only ever produced two versions of the same
+  // person. This page is plantilla and temporary.
+  const employees = allEmployees.filter(
+    (e) => e.employment_type === "plantilla" || e.employment_type === "temporary",
+  );
 
   const departmentOptions = (departments ?? []).map((d) => ({
     label: d.name,

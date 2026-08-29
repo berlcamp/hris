@@ -12,6 +12,7 @@ import {
   isDeptScoped,
 } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
+import { manilaToday } from "@/lib/format-date";
 import type { EmployeeFormValues } from "@/lib/validations/employee-schema";
 import {
   salaryHistoryEntrySchema,
@@ -134,23 +135,44 @@ export async function getPositions(departmentId?: string | null) {
 }
 
 /**
- * Next employee / biometric number for display on the create form (not reserved;
- * the DB assigns `biometric_no` on insert via serial).
+ * The next unused numeric employee_no, as a NUMBER.
+ *
+ * Number, not string, because the column's type is not the same everywhere:
+ * migration 001 declares employee_no TEXT and the production database has it
+ * as INTEGER. Postgres will assign a number to either, but never a text value
+ * to an integer column.
+ *
+ * Read in pages: PostgREST caps a response at 1000 rows, and taking the max of
+ * the first page only would hand back a number that already exists. Ordering on
+ * the server would not help either — where the column IS text, "999" sorts
+ * above "1000".
  */
+async function nextEmployeeNo(
+  supabase: ReturnType<typeof createAdminClient>,
+): Promise<number> {
+  const CHUNK = 1000;
+  let highest = 0;
+  for (let from = 0; ; from += CHUNK) {
+    const { data, error } = await supabase
+      .schema("hris")
+      .from("employees")
+      .select("employee_no")
+      .order("id")
+      .range(from, from + CHUNK - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as { employee_no: string | number | null }[];
+    for (const r of rows) {
+      const n = Number(String(r.employee_no ?? "").trim());
+      if (Number.isInteger(n) && n > highest) highest = n;
+    }
+    if (rows.length < CHUNK) break;
+  }
+  return highest + 1;
+}
+
+/** The number the Add Employee form previews — the same one create stores. */
 export async function generateEmployeeNo(): Promise<string> {
-  const supabase = createAdminClient();
-
-  const { data, error } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select("biometric_no")
-    .order("biometric_no", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  const next = (data?.biometric_no ?? 0) + 1;
-  return String(next);
+  return String(await nextEmployeeNo(createAdminClient()));
 }
 
 export async function createEmployee(input: EmployeeFormValues) {
@@ -161,33 +183,56 @@ export async function createEmployee(input: EmployeeFormValues) {
 
   const supabase = createAdminClient();
 
-  const { data, error } = await supabase
+  // A temporary employee is entered as a name and nothing else, but hire_date
+  // is NOT NULL on the table. Today is the honest stand-in: the record starts
+  // existing now, and nothing computes anything from a temporary's hire date.
+  const hireDate = input.hire_date || manilaToday();
+
+  const row = {
+    id_number: input.id_number,
+    first_name: input.first_name,
+    middle_name: input.middle_name,
+    last_name: input.last_name,
+    suffix: input.suffix,
+    birth_date: input.birth_date,
+    gender: input.gender,
+    civil_status: input.civil_status,
+    address: input.address,
+    phone: input.phone,
+    employment_type: input.employment_type,
+    position_id: input.position_id,
+    department_id: input.department_id,
+    detailed_department_id: input.detailed_department_id,
+    is_department_head: input.is_department_head,
+    salary_grade: input.salary_grade,
+    step_increment: input.step_increment,
+    hire_date: hireDate,
+    end_of_contract: input.end_of_contract,
+    schedule_id: input.schedule_id,
+  };
+
+  let { data, error } = await supabase
     .schema("hris")
     .from("employees")
-    .insert({
-      id_number: input.id_number,
-      first_name: input.first_name,
-      middle_name: input.middle_name,
-      last_name: input.last_name,
-      suffix: input.suffix,
-      birth_date: input.birth_date,
-      gender: input.gender,
-      civil_status: input.civil_status,
-      address: input.address,
-      phone: input.phone,
-      employment_type: input.employment_type,
-      position_id: input.position_id,
-      department_id: input.department_id,
-      detailed_department_id: input.detailed_department_id,
-      is_department_head: input.is_department_head,
-      salary_grade: input.salary_grade,
-      step_increment: input.step_increment,
-      hire_date: input.hire_date,
-      end_of_contract: input.end_of_contract,
-      schedule_id: input.schedule_id,
-    })
+    .insert(row)
     .select()
     .single();
+
+  // employee_no is NOT NULL with no default in the migrations, and nothing on
+  // this path supplies one. Whether the live database fills it itself is not
+  // something this code can inspect, so the number is generated only when
+  // Postgres actually complains that it is missing (23502) — a database that
+  // populates the column keeps doing so, untouched.
+  if (error?.code === "23502" && error.message.includes("employee_no")) {
+    const retry = await supabase
+      .schema("hris")
+      .from("employees")
+      .insert({ ...row, employee_no: await nextEmployeeNo(supabase) })
+      .select()
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     if (error.code === "23505") {
@@ -196,15 +241,19 @@ export async function createEmployee(input: EmployeeFormValues) {
     return { error: error.message };
   }
 
-  // Create initial salary history record
-  await supabase.schema("hris").from("salary_history").insert({
-    employee_id: data.id,
-    salary_grade: input.salary_grade,
-    step: input.step_increment,
-    salary_amount: 0, // Will be populated when salary grade table has data
-    effective_date: input.hire_date,
-    reason: "initial",
-  });
+  // Initial salary history. Skipped for temporary personnel: they have no
+  // salary grade, and a phantom "initial" row at grade 1 would show up as a
+  // real compensation record in the 201 file and the step-increment history.
+  if (input.employment_type !== "temporary") {
+    await supabase.schema("hris").from("salary_history").insert({
+      employee_id: data.id,
+      salary_grade: input.salary_grade,
+      step: input.step_increment,
+      salary_amount: 0, // Will be populated when salary grade table has data
+      effective_date: hireDate,
+      reason: "initial",
+    });
+  }
 
   await logAudit({
     userId: user.id,
@@ -230,6 +279,10 @@ export async function updateEmployee(
 
   const supabase = createAdminClient();
 
+  // Same NOT NULL column, same stand-in as on create — a temporary record is
+  // edited without ever showing a hire date field.
+  const hireDate = input.hire_date || manilaToday();
+
   const { data, error } = await supabase
     .schema("hris")
     .from("employees")
@@ -251,7 +304,7 @@ export async function updateEmployee(
       is_department_head: input.is_department_head,
       salary_grade: input.salary_grade,
       step_increment: input.step_increment,
-      hire_date: input.hire_date,
+      hire_date: hireDate,
       end_of_contract: input.end_of_contract,
       schedule_id: input.schedule_id,
     })

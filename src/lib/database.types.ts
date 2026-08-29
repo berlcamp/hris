@@ -997,6 +997,7 @@ export type Database = {
           birth_date: string | null
           civil_status: string | null
           created_at: string | null
+          csc_team: string | null
           daily_rate: number | null
           department_id: string | null
           detailed_department_id: string | null
@@ -1052,6 +1053,7 @@ export type Database = {
           birth_date?: string | null
           civil_status?: string | null
           created_at?: string | null
+          csc_team?: string | null
           daily_rate?: number | null
           department_id?: string | null
           detailed_department_id?: string | null
@@ -1107,6 +1109,7 @@ export type Database = {
           birth_date?: string | null
           civil_status?: string | null
           created_at?: string | null
+          csc_team?: string | null
           daily_rate?: number | null
           department_id?: string | null
           detailed_department_id?: string | null
@@ -3074,7 +3077,7 @@ export type Database = {
         | "awol"
         | "dropped"
         | "deceased"
-      employment_type: "plantilla" | "jo" | "cos"
+      employment_type: "plantilla" | "jo" | "cos" | "temporary"
       leave_type_code:
         | "VL"
         | "SL"
@@ -3281,7 +3284,7 @@ export const Constants = {
         "dropped",
         "deceased",
       ],
-      employment_type: ["plantilla", "jo", "cos"],
+      employment_type: ["plantilla", "jo", "cos", "temporary"],
       leave_type_code: [
         "VL",
         "SL",

@@ -22,7 +22,7 @@ export type UserRole =
   | "jo_manager"
   | "event_attendance_officer"
   | "employee";
-export type EmploymentType = "plantilla" | "jo" | "cos";
+export type EmploymentType = "plantilla" | "jo" | "cos" | "temporary";
 export type EmployeeStatus =
   | "active"
   | "inactive"
@@ -115,6 +115,8 @@ export interface Employee {
   status_effective_date: string | null;
   status_remarks: string | null;
   vl_sl_needs_manual_entry: boolean;
+  /** CSC anniversary team label, e.g. "Group 1 (WHITE)". Null unless assigned. */
+  csc_team: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -729,7 +731,10 @@ export interface RspAppointment {
 // ── Events ────────────────────────────────────────────────────────────────
 // The three person registries this database keeps share no key, so every
 // attendee reference is (kind, id). See migration 081 for why there is no FK.
-export type EventSubjectKind = "employee" | "job_order" | "cos";
+// "temporary" is also an hris.employees row — same table as "employee", just
+// employment_type = 'temporary'. It is a separate kind so the roster and card
+// screens can offer it on its own and print it without department or label.
+export type EventSubjectKind = "employee" | "job_order" | "cos" | "temporary";
 export type EventStatus = "draft" | "open" | "closed";
 export type EventAttendanceMethod = "scan" | "manual";
 

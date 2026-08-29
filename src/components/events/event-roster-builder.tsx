@@ -17,7 +17,12 @@ import {
 import { EMPLOYMENT_LABELS } from "@/lib/event-repo";
 import type { EventSubjectKind } from "@/lib/types";
 
-const KINDS: EventSubjectKind[] = ["employee", "job_order", "cos"];
+const KINDS: EventSubjectKind[] = [
+  "employee",
+  "temporary",
+  "job_order",
+  "cos",
+];
 
 export function EventRosterBuilder({
   eventId,
@@ -122,7 +127,8 @@ export function EventRosterBuilder({
           <Label className="text-xs">
             Departments{" "}
             <span className="text-muted-foreground font-normal">
-              — Plantilla and COS. Leave empty for all.
+              — Plantilla and COS only; temporary personnel carry no
+              department and are never narrowed by one. Leave empty for all.
             </span>
           </Label>
           <ScrollArea className="h-32 rounded-md border p-2">

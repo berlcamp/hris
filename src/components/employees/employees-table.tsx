@@ -65,8 +65,7 @@ export function EmployeesTable({
           title: "Type",
           options: [
             { label: "Plantilla", value: "plantilla" },
-            { label: "Job Order", value: "jo" },
-            { label: "Contract of Service", value: "cos" },
+            { label: "Temporary", value: "temporary" },
           ],
         },
         {

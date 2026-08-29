@@ -33,7 +33,12 @@ import {
 import { EMPLOYMENT_LABELS } from "@/lib/event-repo";
 import type { EventSubjectKind, QrCardSubject } from "@/lib/types";
 
-const KINDS: EventSubjectKind[] = ["employee", "job_order", "cos"];
+const KINDS: EventSubjectKind[] = [
+  "employee",
+  "temporary",
+  "job_order",
+  "cos",
+];
 
 export function QrCardsClient({
   departments,
@@ -87,8 +92,13 @@ export function QrCardsClient({
         visible.map(async (s) => ({
           full_name: s.full_name,
           id_number: s.id_number,
-          group_name: s.group_name,
-          employment_label: s.employment_label,
+          // A temporary card prints the name and the code, nothing else: there
+          // is no department to put on it and "TEMPORARY" stamped across an ID
+          // is not something to hand somebody. The table below still shows the
+          // type so HR can see what they are printing.
+          group_name: s.subject_kind === "temporary" ? null : s.group_name,
+          employment_label:
+            s.subject_kind === "temporary" ? "" : s.employment_label,
           token: s.token,
           qrDataUrl: await QRCode.toDataURL(s.token, {
             width: 512,
@@ -162,7 +172,8 @@ export function QrCardsClient({
             <Label className="text-xs">
               Departments{" "}
               <span className="text-muted-foreground font-normal">
-                — Plantilla and COS. Leave empty for all.
+                — Plantilla and COS only; temporary personnel carry no
+                department and are never narrowed by one. Leave empty for all.
               </span>
             </Label>
             <ScrollArea className="h-28 rounded-md border p-2">

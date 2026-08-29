@@ -8,6 +8,7 @@ import {
 import { getSchedules } from "@/lib/actions/schedule-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { canManageHrRecords } from "@/lib/auth-helpers";
+import type { EmployeeFormValues } from "@/lib/validations/employee-schema";
 
 export default async function EditEmployeePage({
   params,
@@ -59,7 +60,7 @@ export default async function EditEmployeePage({
           civil_status: employee.civil_status,
           address: employee.address,
           phone: employee.phone,
-          employment_type: employee.employment_type as "plantilla" | "jo" | "cos",
+          employment_type: employee.employment_type as EmployeeFormValues["employment_type"],
           position_id: employee.position_id,
           department_id: employee.department_id,
           detailed_department_id: employee.detailed_department_id,

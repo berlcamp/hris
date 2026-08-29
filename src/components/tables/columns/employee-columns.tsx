@@ -34,12 +34,14 @@ export type EmployeeRow = {
 
 const employmentTypeLabels: Record<string, string> = {
   plantilla: "Plantilla",
+  temporary: "Temporary",
   jo: "Job Order",
   cos: "Contract of Service",
 };
 
 const employmentTypeBadgeVariant: Record<string, "default" | "secondary" | "outline"> = {
   plantilla: "default",
+  temporary: "secondary",
   jo: "secondary",
   cos: "outline",
 };

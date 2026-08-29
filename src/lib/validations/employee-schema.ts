@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-export const employeeFormSchema = z.object({
+/**
+ * A temporary employee is a name and nothing else — no plantilla item, no
+ * salary grade that means anything, no hire date on file. The form hides those
+ * fields for that type, so the schema must not demand them either; the server
+ * fills the columns the table still requires NOT NULL.
+ */
+const employeeFormBaseSchema = z.object({
   id_number: z
     .string()
     .max(50, "ID number must be less than 50 characters")
@@ -20,7 +26,7 @@ export const employeeFormSchema = z.object({
   civil_status: z.string().nullable(),
   address: z.string().nullable(),
   phone: z.string().nullable(),
-  employment_type: z.enum(["plantilla", "jo", "cos"], {
+  employment_type: z.enum(["plantilla", "jo", "cos", "temporary"], {
     message: "Please select an employment type",
   }),
   position_id: z.string().nullable(),
@@ -37,9 +43,21 @@ export const employeeFormSchema = z.object({
     .int()
     .min(1, "Step must be at least 1")
     .max(8, "Step must be at most 8"),
-  hire_date: z.string().min(1, "Hire date is required"),
+  hire_date: z.string(),
   end_of_contract: z.string().nullable(),
   schedule_id: z.string().nullable(),
 });
 
-export type EmployeeFormValues = z.infer<typeof employeeFormSchema>;
+export const employeeFormSchema = employeeFormBaseSchema.superRefine(
+  (val, ctx) => {
+    if (val.employment_type !== "temporary" && !val.hire_date) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["hire_date"],
+        message: "Hire date is required",
+      });
+    }
+  },
+);
+
+export type EmployeeFormValues = z.infer<typeof employeeFormBaseSchema>;

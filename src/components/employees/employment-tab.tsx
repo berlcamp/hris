@@ -12,6 +12,7 @@ import { EMPLOYEE_STATUS_LABELS } from "@/lib/constants";
 
 const employmentTypeLabels: Record<string, string> = {
   plantilla: "Plantilla",
+  temporary: "Temporary",
   jo: "Job Order",
   cos: "Contract of Service",
 };

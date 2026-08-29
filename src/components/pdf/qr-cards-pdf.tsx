@@ -27,6 +27,7 @@ export interface QrCardPrintItem {
   /** employee_no / cos_no. Null for Job Order, which has no number at all. */
   id_number: string | null;
   group_name: string | null;
+  /** Empty string prints no label at all — see the temporary cards. */
   employment_label: string;
   token: string;
   /** PNG data URL, rendered by the caller with `qrcode`. */
@@ -112,9 +113,11 @@ export function QrCardsPdf({
                     {card.group_name ? (
                       <Text style={styles.meta}>{card.group_name}</Text>
                     ) : null}
-                    <Text style={styles.label}>
-                      {card.employment_label.toUpperCase()}
-                    </Text>
+                    {card.employment_label ? (
+                      <Text style={styles.label}>
+                        {card.employment_label.toUpperCase()}
+                      </Text>
+                    ) : null}
                   </View>
                   <View style={styles.qrWrap}>
                     {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf Image takes no alt */}

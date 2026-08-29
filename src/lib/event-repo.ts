@@ -15,6 +15,7 @@ export const EMPLOYMENT_LABELS: Record<EventSubjectKind, string> = {
   employee: "Plantilla",
   job_order: "Job Order",
   cos: "COS",
+  temporary: "Temporary",
 };
 
 /**
@@ -26,10 +27,16 @@ export const EMPLOYMENT_LABELS: Record<EventSubjectKind, string> = {
  * that silently returns zero rows and reads as a bug — the filter axis changes
  * meaning per registry, and the UI says so.
  */
-export const GROUP_AXIS: Record<EventSubjectKind, "department" | "area"> = {
+export const GROUP_AXIS: Record<
+  EventSubjectKind,
+  "department" | "area" | "none"
+> = {
   employee: "department",
   job_order: "area",
   cos: "department",
+  // A temporary record is a name and nothing else — it carries no department
+  // worth filtering on, so the group filters simply do not apply to it.
+  temporary: "none",
 };
 
 // The service-role client every server action in this module uses.
@@ -66,6 +73,14 @@ interface PlantillaRow {
   departments: { name: string } | null;
 }
 
+interface TemporaryRow {
+  id: string;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  suffix: string | null;
+}
+
 interface JobOrderRow {
   id: string;
   full_name: string;
@@ -85,11 +100,12 @@ interface CosRow {
 }
 
 /**
- * Everyone eligible to be put on a roster or handed a QR card, across all three
- * registries, optionally narrowed to specific groups.
+ * Everyone eligible to be put on a roster or handed a QR card, across every
+ * registry, optionally narrowed to specific groups.
  *
  * `groupIds` are department ids for plantilla/COS and AREA ids for Job Order —
  * see GROUP_AXIS. Passing an empty array means "no filter", not "nothing".
+ * Temporary personnel are on neither axis and are never narrowed by either.
  *
  * Rows sitting in hris.employees with employment_type in ('jo','cos') are
  * deliberately NOT returned: Job Order and COS personnel come from their own
@@ -134,6 +150,34 @@ export async function loadEventCandidates(
         group_name: r.departments?.name ?? null,
         group_id: r.department_id,
         employment_label: EMPLOYMENT_LABELS.employee,
+      });
+    }
+  }
+
+  if (opts.kinds.includes("temporary")) {
+    // Deliberately NOT narrowed by departmentIds. A temporary record is just a
+    // name; most carry no department at all, so applying the department filter
+    // would quietly drop every one of them the moment HR ticked a department
+    // to narrow the plantilla side of the same roster.
+    const rows = await readAll<TemporaryRow>((from, to) =>
+      supabase
+        .schema("hris")
+        .from("employees")
+        .select("id, first_name, middle_name, last_name, suffix")
+        .eq("employment_type", "temporary")
+        .eq("status", "active")
+        .order("id")
+        .range(from, to),
+    );
+    for (const r of rows) {
+      out.push({
+        subject_kind: "temporary",
+        subject_id: r.id,
+        full_name: formatEmployeeDisplayName(r),
+        id_number: null,
+        group_name: null,
+        group_id: null,
+        employment_label: EMPLOYMENT_LABELS.temporary,
       });
     }
   }

@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-export const eventSubjectKindSchema = z.enum(["employee", "job_order", "cos"]);
+export const eventSubjectKindSchema = z.enum([
+  "employee",
+  "job_order",
+  "cos",
+  "temporary",
+]);
 
 export const eventMetadataSchema = z
   .object({
