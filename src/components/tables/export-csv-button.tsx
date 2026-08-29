@@ -13,9 +13,16 @@ interface ExportCsvButtonProps {
   data: any[];
   filename: string;
   columns: CsvColumn[];
+  /** Button text. Only worth setting where a screen offers more than one export. */
+  label?: string;
 }
 
-export function ExportCsvButton({ data, filename, columns }: ExportCsvButtonProps) {
+export function ExportCsvButton({
+  data,
+  filename,
+  columns,
+  label = "Export CSV",
+}: ExportCsvButtonProps) {
   const handleExport = () => {
     const headers = columns.map((c) => c.header);
     const rows = data.map((row) =>
@@ -44,7 +51,7 @@ export function ExportCsvButton({ data, filename, columns }: ExportCsvButtonProp
   return (
     <Button variant="outline" size="sm" onClick={handleExport}>
       <Download className="h-4 w-4" />
-      Export CSV
+      {label}
     </Button>
   );
 }

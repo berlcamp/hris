@@ -140,7 +140,23 @@ export function EventDetailClient({
     [attendance],
   );
 
-  const csvRows = useMemo(
+  /** The scan log the tab no longer shows, still downloadable in full. */
+  const nameCsvRows = useMemo(
+    () =>
+      attendance.map((a) => ({
+        date: a.attendance_date,
+        name: a.full_name,
+        team: a.csc_team ?? UNASSIGNED,
+        type: a.subject_kind,
+        method: a.method,
+        walk_in: a.is_walk_in ? "yes" : "no",
+        amendment: a.synced_late ? "yes" : "no",
+        scanned_at: a.scanned_at,
+      })),
+    [attendance],
+  );
+
+  const summaryCsvRows = useMemo(
     () =>
       teamSummary.map((t) => ({
         team: t.team,
@@ -309,12 +325,28 @@ export function EventDetailClient({
             {amendments.length > 0 && (
               <Badge variant="secondary">{amendments.length} amendment</Badge>
             )}
-            <div className="ml-auto">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
               <ExportCsvButton
-                data={csvRows}
+                label="Download names"
+                data={nameCsvRows}
+                filename={`event-attendance-names-${event.id.slice(0, 8)}`}
+                columns={[
+                  { key: "date", header: "Date" },
+                  { key: "name", header: "Name" },
+                  { key: "team", header: "CSC Team" },
+                  { key: "type", header: "Type" },
+                  { key: "method", header: "Method" },
+                  { key: "walk_in", header: "Walk-in" },
+                  { key: "amendment", header: "Amendment" },
+                  { key: "scanned_at", header: "Scanned at" },
+                ]}
+              />
+              <ExportCsvButton
+                label="Download summary"
+                data={summaryCsvRows}
                 filename={`event-attendance-by-team-${event.id.slice(0, 8)}`}
                 columns={[
-                  { key: "team", header: "Team" },
+                  { key: "team", header: "CSC Team" },
                   ...days.map((d) => ({
                     key: d,
                     header: format(new Date(`${d}T00:00:00`), "MMM d"),
