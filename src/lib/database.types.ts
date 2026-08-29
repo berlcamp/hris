@@ -435,6 +435,7 @@ export type Database = {
           cos_no: string
           created_at: string | null
           created_by: string | null
+          csc_team: string | null
           deleted_at: string | null
           department_id: string | null
           eligibility: string | null
@@ -461,6 +462,7 @@ export type Database = {
           cos_no: string
           created_at?: string | null
           created_by?: string | null
+          csc_team?: string | null
           deleted_at?: string | null
           department_id?: string | null
           eligibility?: string | null
@@ -487,6 +489,7 @@ export type Database = {
           cos_no?: string
           created_at?: string | null
           created_by?: string | null
+          csc_team?: string | null
           deleted_at?: string | null
           department_id?: string | null
           eligibility?: string | null
@@ -1368,6 +1371,7 @@ export type Database = {
           community_tax_place_issued: string | null
           created_at: string
           created_by: string | null
+          csc_team: string | null
           daily_rate: number | null
           date_started: string | null
           deleted_at: string | null
@@ -1401,6 +1405,7 @@ export type Database = {
           community_tax_place_issued?: string | null
           created_at?: string
           created_by?: string | null
+          csc_team?: string | null
           daily_rate?: number | null
           date_started?: string | null
           deleted_at?: string | null
@@ -1434,6 +1439,7 @@ export type Database = {
           community_tax_place_issued?: string | null
           created_at?: string
           created_by?: string | null
+          csc_team?: string | null
           daily_rate?: number | null
           date_started?: string | null
           deleted_at?: string | null

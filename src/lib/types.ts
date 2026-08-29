@@ -500,6 +500,8 @@ export interface JobOrderEmployee {
   community_tax_place_issued: string | null;
   status: "active" | "inactive";
   legacy_id: number | null;
+  /** CSC anniversary team label, e.g. "Group 1 - White Rhinos". Null unless assigned. */
+  csc_team: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -791,6 +793,12 @@ export interface EventAttendanceRecord {
   qr_token: string | null;
   scanned_by: string;
   created_at: string;
+  /**
+   * CSC team, resolved LIVE from the registry when the record is read — not a
+   * column on event_attendance. See loadCscTeams() for why it is not frozen
+   * the way the name and department are.
+   */
+  csc_team: string | null;
 }
 
 /**

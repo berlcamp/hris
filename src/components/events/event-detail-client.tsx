@@ -14,6 +14,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -41,6 +42,9 @@ import type {
 function fmtDate(d: string): string {
   return format(new Date(`${d}T00:00:00`), "MMM d, yyyy");
 }
+
+/** Anyone scanned in who has no team on file — a gap to close, not a team. */
+const UNASSIGNED = "No team assigned";
 
 export function EventDetailClient({
   event,
@@ -90,18 +94,60 @@ export function EventDetailClient({
   const manualEntries = attendance.filter((a) => a.method === "manual");
   const walkIns = attendance.filter((a) => a.is_walk_in);
 
+  /**
+   * Attendance totalled per CSC team, one row per team and one column per day.
+   *
+   * Counted as DISTINCT people, not rows: a three-day event records a separate
+   * row per person per day, so summing rows would report a team of 20 who all
+   * showed up three times as 60.
+   */
+  const teamSummary = useMemo(() => {
+    const teams = new Map<
+      string,
+      { total: Set<string>; byDay: Map<string, Set<string>> }
+    >();
+    for (const a of attendance) {
+      const team = a.csc_team ?? UNASSIGNED;
+      if (!teams.has(team)) teams.set(team, { total: new Set(), byDay: new Map() });
+      const bucket = teams.get(team)!;
+      const person = `${a.subject_kind}:${a.subject_id}`;
+      bucket.total.add(person);
+      if (!bucket.byDay.has(a.attendance_date)) {
+        bucket.byDay.set(a.attendance_date, new Set());
+      }
+      bucket.byDay.get(a.attendance_date)!.add(person);
+    }
+    return [...teams.entries()]
+      .map(([team, b]) => ({
+        team,
+        total: b.total.size,
+        perDay: days.map((d) => b.byDay.get(d)?.size ?? 0),
+      }))
+      // Unassigned last: it is a data gap, not a team, and it should not sit in
+      // the middle of the standings.
+      .sort((a, b) =>
+        a.team === UNASSIGNED
+          ? 1
+          : b.team === UNASSIGNED
+            ? -1
+            : a.team.localeCompare(b.team),
+      );
+  }, [attendance, days]);
+
+  /** Distinct people present at all, for the footer total. */
+  const distinctPresent = useMemo(
+    () => new Set(attendance.map((a) => `${a.subject_kind}:${a.subject_id}`)).size,
+    [attendance],
+  );
+
   const csvRows = useMemo(
     () =>
-      attendance.map((a) => ({
-        date: a.attendance_date,
-        name: a.full_name,
-        type: a.subject_kind,
-        method: a.method,
-        walk_in: a.is_walk_in ? "yes" : "no",
-        amendment: a.synced_late ? "yes" : "no",
-        scanned_at: a.scanned_at,
+      teamSummary.map((t) => ({
+        team: t.team,
+        ...Object.fromEntries(days.map((d, i) => [d, t.perDay[i]])),
+        total: t.total,
       })),
-    [attendance],
+    [teamSummary, days],
   );
 
   const changeStatus = async (status: "draft" | "open" | "closed") => {
@@ -266,15 +312,14 @@ export function EventDetailClient({
             <div className="ml-auto">
               <ExportCsvButton
                 data={csvRows}
-                filename={`event-attendance-${event.id.slice(0, 8)}`}
+                filename={`event-attendance-by-team-${event.id.slice(0, 8)}`}
                 columns={[
-                  { key: "date", header: "Date" },
-                  { key: "name", header: "Name" },
-                  { key: "type", header: "Type" },
-                  { key: "method", header: "Method" },
-                  { key: "walk_in", header: "Walk-in" },
-                  { key: "amendment", header: "Amendment" },
-                  { key: "scanned_at", header: "Scanned at" },
+                  { key: "team", header: "Team" },
+                  ...days.map((d) => ({
+                    key: d,
+                    header: format(new Date(`${d}T00:00:00`), "MMM d"),
+                  })),
+                  { key: "total", header: "Total present" },
                 ]}
               />
             </div>
@@ -289,45 +334,83 @@ export function EventDetailClient({
             </p>
           )}
 
-          <div className="rounded-lg border">
+          <div className="overflow-x-auto rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Notes</TableHead>
+                  <TableHead>CSC Team</TableHead>
+                  {days.map((d) => (
+                    <TableHead key={d} className="text-center whitespace-nowrap">
+                      {format(new Date(`${d}T00:00:00`), "MMM d")}
+                    </TableHead>
+                  ))}
+                  <TableHead className="text-center">Total present</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {attendance.length === 0 ? (
+                {teamSummary.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="h-24 text-center">
+                    <TableCell
+                      colSpan={2 + days.length}
+                      className="h-24 text-center"
+                    >
                       Nothing recorded yet.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  attendance.map((a) => (
-                    <TableRow key={a.id}>
-                      <TableCell className="whitespace-nowrap">
-                        {fmtDate(a.attendance_date)}
+                  teamSummary.map((t) => (
+                    <TableRow key={t.team}>
+                      <TableCell
+                        className={
+                          t.team === UNASSIGNED
+                            ? "text-muted-foreground"
+                            : "font-medium"
+                        }
+                      >
+                        {t.team}
                       </TableCell>
-                      <TableCell className="font-medium">{a.full_name}</TableCell>
-                      <TableCell>
-                        <Badge variant={a.method === "manual" ? "secondary" : "outline"}>
-                          {a.method}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="space-x-1">
-                        {a.is_walk_in && <Badge variant="secondary">walk-in</Badge>}
-                        {a.synced_late && <Badge variant="secondary">amendment</Badge>}
+                      {t.perDay.map((n, i) => (
+                        <TableCell key={days[i]} className="text-center">
+                          {n === 0 ? "—" : n}
+                        </TableCell>
+                      ))}
+                      <TableCell className="text-center font-medium">
+                        {t.total}
                       </TableCell>
                     </TableRow>
                   ))
                 )}
               </TableBody>
+              {teamSummary.length > 0 && (
+                <TableFooter>
+                  <TableRow>
+                    <TableCell className="font-medium">All teams</TableCell>
+                    {days.map((d) => (
+                      <TableCell key={d} className="text-center font-medium">
+                        {
+                          new Set(
+                            attendance
+                              .filter((a) => a.attendance_date === d)
+                              .map((a) => `${a.subject_kind}:${a.subject_id}`),
+                          ).size
+                        }
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-center font-medium">
+                      {distinctPresent}
+                    </TableCell>
+                  </TableRow>
+                </TableFooter>
+              )}
             </Table>
           </div>
+
+          <p className="text-muted-foreground text-xs">
+            Counted as people, not scans: on a multi-day event somebody present
+            every day is one person in the total, not three. Teams are read from
+            the personnel records as they stand now, so correcting a wrong
+            assignment moves these numbers with it.
+          </p>
         </TabsContent>
       </Tabs>
 

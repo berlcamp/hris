@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import {
   EVENT_PAGE_SIZE,
   countOrphanedLegacyRows,
+  loadCscTeams,
   loadEventCandidates,
 } from "@/lib/event-repo";
 import {
@@ -193,6 +194,13 @@ export async function getEventAttendance(
     out.push(...rows);
     if (rows.length < CHUNK) break;
     from += CHUNK;
+  }
+
+  // The team is not stored on the attendance row; it is read from the registry
+  // so that fixing a wrong assignment moves the summary with it.
+  const teams = await loadCscTeams(supabase, out);
+  for (const row of out) {
+    row.csc_team = teams.get(`${row.subject_kind}:${row.subject_id}`) ?? null;
   }
   return out;
 }

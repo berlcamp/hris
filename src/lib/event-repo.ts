@@ -240,6 +240,68 @@ export async function loadEventCandidates(
 }
 
 /**
+ * The CSC team of each attendee, keyed "kind:id".
+ *
+ * Read LIVE from the registries rather than snapshotted onto the roster or the
+ * attendance row. Unlike a name or a department — which the roster freezes so a
+ * reprinted report keeps matching the one filed last month — a team is a
+ * correction waiting to happen: somebody is put in the wrong group, HR fixes
+ * the assignment, and the totals have to move with it. Freezing it would mean
+ * the summary keeps reporting the mistake.
+ *
+ * 'employee' and 'temporary' are both hris.employees rows, so they resolve in
+ * one query.
+ */
+export async function loadCscTeams(
+  supabase: Db,
+  refs: { subject_kind: EventSubjectKind; subject_id: string }[],
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (refs.length === 0) return out;
+
+  const tables: Record<EventSubjectKind, string> = {
+    employee: "employees",
+    temporary: "employees",
+    job_order: "job_order_employees",
+    cos: "cos_employees",
+  };
+
+  // One read per TABLE, not per kind — employee and temporary share one.
+  const idsByTable = new Map<string, Set<string>>();
+  for (const r of refs) {
+    const table = tables[r.subject_kind];
+    if (!table) continue;
+    if (!idsByTable.has(table)) idsByTable.set(table, new Set());
+    idsByTable.get(table)!.add(r.subject_id);
+  }
+
+  const teamById = new Map<string, string | null>();
+  const ID_CHUNK = 200;
+  for (const [table, idSet] of idsByTable) {
+    const ids = [...idSet];
+    for (let i = 0; i < ids.length; i += ID_CHUNK) {
+      const { data, error } = await supabase
+        .schema("hris")
+        .from(table)
+        .select("id, csc_team")
+        .in("id", ids.slice(i, i + ID_CHUNK));
+      if (error) throw new Error(error.message);
+      for (const row of (data ?? []) as { id: string; csc_team: string | null }[]) {
+        teamById.set(row.id, row.csc_team);
+      }
+    }
+  }
+
+  for (const r of refs) {
+    out.set(
+      `${r.subject_kind}:${r.subject_id}`,
+      teamById.get(r.subject_id) ?? null,
+    );
+  }
+  return out;
+}
+
+/**
  * How many Job Order / COS rows are stranded in hris.employees and therefore
  * invisible to this module. Surfaced on the roster screen so an empty-looking
  * result is explained rather than mistaken for a bug — and so the data-cleanup
