@@ -25,7 +25,11 @@ export default async function JobOrdersPage() {
           details.
         </p>
       </div>
-      <JobOrderListClient initialEmployees={employees} areas={areas} />
+      <JobOrderListClient
+        initialEmployees={employees}
+        areas={areas}
+        isSuperAdmin={user?.role === "super_admin"}
+      />
     </div>
   );
 }

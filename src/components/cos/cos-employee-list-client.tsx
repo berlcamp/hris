@@ -42,12 +42,20 @@ const EXPORT_COLUMNS: XlsxColumn<CosEmployeeWithDepartment>[] = [
   { header: "Remarks", value: (e) => e.remarks },
 ];
 
+/** Only super admins export the raw record id. */
+const ID_COLUMN: XlsxColumn<CosEmployeeWithDepartment> = {
+  header: "ID",
+  value: (e) => e.id,
+};
+
 interface CosEmployeeListClientProps {
   employees: CosEmployeeWithDepartment[];
   /** Department names, matching the "department" column's accessor value. */
   departmentOptions: { label: string; value: string }[];
   canCreate: boolean;
   canDelete: boolean;
+  /** Super admins get the raw record `id` in the sheet; nobody else needs it. */
+  isSuperAdmin?: boolean;
 }
 
 export function CosEmployeeListClient({
@@ -55,7 +63,12 @@ export function CosEmployeeListClient({
   departmentOptions,
   canCreate,
   canDelete,
+  isSuperAdmin = false,
 }: CosEmployeeListClientProps) {
+  const exportColumns = isSuperAdmin
+    ? [ID_COLUMN, ...EXPORT_COLUMNS]
+    : EXPORT_COLUMNS;
+
   return (
     <DataTable
       columns={cosEmployeeColumns({ canDelete })}
@@ -76,7 +89,7 @@ export function CosEmployeeListClient({
         <>
           <ExportExcelButton
             rows={table.getFilteredRowModel().rows.map((r) => r.original)}
-            columns={EXPORT_COLUMNS}
+            columns={exportColumns}
             filename="cos-employees"
             sheetName="COS Employees"
           />

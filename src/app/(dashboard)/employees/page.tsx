@@ -72,6 +72,7 @@ export default async function EmployeesPage() {
         canEditDetailedDeptAnyDept={canEditDetailedDeptAnyDept}
         userDepartmentId={user.departmentId}
         departments={departments ?? []}
+        isSuperAdmin={user.role === "super_admin"}
       />
     </div>
   );

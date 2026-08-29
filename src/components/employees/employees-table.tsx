@@ -18,6 +18,8 @@ interface EmployeesTableProps {
   canEditDetailedDeptAnyDept?: boolean;
   userDepartmentId?: string | null;
   departments?: DetailedDeptOption[];
+  /** Super admins get the raw record `id` in the CSV; nobody else needs it. */
+  isSuperAdmin?: boolean;
 }
 
 export function EmployeesTable({
@@ -28,6 +30,7 @@ export function EmployeesTable({
   canEditDetailedDeptAnyDept = false,
   userDepartmentId = null,
   departments = [],
+  isSuperAdmin = false,
 }: EmployeesTableProps) {
   const columns = useMemo(
     () =>
@@ -99,6 +102,7 @@ export function EmployeesTable({
           data={table.getFilteredRowModel().rows.map((r) => r.original)}
           filename="employees"
           columns={[
+            ...(isSuperAdmin ? [{ key: "id", header: "ID" }] : []),
             { key: "last_name", header: "Last Name" },
             { key: "first_name", header: "First Name" },
             { key: "middle_name", header: "Middle Name" },

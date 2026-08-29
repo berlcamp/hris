@@ -64,14 +64,23 @@ const EXPORT_COLUMNS: XlsxColumn<JobOrderEmployee>[] = [
   { header: "Remarks 2", value: (e) => e.remarks_2 },
 ];
 
+/** Only super admins export the raw record id. */
+const ID_COLUMN: XlsxColumn<JobOrderEmployee> = {
+  header: "ID",
+  value: (e) => e.id,
+};
+
 interface JobOrderListClientProps {
   initialEmployees: JobOrderEmployee[];
   areas: JobOrderArea[];
+  /** Super admins get the raw record `id` in the sheet; nobody else needs it. */
+  isSuperAdmin?: boolean;
 }
 
 export function JobOrderListClient({
   initialEmployees,
   areas,
+  isSuperAdmin = false,
 }: JobOrderListClientProps) {
   const router = useRouter();
   const [editing, setEditing] = useState<JobOrderEmployee | null>(null);
@@ -117,6 +126,10 @@ export function JobOrderListClient({
 
   const areaOptions = areas.map((a) => ({ label: a.name, value: a.id }));
 
+  const exportColumns = isSuperAdmin
+    ? [ID_COLUMN, ...EXPORT_COLUMNS]
+    : EXPORT_COLUMNS;
+
   return (
     <>
       <DataTable
@@ -150,7 +163,7 @@ export function JobOrderListClient({
           <>
             <ExportExcelButton
               rows={table.getFilteredRowModel().rows.map((r) => r.original)}
-              columns={EXPORT_COLUMNS}
+              columns={exportColumns}
               filename="job-order-employees"
               sheetName="Job Order Employees"
             />
