@@ -10,16 +10,17 @@ import { ProvisionButton } from "@/components/leaves/provision-button";
 import { FlagAllVlSlButton } from "@/components/leaves/flag-all-vl-sl-button";
 import { LeaveCreditsTable } from "@/components/leaves/leave-credits-table";
 import type { LeaveCreditTableRow } from "@/components/tables/columns/leave-credit-columns";
+import { hasRole } from "@/lib/auth-helpers";
 
 export default async function LeaveCreditsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "super_admin") {
+  if (!hasRole(user.roles, "super_admin")) {
     redirect("/dashboard");
   }
 
   const currentYear = new Date().getFullYear();
-  const isAdmin = user.role === "super_admin";
+  const isAdmin = hasRole(user.roles, "super_admin");
 
   const [credits, leaveTypes] = await Promise.all([
     getLeaveCreditsForYear(currentYear),

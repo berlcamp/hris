@@ -19,7 +19,7 @@ export default async function EditCosContractPage({
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCos(user.role)) redirect("/dashboard");
+  if (!canManageCos(user.roles)) redirect("/dashboard");
 
   const [contract, allEmployees, allTemplates] = await Promise.all([
     getCosContract(id),

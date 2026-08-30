@@ -59,7 +59,7 @@ export default async function CosContractDetailPage({
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCos(user.role)) redirect("/dashboard");
+  if (!canManageCos(user.roles)) redirect("/dashboard");
 
   const contract = await getCosContract(id);
   if (!contract) notFound();

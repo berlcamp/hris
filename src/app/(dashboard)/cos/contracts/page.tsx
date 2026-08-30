@@ -7,7 +7,7 @@ import { CosContractListClient } from "@/components/cos/cos-contract-list-client
 export default async function CosContractsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCos(user.role)) redirect("/dashboard");
+  if (!canManageCos(user.roles)) redirect("/dashboard");
 
   const contracts = await getCosContracts();
 
@@ -36,7 +36,7 @@ export default async function CosContractsPage() {
       <CosContractListClient
         contracts={contracts}
         departmentOptions={departmentOptions}
-        canCreate={canManageCos(user.role)}
+        canCreate={canManageCos(user.roles)}
       />
     </div>
   );

@@ -12,11 +12,12 @@ import { getEmployees } from "@/lib/actions/employee-actions";
 import { getHolidays } from "@/lib/actions/holiday-actions";
 import { isNonWorkingHoliday } from "@/lib/validations/holiday-schema";
 import { getDepartments } from "@/lib/actions/user-actions";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function CtoCreditsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) {
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     redirect("/dashboard");
   }
 

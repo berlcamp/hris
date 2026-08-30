@@ -13,8 +13,8 @@ import type {
   ServiceRecordActivityLogEntry,
 } from "@/lib/types";
 
-function isHrRole(role: string | undefined) {
-  return role === "super_admin" || role === "hr_admin";
+function isHrRole(roles: readonly string[] | undefined) {
+  return (roles ?? []).some((r) => r === "super_admin" || r === "hr_admin");
 }
 
 async function logServiceRecordActivity(
@@ -38,7 +38,7 @@ export async function createServiceRecord(
 ) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!isHrRole(user.role)) return { error: "Insufficient permissions" };
+  if (!isHrRole(user.roles)) return { error: "Insufficient permissions" };
 
   const parsed = serviceRecordFormSchema.safeParse(input);
   if (!parsed.success) {
@@ -99,7 +99,7 @@ export async function updateServiceRecord(
 ) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!isHrRole(user.role)) return { error: "Insufficient permissions" };
+  if (!isHrRole(user.roles)) return { error: "Insufficient permissions" };
 
   const parsed = serviceRecordFormSchema.safeParse(input);
   if (!parsed.success) {
@@ -166,7 +166,7 @@ export async function updateServiceRecord(
 export async function deleteServiceRecord(id: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!isHrRole(user.role)) return { error: "Insufficient permissions" };
+  if (!isHrRole(user.roles)) return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();
   const { data: existing } = await supabase

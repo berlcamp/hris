@@ -7,7 +7,7 @@ import { canManageSchedules } from "@/lib/auth-helpers";
 export default async function SchedulesAdminPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageSchedules(user.role)) redirect("/dashboard");
+  if (!canManageSchedules(user.roles)) redirect("/dashboard");
 
   const schedules = await getSchedulesWithCounts();
 

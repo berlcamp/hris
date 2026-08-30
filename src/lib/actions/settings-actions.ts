@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { hasRole } from "@/lib/auth-helpers";
 
 // System settings are stored as key-value pairs in a simple approach
 // Since we may not have a system_settings table, we use a JSON column
@@ -81,7 +82,7 @@ export async function getSystemSettings(): Promise<SystemSettings> {
 
 export async function updateSystemSettings(settings: Partial<SystemSettings>) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "super_admin") {
+  if (!user || !hasRole(user.roles, "super_admin")) {
     throw new Error("Unauthorized");
   }
 

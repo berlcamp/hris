@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartmentsWithDetails } from "@/lib/actions/department-actions";
 import { DepartmentManager } from "@/components/admin/department-manager";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function DepartmentsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "ocm_admin", "dtr_manager"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "ocm_admin", "dtr_manager"))
     redirect("/dashboard");
 
   const departments = await getDepartmentsWithDetails();

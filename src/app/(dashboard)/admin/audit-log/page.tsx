@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { AuditLogViewer } from "@/components/admin/audit-log-viewer";
+import { hasRole } from "@/lib/auth-helpers";
 
 export default async function AuditLogPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "super_admin") redirect("/dashboard");
+  if (!hasRole(user.roles, "super_admin")) redirect("/dashboard");
 
   return (
     <div className="space-y-6">

@@ -20,9 +20,9 @@ export default async function DtrPage() {
   // which of the three tiers they land on. See the header of
   // src/lib/actions/dtr-actions.ts — the server re-derives the same tier, so
   // this is presentation only.
-  if (!canAccessDtr(user.role)) redirect("/dashboard");
+  if (!canAccessDtr(user.roles)) redirect("/dashboard");
 
-  const anyDepartment = canSelectDtrDepartment(user.role);
+  const anyDepartment = canSelectDtrDepartment(user.roles);
   const scoped = isDeptScoped(user.role);
   const mode: DtrMode = anyDepartment
     ? "any-department"
@@ -41,7 +41,7 @@ export default async function DtrPage() {
     ? (departments.find((d) => d.id === user.departmentId) ?? null)
     : null;
 
-  const showImport = canImportDtrDevice(user.role);
+  const showImport = canImportDtrDevice(user.roles);
 
   const header = (
     <div className="flex items-start justify-between gap-4">

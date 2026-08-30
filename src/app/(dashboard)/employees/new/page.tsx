@@ -12,7 +12,7 @@ import { canManageHrRecords } from "@/lib/auth-helpers";
 export default async function NewEmployeePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageHrRecords(user.role)) redirect("/employees");
+  if (!canManageHrRecords(user.roles)) redirect("/employees");
 
   const [departments, positions, schedules, employeeNo] = await Promise.all([
     getDepartments(),

@@ -28,7 +28,7 @@ export async function getAddableJobOrders(
   payrollId: string,
 ): Promise<JobOrderEmployee[]> {
   const user = await getCurrentUser();
-  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
     return [];
   }
 
@@ -49,7 +49,7 @@ export async function addJobOrderPayrollMember(
   jobOrderEmployeeId: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
     return { error: "Unauthorized" };
   }
 
@@ -121,7 +121,7 @@ export async function updateJobOrderPayrollMember(
   input: JobOrderPayrollMemberValues,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
     return { error: "Unauthorized" };
   }
 
@@ -173,7 +173,7 @@ export async function removeJobOrderPayrollMember(
   memberId: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
     return { error: "Unauthorized" };
   }
 

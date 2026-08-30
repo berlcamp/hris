@@ -423,15 +423,23 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { user, loading } = useUser();
 
-  const userRole: UserRole = user?.role ?? "employee";
+  // An account holds a SET of roles (migration 087), and the sidebar is a
+  // UNION: an item shows if ANY role the account holds is on its list. That
+  // matches how the permission helpers grant, so nothing appears here that the
+  // route behind it would then refuse.
+  const userRoles: UserRole[] = user?.roles?.length
+    ? user.roles
+    : [user?.role ?? "employee"];
+
+  const holdsAny = (allowed: UserRole[]) =>
+    allowed.some((role) => userRoles.includes(role));
 
   const filteredGroups = navGroups
-    .filter((group) => group.roles.includes(userRole))
+    .filter((group) => holdsAny(group.roles))
     .map((group) => ({
       ...group,
       items: group.items.filter(
-        (item) =>
-          item.roles.includes(userRole) && (item.visible?.(user) ?? true),
+        (item) => holdsAny(item.roles) && (item.visible?.(user) ?? true),
       ),
     }))
     .filter((group) => group.items.length > 0);
@@ -559,12 +567,20 @@ export function AppSidebar() {
                   </div>
                 </div>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>
-                  <Shield className="h-4 w-4" />
-                  <span>Role:</span>
-                  <Badge variant="secondary" className="ml-auto text-[10px]">
-                    {roleLabels[userRole]}
-                  </Badge>
+                <DropdownMenuItem className="items-start">
+                  <Shield className="mt-0.5 h-4 w-4" />
+                  <span>{userRoles.length > 1 ? "Roles:" : "Role:"}</span>
+                  <span className="ml-auto flex flex-wrap justify-end gap-1">
+                    {userRoles.map((role) => (
+                      <Badge
+                        key={role}
+                        variant="secondary"
+                        className="text-[10px]"
+                      >
+                        {roleLabels[role] ?? role}
+                      </Badge>
+                    ))}
+                  </span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

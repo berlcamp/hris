@@ -13,7 +13,7 @@ export default async function EventsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await getServerUser();
-  if (!canAccessEvents(user?.role)) redirect("/dashboard");
+  if (!canAccessEvents(user?.roles)) redirect("/dashboard");
 
   const sp = await searchParams;
   const one = (k: string) => (Array.isArray(sp[k]) ? sp[k][0] : sp[k]);
@@ -24,7 +24,7 @@ export default async function EventsPage({
     search: one("q") ?? null,
   });
 
-  const canManage = canManageEvents(user?.role);
+  const canManage = canManageEvents(user?.roles);
 
   return (
     <div className="space-y-6">

@@ -45,7 +45,7 @@ export async function getQrCardSubjects(input: {
   areaIds?: string[];
 }): Promise<QrCardSubject[]> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) return [];
+  if (!canManageEvents(user?.roles)) return [];
 
   const kinds = input.kinds.filter((k) => eventSubjectKindSchema.safeParse(k).success);
   if (kinds.length === 0) return [];
@@ -130,7 +130,7 @@ export async function rotateQrCredential(
   reason: string,
 ): Promise<ActionResult<{ token: string }>> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) {
+  if (!canManageEvents(user?.roles)) {
     return { success: false, error: "Not authorized" };
   }
   if (!eventSubjectKindSchema.safeParse(subjectKind).success) {
@@ -187,7 +187,7 @@ export async function markQrCardsPrinted(
   tokens: string[],
 ): Promise<ActionResult<{ count: number }>> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) {
+  if (!canManageEvents(user?.roles)) {
     return { success: false, error: "Not authorized" };
   }
   if (tokens.length === 0) return { success: true, data: { count: 0 } };

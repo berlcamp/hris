@@ -13,7 +13,7 @@ import {
 import { CosEmployeeDeleteDialog } from "@/components/cos/cos-employee-delete-dialog";
 import { CosContractTimeline } from "@/components/cos/cos-contract-timeline";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageCos } from "@/lib/auth-helpers";
+import { canManageCos, hasRole } from "@/lib/auth-helpers";
 import { getCosEmployee } from "@/lib/actions/cos-employee-actions";
 import { getContractsForEmployee } from "@/lib/actions/cos-contract-actions";
 import {
@@ -51,7 +51,7 @@ export default async function CosEmployeeProfilePage({
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCos(user.role)) redirect("/dashboard");
+  if (!canManageCos(user.roles)) redirect("/dashboard");
 
   const [employee, contracts] = await Promise.all([
     getCosEmployee(id),
@@ -84,7 +84,7 @@ export default async function CosEmployeeProfilePage({
               Edit
             </Button>
           </Link>
-          {user.role === "super_admin" ? (
+          {hasRole(user.roles, "super_admin") ? (
             <CosEmployeeDeleteDialog
               employeeId={employee.id}
               employeeName={name}

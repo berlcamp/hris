@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { getServerUser } from "@/lib/auth";
-import { canManageEvents } from "@/lib/auth-helpers";
+import { canManageEvents, hasRole } from "@/lib/auth-helpers";
 import {
   getEvent,
   getEventAttendance,
@@ -19,7 +19,7 @@ export default async function EventDetailPage({
   const user = await getServerUser();
   // The Attendance Checker is scan-only: this page carries the roster and
   // the attendance report, neither of which is theirs to see.
-  if (!canManageEvents(user?.role)) redirect("/events");
+  if (!canManageEvents(user?.roles)) redirect("/events");
 
   const { id } = await params;
   const event = await getEvent(id);
@@ -39,7 +39,7 @@ export default async function EventDetailPage({
       departments={groups.departments}
       areas={groups.areas}
       orphanedLegacyCount={groups.orphanedLegacyCount}
-      canDelete={user?.role === "super_admin"}
+      canDelete={hasRole(user?.roles, "super_admin")}
     />
   );
 }

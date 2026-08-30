@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getIpcrPeriods } from "@/lib/actions/ipcr-actions";
 import { IpcrPeriodManager } from "@/components/admin/ipcr-period-manager";
+import { hasRole } from "@/lib/auth-helpers";
 
 export default async function IpcrPeriodsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "super_admin") redirect("/dashboard");
+  if (!hasRole(user.roles, "super_admin")) redirect("/dashboard");
 
   const periods = await getIpcrPeriods();
 

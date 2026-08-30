@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getLeaveBalancesReport } from "@/lib/actions/leave-actions";
 import { LeaveBalancesReportClient } from "@/components/reports/leave-balances-report-client";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function LeaveBalancesReportPage({
   searchParams,
@@ -11,7 +12,7 @@ export default async function LeaveBalancesReportPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) {
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     redirect("/dashboard");
   }
 

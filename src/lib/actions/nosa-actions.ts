@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasAnyRole, hasRole, isDeptHead } from "@/lib/auth-helpers";
 
 export interface NosaWithRelations {
   id: string;
@@ -157,8 +157,8 @@ export async function reviewNosa(id: string, approved: boolean, remarks?: string
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
   if (
-    !["hr_admin", "super_admin"].includes(user.role) &&
-    !isDeptHead(user.role)
+    !hasAnyRole(user.roles, "hr_admin", "super_admin") &&
+    !isDeptHead(user.roles)
   )
     return { error: "Insufficient permissions" };
 
@@ -175,7 +175,7 @@ export async function reviewNosa(id: string, approved: boolean, remarks?: string
     return { success: true };
   }
 
-  if (user.role === "super_admin") {
+  if (hasRole(user.roles, "super_admin")) {
     const { error } = await supabase
       .schema("hris")
       .from("nosa_records")

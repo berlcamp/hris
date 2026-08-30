@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageCos, canManageCosTemplates } from "@/lib/auth-helpers";
+import { canManageCos, canManageCosTemplates, hasRole } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   cosContractTemplateFormSchema,
@@ -41,7 +41,7 @@ function baseQuery() {
 /** Reads use canManageCos so contract authors can populate the picker. */
 export async function getCosContractTemplates(): Promise<CosContractTemplate[]> {
   const user = await getCurrentUser();
-  if (!user || !canManageCos(user.role)) return [];
+  if (!user || !canManageCos(user.roles)) return [];
 
   const { data, error } = await baseQuery().order("name", { ascending: true });
   if (error) throw error;
@@ -52,7 +52,7 @@ export async function getCosContractTemplate(
   id: string,
 ): Promise<CosContractTemplate | null> {
   const user = await getCurrentUser();
-  if (!user || !canManageCos(user.role)) return null;
+  if (!user || !canManageCos(user.roles)) return null;
 
   const { data, error } = await baseQuery().eq("id", id).maybeSingle();
   if (error) throw error;
@@ -64,7 +64,7 @@ export async function createCosContractTemplate(
 ) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!canManageCosTemplates(user.role))
+  if (!canManageCosTemplates(user.roles))
     return { error: "Insufficient permissions" };
 
   const parsed = cosContractTemplateFormSchema.safeParse(input);
@@ -112,7 +112,7 @@ export async function updateCosContractTemplate(
 ) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!canManageCosTemplates(user.role))
+  if (!canManageCosTemplates(user.roles))
     return { error: "Insufficient permissions" };
 
   const parsed = cosContractTemplateFormSchema.safeParse(input);
@@ -164,7 +164,7 @@ export async function updateCosContractTemplate(
 export async function deleteCosContractTemplate(id: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (user.role !== "super_admin") return { error: "Insufficient permissions" };
+  if (!hasRole(user.roles, "super_admin")) return { error: "Insufficient permissions" };
 
   const before = await getCosContractTemplate(id);
   if (!before) return { error: "Template not found" };

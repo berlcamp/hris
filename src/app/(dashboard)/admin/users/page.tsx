@@ -32,11 +32,15 @@ export default async function UsersPage() {
         ]}
         filterableColumns={[
           {
-            id: "role",
+            // Matches an account holding the role ANYWHERE in its set, not just
+            // as its primary one — see the column's filterFn.
+            id: "roles",
             title: "Role",
             options: [
               { label: "Super Admin", value: "super_admin" },
               { label: "HR Admin", value: "hr_admin" },
+              { label: "OCM Admin", value: "ocm_admin" },
+              { label: "HR Record Manager", value: "hr_record_manager" },
               { label: "Dept Head", value: "department_head" },
               { label: "Dept Admin", value: "department_admin" },
               {
@@ -44,6 +48,12 @@ export default async function UsersPage() {
                 value: "department_admin_and_department_head",
               },
               { label: "DTR Manager", value: "dtr_manager" },
+              { label: "COS Manager", value: "cos_manager" },
+              { label: "JO Manager", value: "jo_manager" },
+              {
+                label: "Attendance Checker",
+                value: "event_attendance_officer",
+              },
               { label: "Employee", value: "employee" },
             ],
           },

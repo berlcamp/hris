@@ -11,7 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { getIpcrRecordById } from "@/lib/actions/ipcr-actions";
 import { getRatingColor } from "@/lib/ipcr-utils";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasAnyRole, isDeptHead } from "@/lib/auth-helpers";
 import { IpcrApprovalActions } from "@/components/performance/ipcr-approval-actions";
 import { IpcrRatingEditor } from "@/components/performance/ipcr-rating-editor";
 import { getEffectivePosition } from "@/lib/employee-position";
@@ -60,7 +60,7 @@ export default async function IpcrDetailPage({
 
   const canEditRating =
     record.status === "draft" &&
-    (["super_admin", "hr_admin"].includes(user.role) || isDeptHead(user.role));
+    (hasAnyRole(user.roles, "super_admin", "hr_admin") || isDeptHead(user.roles));
 
   const timeline = [
     { label: "Created", done: true, date: record.created_at },

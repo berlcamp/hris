@@ -11,11 +11,12 @@ import {
   VACANCY_STATUS_LABELS,
   isVacancyExpired,
 } from "@/lib/rsp-constants";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function RspPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const vacancies = await getVacancies();
 

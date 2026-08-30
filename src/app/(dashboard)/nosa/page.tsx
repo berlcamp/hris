@@ -5,14 +5,15 @@ import { DataTable } from "@/components/tables/data-table";
 import { nosaColumns } from "@/components/tables/columns/nosa-columns";
 import { getNosaRecords } from "@/lib/actions/nosa-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function NosaPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const records = await getNosaRecords();
-  const canCreate = ["super_admin", "hr_admin"].includes(user.role);
+  const canCreate = hasAnyRole(user.roles, "super_admin", "hr_admin");
 
   return (
     <div className="space-y-6">

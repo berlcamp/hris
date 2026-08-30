@@ -50,7 +50,7 @@ export interface ScanResult {
  */
 export async function getScannableEvents(): Promise<ScannableEvent[]> {
   const user = await getCurrentUser();
-  if (!canScanEvents(user?.role)) throw new Error("Not authorized");
+  if (!canScanEvents(user?.roles)) throw new Error("Not authorized");
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -137,7 +137,7 @@ export async function getEventScanPayload(eventId: string): Promise<{
   roster: EventScanRosterEntry[];
 } | null> {
   const user = await getCurrentUser();
-  if (!canScanEvents(user?.role)) return null;
+  if (!canScanEvents(user?.roles)) return null;
 
   const supabase = createAdminClient();
   const { data: eventRow, error } = await supabase
@@ -151,7 +151,7 @@ export async function getEventScanPayload(eventId: string): Promise<{
   if (!eventRow) return null;
 
   const event = eventRow as unknown as EventRecord;
-  if (!canManageEvents(user?.role) && event.status !== "open") return null;
+  if (!canManageEvents(user?.roles) && event.status !== "open") return null;
 
   const roster: EventScanRosterEntry[] = [];
   const CHUNK = 1000;
@@ -215,7 +215,7 @@ export async function submitEventScans(
   values: EventScanBatchValues,
 ): Promise<{ success: true; results: ScanResult[] } | { success: false; error: string }> {
   const user = await getCurrentUser();
-  if (!canScanEvents(user?.role)) {
+  if (!canScanEvents(user?.roles)) {
     return { success: false, error: "Not authorized" };
   }
 

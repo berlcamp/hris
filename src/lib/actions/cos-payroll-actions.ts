@@ -10,11 +10,12 @@ import {
   type CosEmployeePayrollValues,
 } from "@/lib/validations/cos-payroll-schema";
 import { computeCosNetAmount } from "@/lib/utils/cosPayrollAmount";
+import { hasRole } from "@/lib/auth-helpers";
 
 const ADMIN_ROLES = ["super_admin", "hr_admin"] as const;
 
-function requireAdmin(role: string | undefined): boolean {
-  return Boolean(role && (ADMIN_ROLES as readonly string[]).includes(role));
+function requireAdmin(roles: readonly string[] | undefined): boolean {
+  return (roles ?? []).some((r) => (ADMIN_ROLES as readonly string[]).includes(r));
 }
 
 function trimNullable(s: string | null | undefined): string | null {
@@ -68,7 +69,7 @@ export async function getCosPayrolls(
   filters: CosPayrollFilters = {},
 ): Promise<{ rows: CosPayrollListRow[]; totalCount: number }> {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { rows: [], totalCount: 0 };
+  if (!user || !requireAdmin(user.roles)) return { rows: [], totalCount: 0 };
 
   const supabase = createAdminClient();
   const page = filters.page ?? 1;
@@ -131,7 +132,7 @@ export async function getCosPayrollById(id: string): Promise<{
   employees: CosEmployeePayrollWithEmployee[];
 }> {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) {
+  if (!user || !requireAdmin(user.roles)) {
     return { payroll: null, employees: [] };
   }
 
@@ -172,7 +173,7 @@ export async function getCosPayrollById(id: string): Promise<{
 
 export async function createCosPayroll(input: CosPayrollMetadataValues) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const parsed = cosPayrollMetadataSchema.safeParse(input);
   if (!parsed.success) {
@@ -212,7 +213,7 @@ export async function updateCosPayroll(
   input: CosPayrollMetadataValues,
 ) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const parsed = cosPayrollMetadataSchema.safeParse(input);
   if (!parsed.success) {
@@ -250,7 +251,7 @@ export async function updateCosPayroll(
 
 export async function deleteCosPayroll(id: string) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "super_admin") return { error: "Unauthorized" };
+  if (!user || !hasRole(user.roles, "super_admin")) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { error } = await supabase
@@ -278,7 +279,7 @@ export async function duplicateCosPayroll(
   metadata: CosPayrollMetadataValues,
 ) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const parsed = cosPayrollMetadataSchema.safeParse(metadata);
   if (!parsed.success) {
@@ -356,7 +357,7 @@ export async function addCosEmployeesToPayroll(input: {
   employee_ids: string[];
 }) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
   if (input.employee_ids.length === 0) return { error: "No employees selected" };
 
   const supabase = createAdminClient();
@@ -389,7 +390,7 @@ export async function updateCosEmployeePayroll(
   input: CosEmployeePayrollValues,
 ) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
 
@@ -425,7 +426,7 @@ export async function updateCosEmployeePayroll(
 
 export async function deleteCosEmployeePayroll(id: string) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { error } = await supabase
@@ -454,7 +455,7 @@ export async function getAvailableCosEmployees(
   payrollId: string,
 ): Promise<AvailableCosEmployeeRow[]> {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return [];
+  if (!user || !requireAdmin(user.roles)) return [];
 
   const supabase = createAdminClient();
 

@@ -3,11 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import {
-  isCompositeDeptAdminHead,
-  isDeptHead,
-  isDeptScoped,
-} from "@/lib/auth-helpers";
+import { hasAnyRole, hasRole, isCompositeDeptAdminHead, isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import type { UserRole } from "@/lib/types";
 import {
@@ -248,7 +244,7 @@ export async function createCtoCredit(input: {
 }) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Insufficient permissions" };
 
   if (!Number.isFinite(input.hours_worked) || input.hours_worked <= 0)
@@ -355,7 +351,7 @@ export async function previewCtoCreditClamp(input: {
 }) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Insufficient permissions" };
   if (!Number.isFinite(input.hours_worked) || input.hours_worked <= 0)
     return { error: "Invalid hours" };
@@ -388,7 +384,7 @@ export async function previewCtoCreditClamp(input: {
 export async function voidCtoCredit(id: string, reason: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Insufficient permissions" };
 
   const trimmed = (reason ?? "").trim();
@@ -703,6 +699,7 @@ export async function createCtoApplication(input: {
       hours_applied: hours,
       reason: input.reason,
       filed_by_role: user.role,
+      filed_by_roles: user.roles,
     },
   });
 
@@ -752,6 +749,7 @@ export async function cancelCtoApplication(id: string) {
       end_date: app.end_date,
       hours_applied: app.hours_applied,
       cancelled_by_role: user.role,
+      cancelled_by_roles: user.roles,
     },
   });
 
@@ -788,7 +786,7 @@ export async function cancelApprovedCtoApplication(id: string, reason: string) {
   const cancelRestriction = ocmAdminRestrictionError(app, user);
   if (cancelRestriction) return { error: cancelRestriction };
   const isOcmOwned = normalizeCreatorRole(app.created_by_profile) === "ocm_admin";
-  if (!isOcmOwned && !["super_admin", "hr_admin"].includes(user.role))
+  if (!isOcmOwned && !hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Only HR Admin or Super Admin can cancel an approved CTO" };
 
   const cancelledAt = new Date().toISOString();
@@ -820,6 +818,7 @@ export async function cancelApprovedCtoApplication(id: string, reason: string) {
       cancellation_reason: trimmed,
       cancelled_by: user.email,
       cancelled_by_role: user.role,
+      cancelled_by_roles: user.roles,
       employee_id: app.employee_id,
       start_date: app.start_date,
       end_date: app.end_date,
@@ -862,12 +861,30 @@ export async function approveCto(id: string) {
 
   // Department Head approval step. Composite Dept Admin + Head and OCM Admin
   // can approve for any department; a plain Dept Head only for their own.
+  // Which step of the two-step workflow does this account work?
+  //
+  // An account can hold BOTH sides now (migration 087) — an HR Admin who also
+  // heads a department, say. It works the department step while that step is
+  // outstanding and moves on to the HR step once the department approval is
+  // recorded, instead of being stuck on a step that is already done. OCM Admin
+  // has always behaved exactly this way; this is that rule generalized.
+  //
+  // A plain Dept Head holds no HR step, so it still falls into the branch below
+  // and still gets "Department-level approval already recorded" rather than a
+  // bare permission error.
+  const holdsDeptHeadStep =
+    isDeptHead(user.roles) || hasRole(user.roles, "ocm_admin");
+  const holdsHrStep = hasAnyRole(
+    user.roles,
+    "hr_admin",
+    "super_admin",
+    "ocm_admin",
+  );
   const actsAsDeptHead =
-    isDeptHead(user.role) ||
-    (user.role === "ocm_admin" && !app.dept_approved_at);
+    holdsDeptHeadStep && !(holdsHrStep && app.dept_approved_at);
   if (actsAsDeptHead) {
     const canApproveAnyDept =
-      isCompositeDeptAdminHead(user.role) || user.role === "ocm_admin";
+      isCompositeDeptAdminHead(user.roles) || hasRole(user.roles, "ocm_admin");
     if (!canApproveAnyDept) {
       if (!user.departmentId) return { error: "User has no department assigned" };
       const empDeptId =
@@ -903,6 +920,7 @@ export async function approveCto(id: string) {
         department_head_id: user.id,
         dept_approved_by: user.email,
         role: user.role,
+        roles: user.roles,
         employee_id: app.employee_id,
         start_date: app.start_date,
         end_date: app.end_date,
@@ -917,9 +935,9 @@ export async function approveCto(id: string) {
 
   // HR / Super Admin / OCM Admin final approval. hr_admin and ocm_admin
   // require dept head approval first; super_admin can finalize directly.
-  if (["hr_admin", "super_admin", "ocm_admin"].includes(user.role)) {
+  if (hasAnyRole(user.roles, "hr_admin", "super_admin", "ocm_admin")) {
     if (
-      (user.role === "hr_admin" || user.role === "ocm_admin") &&
+      (hasRole(user.roles, "hr_admin") || hasRole(user.roles, "ocm_admin")) &&
       !app.dept_approved_at
     ) {
       return { error: "Department head must approve this CTO first" };
@@ -974,6 +992,7 @@ export async function approveCto(id: string) {
         hr_reviewer_id: user.id,
         approved_by: user.email,
         role: user.role,
+        roles: user.roles,
         employee_id: app.employee_id,
         start_date: app.start_date,
         end_date: app.end_date,
@@ -997,8 +1016,8 @@ export async function rejectCto(id: string, reason: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
   if (
-    !["hr_admin", "super_admin", "ocm_admin"].includes(user.role) &&
-    !isDeptHead(user.role)
+    !hasAnyRole(user.roles, "hr_admin", "super_admin", "ocm_admin") &&
+    !isDeptHead(user.roles)
   )
     return { error: "Insufficient permissions" };
 
@@ -1017,7 +1036,36 @@ export async function rejectCto(id: string, reason: string) {
   const rejectRestriction = ocmAdminRestrictionError(app, user);
   if (rejectRestriction) return { error: rejectRestriction };
 
-  if (isDeptHead(user.role) && !isCompositeDeptAdminHead(user.role)) {
+  // Which step of the two-step workflow does this account work?
+  //
+  // An account can hold BOTH sides now (migration 087) — an HR Admin who also
+  // heads a department, say. It works the department step while that step is
+  // outstanding and moves on to the HR step once the department approval is
+  // recorded, instead of being stuck on a step that is already done. OCM Admin
+  // has always behaved exactly this way; this is that rule generalized.
+  //
+  // A plain Dept Head holds no HR step, so it still falls into the branch below
+  // and still gets "Department-level approval already recorded" rather than a
+  // bare permission error.
+  const holdsDeptHeadStep =
+    isDeptHead(user.roles) || hasRole(user.roles, "ocm_admin");
+  const holdsHrStep = hasAnyRole(
+    user.roles,
+    "hr_admin",
+    "super_admin",
+    "ocm_admin",
+  );
+  const isRejectingAsDeptHead =
+    holdsDeptHeadStep && !(holdsHrStep && app.dept_approved_at);
+
+  // A plain Dept Head rejects only within their own department. The restriction
+  // belongs to the department STEP, not to the account: an HR Admin who also
+  // heads a department still rejects across departments at the HR step.
+  if (
+    isRejectingAsDeptHead &&
+    !isCompositeDeptAdminHead(user.roles) &&
+    !hasRole(user.roles, "ocm_admin")
+  ) {
     if (!user.departmentId) return { error: "User has no department assigned" };
     const empDeptId =
       (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
@@ -1025,13 +1073,13 @@ export async function rejectCto(id: string, reason: string) {
       return { error: "Cannot reject CTO outside your department" };
   }
 
-  if (user.role === "hr_admin" && !app.dept_approved_at) {
+  if (
+    !isRejectingAsDeptHead &&
+    hasRole(user.roles, "hr_admin") &&
+    !app.dept_approved_at
+  ) {
     return { error: "Department head must approve this CTO first" };
   }
-
-  const isRejectingAsDeptHead =
-    isDeptHead(user.role) ||
-    (user.role === "ocm_admin" && !app.dept_approved_at);
 
   const { error } = await supabase
     .schema("hris")
@@ -1061,6 +1109,7 @@ export async function rejectCto(id: string, reason: string) {
       rejection_reason: reason,
       rejected_by: user.email,
       rejected_by_role: user.role,
+      rejected_by_roles: user.roles,
       employee_id: app.employee_id,
       start_date: app.start_date,
       end_date: app.end_date,
@@ -1095,7 +1144,7 @@ export async function getCtoBalancesReport(): Promise<
 > {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();
@@ -1225,7 +1274,7 @@ export async function getEmployeeCtoLedger(
 ): Promise<CtoEmployeeLedger | { error: string }> {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();

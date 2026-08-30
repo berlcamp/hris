@@ -10,7 +10,10 @@ export type UserRow = {
   id: string;
   email: string;
   full_name: string;
+  /** Derived primary role — kept for rows written before migration 087. */
   role: string;
+  /** Every role the account holds. Source of truth for the badges below. */
+  roles: string[] | null;
   is_active: boolean;
   department_id: string | null;
   created_at: string | null;
@@ -87,20 +90,34 @@ export const userColumns: ColumnDef<UserRow>[] = [
     ),
   },
   {
-    accessorKey: "role",
+    id: "roles",
+    // An account holds a set of roles (migration 087). The scalar `role` is the
+    // derived primary and is only the fallback here, for a row that predates
+    // the array.
+    accessorFn: (row) => (row.roles?.length ? row.roles : [row.role]),
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Role" />
+      <DataTableColumnHeader column={column} title="Roles" />
     ),
+    enableSorting: false,
     cell: ({ row }) => {
-      const role = row.getValue("role") as string;
+      const original = row.original;
+      const roles = original.roles?.length ? original.roles : [original.role];
       return (
-        <Badge variant={roleBadgeVariant[role] ?? "outline"}>
-          {roleLabels[role] ?? role}
-        </Badge>
+        <div className="flex flex-wrap gap-1">
+          {roles.map((role) => (
+            <Badge key={role} variant={roleBadgeVariant[role] ?? "outline"}>
+              {roleLabels[role] ?? role}
+            </Badge>
+          ))}
+        </div>
       );
     },
-    filterFn: (row, id, value) => {
-      return value.includes(row.getValue(id));
+    // Matches when the account holds ANY of the selected roles, not only when
+    // it is the primary one — filtering for "Dept Head" must find the HR Admin
+    // who also heads a department.
+    filterFn: (row, id, value: string[]) => {
+      const roles = row.getValue(id) as string[];
+      return roles.some((role) => value.includes(role));
     },
   },
   {

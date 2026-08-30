@@ -5,11 +5,12 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { NosiSummaryClient } from "@/components/reports/nosi-summary-client";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function NosiSummaryPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   return (
     <div className="space-y-6">

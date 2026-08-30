@@ -17,6 +17,7 @@ import {
   loadExistingLegacyIdMap,
   upsertLegacyChunks,
 } from "@/lib/job-order-payroll-repo";
+import { hasRole } from "@/lib/auth-helpers";
 
 const ROSTER_PAGE_SIZE = 1000; // supabase/config.toml caps PostgREST max_rows at 1000.
 
@@ -59,7 +60,7 @@ async function requireSuperAdmin(): Promise<
 > {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (user.role !== "super_admin") return { error: "Insufficient permissions" };
+  if (!hasRole(user.roles, "super_admin")) return { error: "Insufficient permissions" };
   return { user };
 }
 

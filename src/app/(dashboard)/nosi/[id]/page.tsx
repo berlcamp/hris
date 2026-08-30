@@ -49,7 +49,7 @@ export default async function NosiDetailPage({
   const formatPHP = (n: number) =>
     n > 0 ? `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}` : "₱0.00";
 
-  const canManageDrafts = canManageHrRecords(user.role);
+  const canManageDrafts = canManageHrRecords(user.roles);
 
   const timeline = [
     { label: "Created", done: true, date: nosi.created_at },

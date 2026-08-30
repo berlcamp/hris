@@ -4,11 +4,7 @@ import { Plus } from "lucide-react";
 import { getEmployees, getEmployeeForCurrentUser } from "@/lib/actions/employee-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
-import {
-  canEditDetailedDepartment,
-  canEditDetailedDepartmentAnyDept,
-  canManageHrRecords,
-} from "@/lib/auth-helpers";
+import { canEditDetailedDepartment, canEditDetailedDepartmentAnyDept, canManageHrRecords, hasRole } from "@/lib/auth-helpers";
 import { EmployeesTable } from "@/components/employees/employees-table";
 
 export default async function EmployeesPage() {
@@ -39,13 +35,13 @@ export default async function EmployeesPage() {
     value: d.id,
   }));
 
-  const canCreate = canManageHrRecords(user.role);
+  const canCreate = canManageHrRecords(user.roles);
   // super_admin and OCM Admin can detail employees from any department, so they
   // don't require a home department; department-scoped editors still do.
-  const canEditDetailedDeptAnyDept = canEditDetailedDepartmentAnyDept(user.role);
+  const canEditDetailedDeptAnyDept = canEditDetailedDepartmentAnyDept(user.roles);
   const canEditDetailedDept =
     canEditDetailedDeptAnyDept ||
-    (canEditDetailedDepartment(user.role) && !!user.departmentId);
+    (canEditDetailedDepartment(user.roles) && !!user.departmentId);
 
   return (
     <div className="space-y-6">
@@ -75,7 +71,7 @@ export default async function EmployeesPage() {
         canEditDetailedDeptAnyDept={canEditDetailedDeptAnyDept}
         userDepartmentId={user.departmentId}
         departments={departments ?? []}
-        isSuperAdmin={user.role === "super_admin"}
+        isSuperAdmin={hasRole(user.roles, "super_admin")}
       />
     </div>
   );

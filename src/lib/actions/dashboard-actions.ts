@@ -3,11 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
-import {
-  isCompositeDeptAdminHead as roleIsCompositeDeptAdminHead,
-  isDeptHead as roleIsDeptHead,
-  isDeptScoped as roleIsDeptScoped,
-} from "@/lib/auth-helpers";
+import { hasAnyRole, isCompositeDeptAdminHead as roleIsCompositeDeptAdminHead, isDeptHead as roleIsDeptHead, isDeptScoped as roleIsDeptScoped } from "@/lib/auth-helpers";
 import { getSystemSettings } from "@/lib/actions/settings-actions";
 import { NOSI_BASIS_SALARY_REASONS } from "@/lib/constants";
 
@@ -311,7 +307,7 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
   const supabase = createAdminClient();
   const items: PendingApprovalItem[] = [];
 
-  const isHrPath = ["super_admin", "hr_admin"].includes(user.role);
+  const isHrPath = hasAnyRole(user.roles, "super_admin", "hr_admin");
   const isComposite = roleIsCompositeDeptAdminHead(user.role);
 
   // Pending leaves — HR/super admin and the composite Dept Admin + Head get a
@@ -354,7 +350,7 @@ export async function getPendingApprovals(user: AuthUserData): Promise<PendingAp
     });
   }
 
-  if (["super_admin", "hr_admin"].includes(user.role)) {
+  if (hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     // Pending NOSI
     const { data: nosis } = await supabase
       .schema("hris")

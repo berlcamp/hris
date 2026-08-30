@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { LeaveCreditsImportClient } from "@/components/admin/leave-credits-import-client";
+import { hasRole } from "@/lib/auth-helpers";
 
 export default async function LeaveCreditsImportPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "super_admin") redirect("/dashboard");
+  if (!hasRole(user.roles, "super_admin")) redirect("/dashboard");
 
   return (
     <div className="space-y-6">

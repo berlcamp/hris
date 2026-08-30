@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
 import { AttendanceReportClient } from "@/components/reports/attendance-report-client";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function AttendanceReportPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const departments = await getDepartments();
 

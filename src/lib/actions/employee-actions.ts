@@ -177,7 +177,7 @@ export async function generateEmployeeNo(): Promise<string> {
 
 export async function createEmployee(input: EmployeeFormValues) {
   const user = await getCurrentUser();
-  if (!user || !canManageHrRecords(user.role)) {
+  if (!user || !canManageHrRecords(user.roles)) {
     return { error: "You do not have permission to create employees." };
   }
 
@@ -273,7 +273,7 @@ export async function updateEmployee(
   input: EmployeeFormValues
 ) {
   const user = await getCurrentUser();
-  if (!user || !canManageHrRecords(user.role)) {
+  if (!user || !canManageHrRecords(user.roles)) {
     return { error: "You do not have permission to edit employees." };
   }
 
@@ -343,13 +343,13 @@ export async function updateEmployeeDetailedDepartment(
   detailedDepartmentId: string | null,
 ): Promise<{ success: true } | { error: string }> {
   const user = await getCurrentUser();
-  if (!user || !canEditDetailedDepartment(user.role)) {
+  if (!user || !canEditDetailedDepartment(user.roles)) {
     return { error: "You are not allowed to edit the detailed department." };
   }
 
   // OCM Admin can detail employees from any department; department-scoped
   // editors are limited to their own department's employees.
-  const anyDept = canEditDetailedDepartmentAnyDept(user.role);
+  const anyDept = canEditDetailedDepartmentAnyDept(user.roles);
   if (!anyDept && !user.departmentId) {
     return { error: "Your account is not assigned to a department." };
   }
@@ -419,7 +419,7 @@ export async function changeEmployeeStatus(input: {
   remarks?: string | null;
 }): Promise<{ success: true } | { error: string }> {
   const currentUser = await getCurrentUser();
-  if (!currentUser || !canManageHrRecords(currentUser.role)) {
+  if (!currentUser || !canManageHrRecords(currentUser.roles)) {
     return { error: "You do not have permission to change employee status." };
   }
 
@@ -562,7 +562,7 @@ export async function addSalaryHistoryRecord(
   input: SalaryHistoryEntryFormValues
 ): Promise<{ success: true; id: string } | { error: string }> {
   const user = await getCurrentUser();
-  if (!user || !canManageHrRecords(user.role)) {
+  if (!user || !canManageHrRecords(user.roles)) {
     return { error: "Unauthorized" };
   }
 
@@ -617,7 +617,7 @@ export async function updateSalaryHistoryRecord(
   input: SalaryHistoryUpdateFormValues
 ): Promise<{ success: true } | { error: string }> {
   const user = await getCurrentUser();
-  if (!user || !canManageHrRecords(user.role)) {
+  if (!user || !canManageHrRecords(user.roles)) {
     return { error: "Unauthorized" };
   }
 

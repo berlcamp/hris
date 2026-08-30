@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getVacantPlantillaItems } from "@/lib/actions/rsp-actions";
 import { VacancyForm } from "@/components/rsp/vacancy-form";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function NewVacancyPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const plantillaItems = await getVacantPlantillaItems();
 

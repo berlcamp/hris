@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   HardHat,
   Briefcase,
+  type LucideIcon,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -24,10 +25,8 @@ import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import {
-  isCompositeDeptAdminHead as roleIsCompositeDeptAdminHead,
-  isDeptScoped as roleIsDeptScoped,
-} from "@/lib/auth-helpers";
+import type { UserRole } from "@/lib/types";
+import { hasAnyRole, isCompositeDeptAdminHead as roleIsCompositeDeptAdminHead, isDeptScoped as roleIsDeptScoped } from "@/lib/auth-helpers";
 import {
   getDashboardStats,
   getEmployeesByDepartment,
@@ -40,7 +39,12 @@ import { getActiveCosEmployeeCount } from "@/lib/actions/cos-employee-actions";
 import { DepartmentBarChart, EmployeeTypePieChart } from "@/components/dashboard/dashboard-charts";
 import { getRatingColor } from "@/lib/ipcr-utils";
 
-const quickActions = [
+const quickActions: {
+  title: string;
+  icon: LucideIcon;
+  href: string;
+  roles: UserRole[];
+}[] = [
   { title: "Add Employee", icon: Users, href: "/employees/new", roles: ["super_admin", "hr_admin"] },
   { title: "Process Leave", icon: CalendarDays, href: "/leaves", roles: ["super_admin", "hr_admin", "department_head", "department_admin", "department_admin_and_department_head", "employee"] },
   { title: "View DTR", icon: Clock, href: "/attendance", roles: ["super_admin", "hr_admin", "employee"] },
@@ -58,7 +62,7 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
+  const isAdmin = hasAnyRole(user.roles, "super_admin", "hr_admin");
   const isDeptScoped = roleIsDeptScoped(user.role);
   const isComposite = roleIsCompositeDeptAdminHead(user.role);
   const isEmployee = user.role === "employee";
@@ -68,6 +72,11 @@ export default async function DashboardPage() {
   // leave counts, approvals, charts, quick actions — belongs to modules they
   // have no reach into, so they return early rather than render an empty page.
   // getDashboardStats is skipped entirely for the same reason.
+  //
+  // This branches on the PRIMARY role, not the whole set: an account that runs
+  // Job Orders on top of a wider job has all those other modules and wants the
+  // full dashboard. Only an account whose widest role IS a module manager gets
+  // the one-figure version.
   if (user.role === "jo_manager" || user.role === "cos_manager") {
     const isJo = user.role === "jo_manager";
     const count = isJo
@@ -132,7 +141,11 @@ export default async function DashboardPage() {
   }
 
   const totalPending = stats.pendingLeaves + stats.pendingNosi + stats.pendingNosa + stats.pendingIpcr;
-  const filteredActions = quickActions.filter((a) => a.roles.includes(user.role));
+  // Quick actions are a union over every role the account holds — the same rule
+  // the sidebar uses, so the two never disagree about what this account reaches.
+  const filteredActions = quickActions.filter((a) =>
+    a.roles.some((role) => user.roles.includes(role)),
+  );
 
   return (
     <div className="space-y-8">

@@ -25,6 +25,7 @@ import { manilaToday, CTO_MAX_BALANCE } from "@/lib/cto-helpers";
 import { CtoCreditEntryDialog } from "@/components/cto/cto-credit-entry-dialog";
 import { CtoVoidCreditDialog } from "@/components/cto/cto-void-credit-dialog";
 import { CocCertificatePdfButton } from "@/components/cto/coc-certificate-pdf-button";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 const dayTypeLabel: Record<string, string> = {
   regular: "Regular",
@@ -44,7 +45,7 @@ export default async function CtoEmployeeLedgerPage({
   const { employeeId } = await params;
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) {
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     redirect("/dashboard");
   }
 

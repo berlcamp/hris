@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
+import { isScanOnlyAccount, normalizeRoles } from "@/lib/auth-helpers";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -70,7 +71,7 @@ export async function updateSession(request: NextRequest) {
       const { data: profile, error: profileError } = await admin
         .schema("hris")
         .from("user_profiles")
-        .select("is_active, email, role")
+        .select("is_active, email, role, roles")
         .eq("email", user.email)
         .maybeSingle();
 
@@ -94,13 +95,14 @@ export async function updateSession(request: NextRequest) {
         return redirectResponse;
       }
 
-      isChecker = profile.role === "event_attendance_officer";
+      isChecker = isScanOnlyAccount(normalizeRoles(profile.roles, profile.role));
     }
 
     const url = request.nextUrl.clone();
-    // An Attendance Checker has no dashboard — see the same branch in
+    // A scan-only Attendance Checker has no dashboard — see the same branch in
     // src/app/auth/callback/route.ts. The lookup above already fetched the row,
-    // so reading the role here costs nothing extra.
+    // so reading the roles here costs nothing extra. An account that holds the
+    // Checker role alongside another one lands on the dashboard.
     url.pathname = isChecker ? "/scan" : "/dashboard";
     return NextResponse.redirect(url);
   }

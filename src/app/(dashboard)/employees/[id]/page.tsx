@@ -94,7 +94,7 @@ export default async function EmployeeProfilePage({
   const isHrAdmin = ["super_admin", "hr_admin"].includes(currentUser?.role ?? "");
   // super_admin / hr_admin / hr_record_manager — the HR records reach: edit the
   // employee, manage salary history and plantilla, and view the QR code.
-  const canManageRecords = canManageHrRecords(currentUser?.role);
+  const canManageRecords = canManageHrRecords(currentUser?.roles);
   const canManageSalaryHistory = canManageRecords;
   const canEditEmployee = canManageRecords;
 

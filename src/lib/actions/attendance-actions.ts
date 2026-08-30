@@ -232,7 +232,7 @@ export async function deleteAttendanceEntry(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !isAttendanceManager(user.roles)) {
     return { error: "Unauthorized" };
   }
 
@@ -283,7 +283,7 @@ export async function matchAndPreviewImport(
   parsedRows: DahuaParsedRow[]
 ): Promise<ImportPreviewRow[]> {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !isAttendanceManager(user.roles)) {
     throw new Error("Unauthorized");
   }
 
@@ -613,7 +613,7 @@ export async function importDahuaAttendance(
   dayRecords: number;
 }> {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !isAttendanceManager(user.roles)) {
     throw new Error("Unauthorized");
   }
 
@@ -804,7 +804,7 @@ export interface ImportBatchRow {
 // Lists saved import batches, newest first, for the "Past Imports" list.
 export async function getImportBatches(): Promise<ImportBatchRow[]> {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !isAttendanceManager(user.roles)) {
     throw new Error("Unauthorized");
   }
   const supabase = createAdminClient();
@@ -908,7 +908,7 @@ export async function previewImportReplay(
   batchId: string,
 ): Promise<ReplayPreview> {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !isAttendanceManager(user.roles)) {
     throw new Error("Unauthorized");
   }
   const supabase = createAdminClient();
@@ -942,7 +942,7 @@ export async function runImportReplay(batchId: string): Promise<{
   errors: number;
 }> {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !isAttendanceManager(user.roles)) {
     throw new Error("Unauthorized");
   }
   const supabase = createAdminClient();
@@ -1015,7 +1015,7 @@ export async function getDepartmentDtrBulk(
   const user = await getCurrentUser();
   // Bulk export covers a whole department, so it is limited to the roles that
   // print DTRs across departments (mirrors the /attendance/dtr/bulk gate).
-  if (!user || !canPrintDtr(user.role)) throw new Error("Unauthorized");
+  if (!user || !canPrintDtr(user.roles)) throw new Error("Unauthorized");
 
   if (!startDate || !endDate) {
     throw new Error("Date range required");
@@ -1141,7 +1141,7 @@ export async function getAttendanceReport(
   endDate: string,
 ): Promise<AttendanceReportRow[]> {
   const user = await getCurrentUser();
-  if (!user || !isAttendanceManager(user.role)) {
+  if (!user || !isAttendanceManager(user.roles)) {
     throw new Error("Unauthorized");
   }
   if (!startDate || !endDate) throw new Error("Date range required");

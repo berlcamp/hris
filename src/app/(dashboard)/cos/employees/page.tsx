@@ -5,13 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CosEmployeeListClient } from "@/components/cos/cos-employee-list-client";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageCos } from "@/lib/auth-helpers";
+import { canManageCos, hasRole } from "@/lib/auth-helpers";
 import { getCosEmployees } from "@/lib/actions/cos-employee-actions";
 
 export default async function CosEmployeesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCos(user.role)) redirect("/dashboard");
+  if (!canManageCos(user.roles)) redirect("/dashboard");
 
   const employees = await getCosEmployees();
 
@@ -68,7 +68,7 @@ export default async function CosEmployeesPage() {
               The registry starts empty. Use “Add COS Employee” to encode the
               first record.
             </p>
-            {canManageCos(user.role) ? (
+            {canManageCos(user.roles) ? (
               <Link href="/cos/employees/new" className="mt-4 inline-block">
                 <Button size="sm">
                   <Plus className="h-4 w-4" />
@@ -82,9 +82,9 @@ export default async function CosEmployeesPage() {
         <CosEmployeeListClient
           employees={employees}
           departmentOptions={departmentOptions}
-          canCreate={canManageCos(user.role)}
-          canDelete={user.role === "super_admin"}
-          isSuperAdmin={user.role === "super_admin"}
+          canCreate={canManageCos(user.roles)}
+          canDelete={hasRole(user.roles, "super_admin")}
+          isSuperAdmin={hasRole(user.roles, "super_admin")}
         />
       )}
     </div>

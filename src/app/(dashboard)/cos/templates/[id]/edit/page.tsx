@@ -14,7 +14,7 @@ export default async function EditCosTemplatePage({
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCosTemplates(user.role)) redirect("/dashboard");
+  if (!canManageCosTemplates(user.roles)) redirect("/dashboard");
 
   const template = await getCosContractTemplate(id);
   if (!template) notFound();

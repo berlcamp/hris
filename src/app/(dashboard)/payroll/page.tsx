@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getPayrolls } from "@/lib/actions/payroll-actions";
 import { PayrollListClient } from "@/components/payroll/payroll-list-client";
+import { hasAnyRole, hasRole } from "@/lib/auth-helpers";
 
 interface PageProps {
   searchParams: Promise<{
@@ -14,7 +15,7 @@ interface PageProps {
 export default async function PayrollPage({ searchParams }: PageProps) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const sp = await searchParams;
   const page = Number(sp.page ?? "1") || 1;
@@ -35,7 +36,7 @@ export default async function PayrollPage({ searchParams }: PageProps) {
       initialPage={page}
       initialFrom={periodFrom ?? ""}
       initialTo={periodTo ?? ""}
-      isSuperAdmin={user.role === "super_admin"}
+      isSuperAdmin={hasRole(user.roles, "super_admin")}
     />
   );
 }

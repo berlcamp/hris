@@ -78,7 +78,7 @@ export default async function CorrectionDetailPage({
   const summary = await getCorrectionReviewSummary(id);
   const summaryByDate = new Map(summary.days.map((d) => [d.duty_date, d]));
 
-  const isReviewer = canReviewAttendanceCorrection(user.role);
+  const isReviewer = canReviewAttendanceCorrection(user.roles);
   const isLive = request.status === "pending" || request.status === "needs_rebase";
   const canWithdraw =
     canRequestAttendanceCorrection(user) &&

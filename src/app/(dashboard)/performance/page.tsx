@@ -8,7 +8,7 @@ import { DataTable } from "@/components/tables/data-table";
 import { ipcrColumns } from "@/components/tables/columns/ipcr-columns";
 import { getIpcrRecords, getActivePeriod } from "@/lib/actions/ipcr-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasAnyRole, isDeptHead } from "@/lib/auth-helpers";
 
 export default async function PerformancePage() {
   const user = await getCurrentUser();
@@ -17,9 +17,9 @@ export default async function PerformancePage() {
   const activePeriod = await getActivePeriod();
   const records = await getIpcrRecords(activePeriod?.id);
 
-  const isAdmin = ["super_admin", "hr_admin"].includes(user.role);
+  const isAdmin = hasAnyRole(user.roles, "super_admin", "hr_admin");
   const canCreate =
-    ["super_admin", "hr_admin"].includes(user.role) || isDeptHead(user.role);
+    hasAnyRole(user.roles, "super_admin", "hr_admin") || isDeptHead(user.roles);
 
   return (
     <div className="space-y-6">

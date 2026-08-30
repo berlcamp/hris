@@ -31,6 +31,7 @@ import type {
   AppointmentFormValues,
   AppointmentLifecycleValues,
 } from "@/lib/validations/rsp-schema";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 // Postgres unique-violation error code
 const UNIQUE_VIOLATION = "23505";
@@ -100,7 +101,7 @@ interface AuthResult {
 async function requireHrAdmin(): Promise<AuthResult | { error: string }> {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Insufficient permissions" };
   return { user };
 }

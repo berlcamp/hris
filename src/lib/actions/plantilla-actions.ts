@@ -140,7 +140,7 @@ export async function updatePlantilla(
 ) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!canManageHrRecords(user.role))
+  if (!canManageHrRecords(user.roles))
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();

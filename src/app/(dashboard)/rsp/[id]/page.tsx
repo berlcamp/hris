@@ -19,6 +19,7 @@ import { VacancyOverviewTab } from "@/components/rsp/vacancy-overview-tab";
 import { ApplicationsTab } from "@/components/rsp/applications-tab";
 import { AssessmentTab } from "@/components/rsp/assessment-tab";
 import { AppointmentTab } from "@/components/rsp/appointment-tab";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function VacancyDetailPage({
   params,
@@ -27,7 +28,7 @@ export default async function VacancyDetailPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const { id } = await params;
 

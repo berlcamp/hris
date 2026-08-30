@@ -26,8 +26,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { userFormSchema, type UserFormValues } from "@/lib/validations/user-schema";
-import { isDeptAdmin } from "@/lib/auth-helpers";
+import {
+  userFormSchema,
+  type AssignableRole,
+  type UserFormValues,
+} from "@/lib/validations/user-schema";
+import { hasAnyRole, isDeptAdmin, isScanOnlyAccount } from "@/lib/auth-helpers";
 import { createUser, updateUser } from "@/lib/actions/user-actions";
 
 interface Department {
@@ -42,23 +46,85 @@ interface UserFormProps {
   mode: "create" | "edit";
 }
 
-const roleOptions = [
-  { value: "ocm_admin", label: "OCM Admin" },
-  { value: "hr_admin", label: "HR Admin" },
-  { value: "hr_record_manager", label: "HR Record Manager" },
-  { value: "department_head", label: "Department Head" },
-  { value: "department_admin", label: "Department Admin" },
+/**
+ * Every role Administration can hand out, widest reach first — the same order
+ * ROLE_PRECEDENCE uses, so the list reads top-down from "runs the system" to
+ * "sees their own record".
+ *
+ * An account may hold any combination of these. Roles only ever ADD access:
+ * ticking a second box can never take a power away from the first.
+ */
+const roleOptions: {
+  value: AssignableRole;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "hr_admin",
+    label: "HR Admin",
+    description:
+      "Full HR reach: employees, plantilla, leave, attendance, payroll and reports.",
+  },
+  {
+    value: "ocm_admin",
+    label: "OCM Admin",
+    description:
+      "Office of the City Mayor: approves leave and CTO across departments and records attendance.",
+  },
+  {
+    value: "dtr_manager",
+    label: "DTR Manager",
+    description:
+      "Attendance only: DTRs for every department, biometric imports, schedules and holidays.",
+  },
+  {
+    value: "hr_record_manager",
+    label: "HR Record Manager",
+    description:
+      "Employee records, plantilla and NOSI only — no attendance, leave or payroll.",
+  },
   {
     value: "department_admin_and_department_head",
     label: "Department Admin + Head",
+    description:
+      "Both department roles, plus cross-department reach inside the Leave and CTO modules.",
   },
-  { value: "dtr_manager", label: "DTR Manager" },
-  { value: "cos_manager", label: "COS Manager" },
-  { value: "jo_manager", label: "JO Manager" },
-  // Scan-only: this account sees the mobile Attendance Checker app at /scan and
-  // nothing else in this application. See canScanEvents in src/lib/auth-helpers.
-  { value: "event_attendance_officer", label: "Attendance Checker" },
-  { value: "employee", label: "Employee" },
+  {
+    value: "department_head",
+    label: "Department Head",
+    description: "Approves leave and CTO for their own department.",
+  },
+  {
+    value: "department_admin",
+    label: "Department Admin",
+    description:
+      "Files leave, CTO and attendance corrections for their own department.",
+  },
+  {
+    value: "jo_manager",
+    label: "JO Manager",
+    description: "Runs the Job Orders module: employees, areas, memos, payroll.",
+  },
+  {
+    value: "cos_manager",
+    label: "COS Manager",
+    description:
+      "Runs the Contract of Service module: employees, contracts, payroll.",
+  },
+  {
+    // Scan-only when held ALONE: the account sees the mobile Attendance Checker
+    // app at /scan and nothing else. Combined with any other role it simply
+    // adds the ability to scan. See isScanOnlyAccount in src/lib/auth-helpers.
+    value: "event_attendance_officer",
+    label: "Attendance Checker",
+    description:
+      "Scans QR cards at an event door. On its own, this account only sees the scanner app.",
+  },
+  {
+    value: "employee",
+    label: "Employee",
+    description: "Their own profile, DTR, leave and CTO.",
+  },
 ];
 
 export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
@@ -76,7 +142,7 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
     defaultValues: defaultValues ?? {
       full_name: "",
       email: "",
-      role: "employee",
+      roles: ["employee"],
       department_id: null,
       is_active: true,
       can_access_attendance_corrections: true,
@@ -84,7 +150,7 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
     },
   });
 
-  const watchRole = watch("role");
+  const watchRoles = watch("roles") ?? [];
   const watchDepartment = watch("department_id");
   const watchActive = watch("is_active");
   const watchCorrections = watch("can_access_attendance_corrections");
@@ -95,13 +161,23 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
   // OCM Admin, the read-only Department Head), so there is nothing to toggle.
   // The composite "Dept Admin + Head" is included because it inherits the
   // dept-admin powers — see isDeptAdmin in src/lib/auth-helpers.ts.
-  const showCorrectionsToggle = isDeptAdmin(watchRole);
+  const showCorrectionsToggle = isDeptAdmin(watchRoles);
 
   // The payroll switch qualifies the two module-manager roles only: every
   // other role's payroll reach is settled by the role itself. See migration
   // 077 and canManageJobOrderPayroll in src/lib/auth-helpers.ts.
-  const showModulePayrollToggle =
-    watchRole === "jo_manager" || watchRole === "cos_manager";
+  const showModulePayrollToggle = hasAnyRole(
+    watchRoles,
+    "jo_manager",
+    "cos_manager",
+  );
+
+  const toggleRole = (role: AssignableRole, checked: boolean) => {
+    const next = checked
+      ? [...watchRoles, role]
+      : watchRoles.filter((r) => r !== role);
+    setValue("roles", next, { shouldValidate: true });
+  };
 
   const onSubmit = async (data: UserFormValues) => {
     setLoading(true);
@@ -167,35 +243,67 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
             )}
           </div>
 
-          {/* Role */}
+          {/* Roles */}
           <div className="space-y-2">
-            <Label>Role</Label>
-            <Select
-              value={watchRole}
-              items={roleOptions}
-              onValueChange={(val) =>
-                setValue("role", val as UserFormValues["role"], {
-                  shouldValidate: true,
-                })
-              }
+            <div className="space-y-0.5">
+              <Label>Roles</Label>
+              <p className="text-sm text-muted-foreground">
+                Pick every hat this person wears. Roles add up — an account with
+                two roles can do everything either one allows.
+              </p>
+            </div>
+
+            <div
+              role="group"
+              aria-label="Roles"
+              className="divide-y rounded-lg border"
             >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select a role" />
-              </SelectTrigger>
-              <SelectContent>
-                {roleOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.role && (
-              <p className="text-sm text-destructive">{errors.role.message}</p>
+              {roleOptions.map((option) => {
+                const checked = watchRoles.includes(option.value);
+                return (
+                  <label
+                    key={option.value}
+                    htmlFor={`role-${option.value}`}
+                    className="flex cursor-pointer items-start gap-3 p-3 hover:bg-muted/50"
+                  >
+                    <Checkbox
+                      id={`role-${option.value}`}
+                      checked={checked}
+                      onCheckedChange={(value) =>
+                        toggleRole(option.value, !!value)
+                      }
+                      className="mt-0.5"
+                    />
+                    <div className="space-y-0.5">
+                      <span className="text-sm font-medium leading-none">
+                        {option.label}
+                      </span>
+                      <p className="text-sm text-muted-foreground">
+                        {option.description}
+                      </p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            {errors.roles && (
+              <p className="text-sm text-destructive">
+                {errors.roles.message}
+              </p>
             )}
 
-            {/* Sits under the role because it only qualifies that role — it is
-                a Department Admin setting, not a general account setting. */}
+            {/* The Checker on its own is a whole different application — worth
+                saying out loud, because it looks like just another tick box. */}
+            {isScanOnlyAccount(watchRoles) && (
+              <p className="text-sm text-muted-foreground">
+                With only this role, the account signs in straight to the
+                scanner app and sees no other module. Add a second role to give
+                it the dashboard as well.
+              </p>
+            )}
+
+            {/* Sits under the roles because it only qualifies one of them — it
+                is a Department Admin setting, not a general account setting. */}
             {showCorrectionsToggle && (
               <div className="flex items-start gap-3 rounded-lg border p-3 mt-3">
                 <Checkbox

@@ -7,7 +7,7 @@ import { getDepartments } from "@/lib/actions/user-actions";
 export default async function NewCosEmployeePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCos(user.role)) redirect("/dashboard");
+  if (!canManageCos(user.roles)) redirect("/dashboard");
 
   const departments = await getDepartments();
 

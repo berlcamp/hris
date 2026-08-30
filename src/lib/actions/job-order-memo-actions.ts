@@ -105,7 +105,7 @@ export async function getJobOrderMemos(
   filters: JobOrderMemoFilters = {},
 ): Promise<{ rows: JobOrderMemo[]; totalCount: number }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { rows: [], totalCount: 0 };
+  if (!canManageJobOrders(user?.roles)) return { rows: [], totalCount: 0 };
 
   const supabase = createAdminClient();
   const page = Math.max(1, filters.page ?? 1);
@@ -159,7 +159,7 @@ export async function getJobOrderMemoById(id: string): Promise<{
   members: JobOrderMemoMember[];
 }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { memo: null, members: [] };
+  if (!canManageJobOrders(user?.roles)) return { memo: null, members: [] };
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -188,7 +188,7 @@ export async function getJobOrdersForMemoPicker(): Promise<
   JobOrderMemoPickerOption[]
 > {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return [];
+  if (!canManageJobOrders(user?.roles)) return [];
 
   const supabase = createAdminClient();
   return loadJobOrdersForMemo(supabase);
@@ -199,7 +199,7 @@ export async function getAddableJobOrdersForMemo(
   memoId: string,
 ): Promise<JobOrderMemoPickerOption[]> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return [];
+  if (!canManageJobOrders(user?.roles)) return [];
 
   const supabase = createAdminClient();
   const [roster, members] = await Promise.all([
@@ -221,7 +221,7 @@ export async function createJobOrderMemo(
   input: JobOrderMemoCreateValues,
 ): Promise<{ data?: { id: string }; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const parsed = jobOrderMemoCreateSchema.safeParse(input);
   if (!parsed.success) {
@@ -287,7 +287,7 @@ export async function updateJobOrderMemo(
   input: JobOrderMemoMetadataValues,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const parsed = jobOrderMemoMetadataSchema.safeParse(input);
   if (!parsed.success) {
@@ -350,7 +350,7 @@ export async function duplicateJobOrderMemo(
   metadata: JobOrderMemoDuplicateValues,
 ): Promise<{ data?: { id: string }; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const parsed = jobOrderMemoDuplicateSchema.safeParse(metadata);
   if (!parsed.success) {
@@ -426,7 +426,7 @@ export async function deleteJobOrderMemo(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { data: existing, error: readErr } = await supabase
@@ -465,7 +465,7 @@ export async function addJobOrderMemoMembers(
   employeeIds: string[],
 ): Promise<{ data?: { added: number }; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
   if (employeeIds.length === 0) return { error: "Select at least one employee" };
 
   const supabase = createAdminClient();
@@ -514,7 +514,7 @@ export async function updateJobOrderMemoMember(
   input: JobOrderMemoMemberValues,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const parsed = jobOrderMemoMemberSchema.safeParse(input);
   if (!parsed.success) {
@@ -550,7 +550,7 @@ export async function removeJobOrderMemoMember(
   memberId: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { data: member, error: readErr } = await supabase

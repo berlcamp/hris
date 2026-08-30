@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatManilaLongDate } from "@/lib/format-date";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptScoped } from "@/lib/auth-helpers";
+import { hasAnyRole, isDeptScoped } from "@/lib/auth-helpers";
 import {
   getLeaveLedger,
   getEmployeeLeaveCredits,
@@ -33,8 +33,8 @@ export default async function LeaveLedgerPage({
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   if (
-    !["super_admin", "hr_admin"].includes(user.role) &&
-    !isDeptScoped(user.role)
+    !hasAnyRole(user.roles, "super_admin", "hr_admin") &&
+    !isDeptScoped(user.roles)
   ) {
     redirect("/dashboard");
   }

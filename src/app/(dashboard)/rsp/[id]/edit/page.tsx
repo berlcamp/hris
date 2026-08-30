@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getVacancyById } from "@/lib/actions/rsp-actions";
 import { VacancyForm } from "@/components/rsp/vacancy-form";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function EditVacancyPage({
   params,
@@ -10,7 +11,7 @@ export default async function EditVacancyPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const { id } = await params;
 

@@ -11,10 +11,10 @@ import { IndividualDtrClient } from "@/components/attendance/individual-dtr-clie
 export default async function DtrPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canAccessAttendance(user.role)) redirect("/dashboard");
+  if (!canAccessAttendance(user.roles)) redirect("/dashboard");
 
   const employees = await getEmployees();
-  const isAdmin = canPrintDtr(user.role);
+  const isAdmin = canPrintDtr(user.roles);
   const canBulkDtr = isAdmin;
 
   // If user is an employee, find their employee record

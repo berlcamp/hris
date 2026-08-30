@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageEvents, canScanEvents } from "@/lib/auth-helpers";
+import { canManageEvents, canScanEvents, hasRole } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   EVENT_PAGE_SIZE,
@@ -43,7 +43,7 @@ export async function getEvents(opts: {
   search?: string | null;
 }): Promise<{ rows: EventListRow[]; totalCount: number }> {
   const user = await getCurrentUser();
-  if (!canScanEvents(user?.role)) return { rows: [], totalCount: 0 };
+  if (!canScanEvents(user?.roles)) return { rows: [], totalCount: 0 };
 
   const supabase = createAdminClient();
   const page = Math.max(1, opts.page ?? 1);
@@ -57,7 +57,7 @@ export async function getEvents(opts: {
 
   // The Attendance Checker is scan-only: a draft roster is still being
   // assembled and a closed event's report is final, so neither is his business.
-  if (!canManageEvents(user?.role)) {
+  if (!canManageEvents(user?.roles)) {
     query = query.eq("status", "open");
   } else if (opts.status && opts.status !== "all") {
     query = query.eq("status", opts.status);
@@ -124,7 +124,7 @@ async function countByEvent(
 
 export async function getEvent(id: string): Promise<EventRecord | null> {
   const user = await getCurrentUser();
-  if (!canScanEvents(user?.role)) return null;
+  if (!canScanEvents(user?.roles)) return null;
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -139,7 +139,7 @@ export async function getEvent(id: string): Promise<EventRecord | null> {
 
   const event = data as unknown as EventRecord;
   // Scan-only accounts never see a draft or a closed event.
-  if (!canManageEvents(user?.role) && event.status !== "open") return null;
+  if (!canManageEvents(user?.roles) && event.status !== "open") return null;
   return event;
 }
 
@@ -147,7 +147,7 @@ export async function getEventRoster(
   eventId: string,
 ): Promise<EventRosterEntry[]> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) return [];
+  if (!canManageEvents(user?.roles)) return [];
 
   const supabase = createAdminClient();
   const out: EventRosterEntry[] = [];
@@ -174,7 +174,7 @@ export async function getEventAttendance(
   eventId: string,
 ): Promise<EventAttendanceRecord[]> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) return [];
+  if (!canManageEvents(user?.roles)) return [];
 
   const supabase = createAdminClient();
   const out: EventAttendanceRecord[] = [];
@@ -212,7 +212,7 @@ export async function getEventGroupOptions(): Promise<{
   orphanedLegacyCount: number;
 }> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) {
+  if (!canManageEvents(user?.roles)) {
     return { departments: [], areas: [], orphanedLegacyCount: 0 };
   }
 
@@ -241,7 +241,7 @@ export async function previewEventCandidates(
   input: Omit<EventRosterBuildValues, "event_id">,
 ): Promise<EventCandidate[]> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) return [];
+  if (!canManageEvents(user?.roles)) return [];
 
   const supabase = createAdminClient();
   return loadEventCandidates(supabase, {
@@ -257,7 +257,7 @@ export async function createEvent(
   values: EventMetadataValues,
 ): Promise<ActionResult<{ id: string }>> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) {
+  if (!canManageEvents(user?.roles)) {
     return { success: false, error: "Not authorized" };
   }
 
@@ -301,7 +301,7 @@ export async function updateEvent(
   values: EventMetadataValues,
 ): Promise<ActionResult> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) {
+  if (!canManageEvents(user?.roles)) {
     return { success: false, error: "Not authorized" };
   }
 
@@ -352,7 +352,7 @@ export async function setEventStatus(
   status: EventStatus,
 ): Promise<ActionResult> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) {
+  if (!canManageEvents(user?.roles)) {
     return { success: false, error: "Not authorized" };
   }
 
@@ -405,7 +405,7 @@ export async function deleteEvent(id: string): Promise<ActionResult> {
   const user = await getCurrentUser();
   // Deleting an event takes its attendance record with it. Same gate as every
   // other destructive action in this codebase.
-  if (user?.role !== "super_admin") {
+  if (!user || !hasRole(user.roles, "super_admin")) {
     return { success: false, error: "Not authorized" };
   }
 
@@ -441,7 +441,7 @@ export async function buildEventRoster(
   values: EventRosterBuildValues,
 ): Promise<ActionResult<{ count: number }>> {
   const user = await getCurrentUser();
-  if (!canManageEvents(user?.role)) {
+  if (!canManageEvents(user?.roles)) {
     return { success: false, error: "Not authorized" };
   }
 
@@ -523,7 +523,7 @@ export async function recordManualAttendance(
   values: EventManualAttendanceValues,
 ): Promise<ActionResult> {
   const user = await getCurrentUser();
-  if (!canScanEvents(user?.role)) {
+  if (!canScanEvents(user?.roles)) {
     return { success: false, error: "Not authorized" };
   }
 

@@ -46,8 +46,10 @@ export function UserActionsCell({ user }: { user: UserRow }) {
     router.refresh();
   };
 
-  // Super admin cannot be edited or deactivated
-  if (user.role === "super_admin") {
+  // Super admin cannot be edited or deactivated. Read the array, falling back
+  // to the derived scalar for a row written before migration 087.
+  const roles = user.roles?.length ? user.roles : [user.role];
+  if (roles.includes("super_admin")) {
     return null;
   }
 

@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { submitNosi, reviewNosi } from "@/lib/actions/nosi-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasAnyRole, hasRole, isDeptHead } from "@/lib/auth-helpers";
 
 interface NosiApprovalActionsProps {
   nosiId: string;
@@ -45,7 +45,7 @@ export function NosiApprovalActions({ nosiId, status, user }: NosiApprovalAction
     setLoading(false);
   };
 
-  if (status === "draft" && ["super_admin", "hr_admin"].includes(user.role)) {
+  if (status === "draft" && hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     return (
       <Button onClick={() => handle(() => submitNosi(nosiId))} disabled={loading}>
         {loading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -57,16 +57,16 @@ export function NosiApprovalActions({ nosiId, status, user }: NosiApprovalAction
   if (status === "pending") {
     return (
       <div className="flex gap-2 flex-wrap">
-        {(["hr_admin", "super_admin"].includes(user.role) || isDeptHead(user.role)) && (
+        {(hasAnyRole(user.roles, "hr_admin", "super_admin") || isDeptHead(user.roles)) && (
           <>
             <Button
               onClick={() => handle(() => reviewNosi(nosiId, true))}
               disabled={loading}
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {user.role === "super_admin"
+              {hasRole(user.roles, "super_admin")
                 ? "Final Approve"
-                : user.role === "hr_admin"
+                : hasRole(user.roles, "hr_admin")
                   ? "Approve"
                   : "Recommend"}
             </Button>

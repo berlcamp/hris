@@ -11,7 +11,7 @@ export default async function NewNosiPage({
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageHrRecords(user.role)) redirect("/nosi");
+  if (!canManageHrRecords(user.roles)) redirect("/nosi");
 
   const { employee_id } = await searchParams;
 

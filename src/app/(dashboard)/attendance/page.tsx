@@ -18,13 +18,13 @@ import { DahuaImportDialog } from "@/components/attendance/dahua-import-dialog";
 export default async function AttendancePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canAccessAttendance(user.role)) redirect("/dashboard");
+  if (!canAccessAttendance(user.roles)) redirect("/dashboard");
 
   const logs = await getAttendanceLogs();
-  const isAdmin = isAttendanceManager(user.role);
-  const canBulkDtr = canPrintDtr(user.role);
-  const canEnterManually = canDirectApplyAttendanceCorrection(user.role);
-  const canManageHolidays = canManageSchedules(user.role);
+  const isAdmin = isAttendanceManager(user.roles);
+  const canBulkDtr = canPrintDtr(user.roles);
+  const canEnterManually = canDirectApplyAttendanceCorrection(user.roles);
+  const canManageHolidays = canManageSchedules(user.roles);
 
   return (
     <div className="space-y-6">

@@ -13,7 +13,7 @@ export default async function LeaveApplyPage() {
   // The composite Dept Admin + Head role can file leave for any employee
   // in any department, so it bypasses getEmployees()'s dept scoping.
   const employeesPromise: Promise<EmployeeWithRelations[]> =
-    isCompositeDeptAdminHead(user.role)
+    isCompositeDeptAdminHead(user.roles)
       ? (async () => {
           const supabase = createAdminClient();
           const { data } = await supabase

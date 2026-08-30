@@ -33,14 +33,14 @@ function daysThroughEndOfNextYear(): number {
 export default async function NosiPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageHrRecords(user.role)) redirect("/dashboard");
+  if (!canManageHrRecords(user.roles)) redirect("/dashboard");
 
   const [{ eligible, upcoming, missingNosiBasis }, records] = await Promise.all([
     getNosiEligibilityOverview(daysThroughEndOfNextYear()),
     getNosisRecords(),
   ]);
 
-  const canCreate = canManageHrRecords(user.role);
+  const canCreate = canManageHrRecords(user.roles);
 
   return (
     <div className="space-y-6">

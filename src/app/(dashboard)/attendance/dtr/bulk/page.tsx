@@ -10,7 +10,7 @@ export default async function BulkDtrPage() {
 
   // Bulk DTR is limited to the roles that print DTRs across departments.
   // Department-scoped roles have no attendance access at all.
-  if (!canPrintDtr(user.role)) {
+  if (!canPrintDtr(user.roles)) {
     redirect("/dashboard");
   }
 

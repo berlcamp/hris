@@ -58,7 +58,14 @@ export interface UserProfile {
   id: string;
   email: string;
   full_name: string;
+  /**
+   * DERIVED: the primary (widest-reaching) role in `roles`, kept in step by the
+   * database (migration 087). Read it for SCOPE decisions; read `roles` for
+   * "may this account do X".
+   */
   role: UserRole;
+  /** Every role this account holds — the source of truth for permissions. */
+  roles: UserRole[];
   department_id: string | null;
   is_active: boolean;
   /**

@@ -26,7 +26,7 @@ import {
   overrideApprovedLeaveDaysWithPay,
 } from "@/lib/actions/leave-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasRole, isDeptHead } from "@/lib/auth-helpers";
 
 interface LeaveApprovalActionsProps {
   leaveId: string;
@@ -91,13 +91,13 @@ export function LeaveApprovalActions({
   const isOwnRestricted = !!restrictToUserId && user.id === restrictToUserId;
   const canCancelApproved =
     status === "approved" &&
-    (user.role === "super_admin" || user.role === "hr_admin" || isOwnRestricted);
+    (hasRole(user.roles, "super_admin") || hasRole(user.roles, "hr_admin") || isOwnRestricted);
 
   // Super-admin-only: change the paid/LWOP split on an approved leave (e.g.
   // a leave originally recorded as LWOP because credits were unreconciled).
   const canOverridePaid =
     status === "approved" &&
-    user.role === "super_admin" &&
+    hasRole(user.roles, "super_admin") &&
     typeof daysApplied === "number" &&
     typeof daysWithPay === "number";
 
@@ -309,16 +309,16 @@ export function LeaveApprovalActions({
 
   // OCM Admin approves at both stages sequentially: as Dept Head while the
   // dept-head approval is outstanding, then as HR once it's recorded.
-  const isOcmAdmin = user.role === "ocm_admin";
+  const isOcmAdmin = hasRole(user.roles, "ocm_admin");
   // Dept-level approval: Dept Heads and OCM Admin, before dept approval exists.
   const canApproveAsDeptHead =
-    (isDeptHead(user.role) || isOcmAdmin) && !deptApprovedAt;
+    (isDeptHead(user.roles) || isOcmAdmin) && !deptApprovedAt;
   // HR can only act once the department head has approved. super_admin can act
   // anytime; OCM Admin acts as HR only after dept-head approval.
   const hrCanAct =
-    (user.role === "hr_admin" && !!deptApprovedAt) ||
+    (hasRole(user.roles, "hr_admin") && !!deptApprovedAt) ||
     (isOcmAdmin && !!deptApprovedAt) ||
-    user.role === "super_admin";
+    hasRole(user.roles, "super_admin");
 
   return (
     <div className="flex gap-2 flex-wrap">
@@ -340,7 +340,7 @@ export function LeaveApprovalActions({
 
       {/* Reject — dept head anytime; HR only after dept approval; super_admin
           anytime; OCM Admin at whichever stage it can approve. */}
-      {(isDeptHead(user.role) || hrCanAct || canApproveAsDeptHead) && (
+      {(isDeptHead(user.roles) || hrCanAct || canApproveAsDeptHead) && (
         <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
           <DialogTrigger
             render={<Button variant="destructive" disabled={loading} />}

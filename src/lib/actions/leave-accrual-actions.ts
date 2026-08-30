@@ -10,10 +10,11 @@ import {
   monthlyAccrualFromAnnual,
   recomputeLeaveCreditTotal,
 } from "@/lib/leave-credits-helpers";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 function requireHrAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
   if (!user) return "Unauthorized" as const;
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return "Insufficient permissions" as const;
   return null;
 }

@@ -20,8 +20,8 @@ export default async function AttendanceCorrectionsPage() {
   if (!user) redirect("/login");
 
   const canRequest = canFileAttendanceCorrection(user);
-  const isReviewer = canReviewAttendanceCorrection(user.role);
-  const isDirect = canDirectApplyAttendanceCorrection(user.role);
+  const isReviewer = canReviewAttendanceCorrection(user.roles);
+  const isDirect = canDirectApplyAttendanceCorrection(user.roles);
   // Every side of the workflow shares this route — filers, reviewers, and the
   // read-only viewers who only watch their department's queue. Anyone on none
   // of them has no business here. listCorrectionRequests throws for them

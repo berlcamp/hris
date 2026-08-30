@@ -12,6 +12,7 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 const reports = [
   {
@@ -68,7 +69,7 @@ export default async function ReportsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  if (!["super_admin", "hr_admin"].includes(user.role)) {
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     redirect("/dashboard");
   }
 

@@ -7,11 +7,11 @@ import { SalaryGradeManager } from "@/components/admin/salary-grade-manager";
 export default async function SalaryGradesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageHrRecords(user.role)) redirect("/dashboard");
+  if (!canManageHrRecords(user.roles)) redirect("/dashboard");
 
   // The HR Record Manager may reach this page but only to view — editing the
   // table stays with super_admin / hr_admin.
-  const readOnly = !canManageSalaryGrades(user.role);
+  const readOnly = !canManageSalaryGrades(user.roles);
 
   const [grades, tranches] = await Promise.all([
     getSalaryGrades(),

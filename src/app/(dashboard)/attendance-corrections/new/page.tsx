@@ -40,7 +40,7 @@ export default async function NewCorrectionRequestPage({
   // admin files a request that a reviewer must approve. Decided on the server
   // and passed down purely so the form can say which it is — the action
   // re-derives it from the role and never trusts this.
-  const directApply = canDirectApplyAttendanceCorrection(user.role);
+  const directApply = canDirectApplyAttendanceCorrection(user.roles);
 
   // Null for a direct-apply role — they have no date limit. For a department
   // admin it is the payroll months still being closed, derived from the server's

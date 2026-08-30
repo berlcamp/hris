@@ -3,6 +3,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getLeaveApplicationById } from "@/lib/actions/leave-actions";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export interface AuditLogRow {
   id: string;
@@ -26,7 +27,7 @@ export async function getAuditLogs(filters?: {
   endDate?: string;
 }): Promise<AuditLogRow[]> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin"].includes(user.role)) return [];
+  if (!user || !hasAnyRole(user.roles, "super_admin")) return [];
 
   const supabase = createAdminClient();
 

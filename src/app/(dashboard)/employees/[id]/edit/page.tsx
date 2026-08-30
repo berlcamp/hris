@@ -19,7 +19,7 @@ export default async function EditEmployeePage({
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageHrRecords(user.role)) {
+  if (!canManageHrRecords(user.roles)) {
     redirect(`/employees/${id}`);
   }
 

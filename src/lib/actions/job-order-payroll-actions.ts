@@ -99,7 +99,7 @@ export async function getJobOrderPayrolls(
   filters: JobOrderPayrollFilters = {},
 ): Promise<{ rows: JobOrderPayroll[]; totalCount: number }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { rows: [], totalCount: 0 };
+  if (!canManageJobOrders(user?.roles)) return { rows: [], totalCount: 0 };
 
   const supabase = createAdminClient();
   const page = Math.max(1, filters.page ?? 1);
@@ -214,7 +214,7 @@ export async function getJobOrderPayrollById(id: string): Promise<{
   members: JobOrderPayrollMember[];
 }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { payroll: null, members: [] };
+  if (!canManageJobOrders(user?.roles)) return { payroll: null, members: [] };
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -253,7 +253,7 @@ export async function getJobOrderPayrollById(id: string): Promise<{
 
 export async function getJobOrderAreasForPicker(): Promise<JobOrderAreaOption[]> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return [];
+  if (!canManageJobOrders(user?.roles)) return [];
 
   const supabase = createAdminClient();
   const { data: areas, error } = await supabase
@@ -295,7 +295,7 @@ export async function createJobOrderPayroll(
   input: JobOrderPayrollCreateValues,
 ): Promise<{ data?: { id: string }; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
     return { error: "Unauthorized" };
   }
 
@@ -377,7 +377,7 @@ export async function updateJobOrderPayroll(
   input: JobOrderPayrollMetadataValues,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
     return { error: "Unauthorized" };
   }
 
@@ -430,7 +430,7 @@ export async function duplicateJobOrderPayroll(
   metadata: JobOrderPayrollMetadataValues,
 ): Promise<{ data?: { id: string }; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
     return { error: "Unauthorized" };
   }
 
@@ -525,7 +525,7 @@ export async function finalizeJobOrderPayroll(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canManageJobOrderPayroll({ role: user?.role, canManageModulePayroll: user?.canManageModulePayroll })) {
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
     return { error: "Unauthorized" };
   }
 
@@ -569,7 +569,7 @@ export async function reopenJobOrderPayroll(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canReopenOrDeletePayroll(user?.role)) return { error: "Unauthorized" };
+  if (!canReopenOrDeletePayroll(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { data: current, error: readErr } = await supabase
@@ -616,7 +616,7 @@ export async function deleteJobOrderPayroll(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canReopenOrDeletePayroll(user?.role)) return { error: "Unauthorized" };
+  if (!canReopenOrDeletePayroll(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   // Only soft-delete a row that is actually there and not already deleted, so

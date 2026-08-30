@@ -9,13 +9,15 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { getServerUser } from "@/lib/auth";
+import { isScanOnlyAccount } from "@/lib/auth-helpers";
 
 /**
  * The signed-in shell: sidebar, header, every HRIS module.
  *
- * An Attendance Checker never sees it. That account exists to work a door on a
- * phone and has its own app at /scan — a card grid and a scanner, and nothing
- * else. Bouncing here rather than in src/proxy.ts keeps the role lookup off
+ * A scan-only Attendance Checker never sees it. That account exists to work a
+ * door on a phone and has its own app at /scan — a card grid and a scanner, and
+ * nothing else. An account that holds the Checker role ALONGSIDE another one is
+ * not bounced: it has real work here too. Bouncing here rather than in src/proxy.ts keeps the role lookup off
  * every request in the application; this layout is the one thing every
  * dashboard route already has in common.
  */
@@ -25,7 +27,9 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const user = await getServerUser();
-  if (user?.role === "event_attendance_officer") redirect("/scan");
+  // Only an account whose ONE role is Checker is bounced. Someone who works a
+  // door on top of a real job keeps every module their other roles reach.
+  if (isScanOnlyAccount(user?.roles)) redirect("/scan");
 
   return (
     <SidebarProvider>

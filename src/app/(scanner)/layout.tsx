@@ -32,7 +32,7 @@ export default async function ScannerLayout({
   children: React.ReactNode;
 }) {
   const user = await getServerUser();
-  if (!canScanEvents(user?.role)) redirect("/dashboard");
+  if (!canScanEvents(user?.roles)) redirect("/dashboard");
 
   // .checker-shell carries this app's own dark palette (src/app/globals.css).
   // Scoping it to a wrapper rather than the <html> element is what lets every

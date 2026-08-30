@@ -142,9 +142,9 @@ async function resolveScope(
 ): Promise<MonthlyDtrScope> {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
-  if (!canAccessDtr(user.role)) throw new Error("Unauthorized");
+  if (!canAccessDtr(user.roles)) throw new Error("Unauthorized");
 
-  const anyDepartment = canSelectDtrDepartment(user.role);
+  const anyDepartment = canSelectDtrDepartment(user.roles);
   assertMonthAllowed(month, anyDepartment);
 
   let departmentId: string;
@@ -276,9 +276,9 @@ export async function getMyMonthlyDtr(
 ): Promise<BulkDtrResult | null> {
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
-  if (!canAccessDtr(user.role)) throw new Error("Unauthorized");
+  if (!canAccessDtr(user.roles)) throw new Error("Unauthorized");
 
-  assertMonthAllowed(month, canSelectDtrDepartment(user.role));
+  assertMonthAllowed(month, canSelectDtrDepartment(user.roles));
 
   const supabase = createAdminClient();
   const { data } = await supabase

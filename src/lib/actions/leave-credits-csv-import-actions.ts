@@ -12,10 +12,11 @@ import {
   type LeaveTypeLite,
   type SupabaseAdmin,
 } from "@/lib/leave-credits-helpers";
+import { hasRole } from "@/lib/auth-helpers";
 
 function requireSuperAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
   if (!user) return "Unauthorized" as const;
-  if (user.role !== "super_admin")
+  if (!hasRole(user.roles, "super_admin"))
     return "Insufficient permissions" as const;
   return null;
 }

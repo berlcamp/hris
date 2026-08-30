@@ -12,7 +12,7 @@ export default async function JobOrderMemosPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await getServerUser();
-  if (!canManageJobOrders(user?.role)) redirect("/dashboard");
+  if (!canManageJobOrders(user?.roles)) redirect("/dashboard");
 
   // Next 16: searchParams is async — await before destructuring.
   const sp = await searchParams;
@@ -42,7 +42,7 @@ export default async function JobOrderMemosPage({
         totalCount={totalCount}
         page={page}
         pageSize={JOB_ORDER_MEMO_PAGE_SIZE}
-        canEdit={canManageJobOrders(user?.role)}
+        canEdit={canManageJobOrders(user?.roles)}
       />
     </div>
   );

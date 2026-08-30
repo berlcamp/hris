@@ -24,7 +24,7 @@ import {
   cancelApprovedCtoApplication,
 } from "@/lib/actions/cto-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasRole, isDeptHead } from "@/lib/auth-helpers";
 
 interface CtoApprovalActionsProps {
   ctoId: string;
@@ -72,7 +72,7 @@ export function CtoApprovalActions({
 
   const canCancelApproved =
     status === "approved" &&
-    (user.role === "super_admin" || user.role === "hr_admin" || isOwnRestricted);
+    (hasRole(user.roles, "super_admin") || hasRole(user.roles, "hr_admin") || isOwnRestricted);
 
   if (status === "approved") {
     if (isRestrictedApproval || !canCancelApproved) return null;
@@ -151,13 +151,13 @@ export function CtoApprovalActions({
 
   // OCM Admin approves at both stages sequentially: as Dept Head while the
   // dept-head approval is outstanding, then as HR once it's recorded.
-  const isOcmAdmin = user.role === "ocm_admin";
+  const isOcmAdmin = hasRole(user.roles, "ocm_admin");
   const canApproveAsDeptHead =
-    (isDeptHead(user.role) || isOcmAdmin) && !deptApprovedAt;
+    (isDeptHead(user.roles) || isOcmAdmin) && !deptApprovedAt;
   const hrCanAct =
-    (user.role === "hr_admin" && !!deptApprovedAt) ||
+    (hasRole(user.roles, "hr_admin") && !!deptApprovedAt) ||
     (isOcmAdmin && !!deptApprovedAt) ||
-    user.role === "super_admin";
+    hasRole(user.roles, "super_admin");
 
   return (
     <div className="flex gap-2 flex-wrap">
@@ -175,7 +175,7 @@ export function CtoApprovalActions({
         </Button>
       )}
 
-      {(isDeptHead(user.role) || hrCanAct || canApproveAsDeptHead) && (
+      {(isDeptHead(user.roles) || hrCanAct || canApproveAsDeptHead) && (
         <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
           <DialogTrigger
             render={<Button variant="destructive" disabled={loading} />}

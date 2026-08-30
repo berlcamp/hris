@@ -44,7 +44,7 @@ export async function createSalaryGradeEntry(input: {
   effective_year: number;
 }) {
   const user = await getCurrentUser();
-  if (!canManageSalaryGrades(user?.role)) return { error: "Unauthorized" };
+  if (!canManageSalaryGrades(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -69,7 +69,7 @@ export async function updateSalaryGradeEntry(id: string, input: {
   effective_year: number;
 }) {
   const user = await getCurrentUser();
-  if (!canManageSalaryGrades(user?.role)) return { error: "Unauthorized" };
+  if (!canManageSalaryGrades(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -86,7 +86,7 @@ export async function updateSalaryGradeEntry(id: string, input: {
 
 export async function deleteSalaryGradeEntry(id: string) {
   const user = await getCurrentUser();
-  if (!canManageSalaryGrades(user?.role)) return { error: "Unauthorized" };
+  if (!canManageSalaryGrades(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { error } = await supabase
@@ -107,7 +107,7 @@ export async function bulkImportSalaryGrades(entries: {
   effective_year: number;
 }[]) {
   const user = await getCurrentUser();
-  if (!canManageSalaryGrades(user?.role)) return { error: "Unauthorized" };
+  if (!canManageSalaryGrades(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { error } = await supabase

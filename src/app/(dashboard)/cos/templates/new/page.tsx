@@ -6,7 +6,7 @@ import { CosTemplateForm } from "@/components/cos/cos-template-form";
 export default async function NewCosTemplatePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCosTemplates(user.role)) redirect("/dashboard");
+  if (!canManageCosTemplates(user.roles)) redirect("/dashboard");
 
   return (
     <div className="flex flex-col gap-6">

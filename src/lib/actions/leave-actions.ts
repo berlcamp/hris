@@ -3,11 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import {
-  isCompositeDeptAdminHead,
-  isDeptHead,
-  isDeptScoped,
-} from "@/lib/auth-helpers";
+import { hasAnyRole, hasRole, isCompositeDeptAdminHead, isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   addLedgerEntry,
@@ -391,7 +387,7 @@ export async function adjustLeaveCredit(input: {
 }) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();
@@ -698,6 +694,7 @@ export async function createLeaveApplication(input: {
       commutation_requested: input.commutation_requested ?? false,
       reason: input.reason,
       filed_by_role: user.role,
+      filed_by_roles: user.roles,
     },
   });
 
@@ -760,6 +757,7 @@ export async function cancelLeaveApplication(id: string) {
       end_date: app.end_date,
       days_applied: app.days_applied,
       cancelled_by_role: user.role,
+      cancelled_by_roles: user.roles,
     },
   });
 
@@ -803,7 +801,7 @@ export async function cancelApprovedLeaveApplication(id: string, reason: string)
   const cancelRestriction = ocmAdminRestrictionError(app, user);
   if (cancelRestriction) return { error: cancelRestriction };
   const isOcmOwned = normalizeCreatorRole(app.created_by_profile) === "ocm_admin";
-  if (!isOcmOwned && !["super_admin", "hr_admin"].includes(user.role))
+  if (!isOcmOwned && !hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Only HR Admin or Super Admin can cancel an approved leave" };
 
   const cancelledAt = new Date().toISOString();
@@ -840,6 +838,7 @@ export async function cancelApprovedLeaveApplication(id: string, reason: string)
       cancellation_reason: trimmed,
       cancelled_by: user.email,
       cancelled_by_role: user.role,
+      cancelled_by_roles: user.roles,
       employee_id: app.employee_id,
       leave_type_id: app.leave_type_id,
       leave_type_code: leaveTypeCode,
@@ -873,7 +872,7 @@ export async function overrideApprovedLeaveDaysWithPay(
 ) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (user.role !== "super_admin")
+  if (!hasRole(user.roles, "super_admin"))
     return { error: "Only Super Admin can override paid days on an approved leave" };
 
   const trimmed = (reason ?? "").trim();
@@ -999,12 +998,30 @@ export async function approveLeave(id: string) {
   // step for any department; a plain Dept Head is restricted to their own.
   // OCM Admin only acts here while dept-head approval is still outstanding —
   // once it's recorded, OCM Admin falls through to the HR step below.
+  // Which step of the two-step workflow does this account work?
+  //
+  // An account can hold BOTH sides now (migration 087) — an HR Admin who also
+  // heads a department, say. It works the department step while that step is
+  // outstanding and moves on to the HR step once the department approval is
+  // recorded, instead of being stuck on a step that is already done. OCM Admin
+  // has always behaved exactly this way; this is that rule generalized.
+  //
+  // A plain Dept Head holds no HR step, so it still falls into the branch below
+  // and still gets "Department-level approval already recorded" rather than a
+  // bare permission error.
+  const holdsDeptHeadStep =
+    isDeptHead(user.roles) || hasRole(user.roles, "ocm_admin");
+  const holdsHrStep = hasAnyRole(
+    user.roles,
+    "hr_admin",
+    "super_admin",
+    "ocm_admin",
+  );
   const actsAsDeptHead =
-    isDeptHead(user.role) ||
-    (user.role === "ocm_admin" && !app.dept_approved_at);
+    holdsDeptHeadStep && !(holdsHrStep && app.dept_approved_at);
   if (actsAsDeptHead) {
     const canApproveAnyDept =
-      isCompositeDeptAdminHead(user.role) || user.role === "ocm_admin";
+      isCompositeDeptAdminHead(user.roles) || hasRole(user.roles, "ocm_admin");
     if (!canApproveAnyDept) {
       if (!user.departmentId) return { error: "User has no department assigned" };
       const empDeptId =
@@ -1039,6 +1056,7 @@ export async function approveLeave(id: string) {
         department_head_id: user.id,
         dept_approved_by: user.email,
         role: user.role,
+        roles: user.roles,
         employee_id: app.employee_id,
         leave_type_id: app.leave_type_id,
         leave_type_code: leaveTypeCode,
@@ -1060,9 +1078,9 @@ export async function approveLeave(id: string) {
 
   // HR / Super Admin / OCM Admin final approval. hr_admin and ocm_admin
   // require dept head approval first; super_admin can finalize directly.
-  if (["hr_admin", "super_admin", "ocm_admin"].includes(user.role)) {
+  if (hasAnyRole(user.roles, "hr_admin", "super_admin", "ocm_admin")) {
     if (
-      (user.role === "hr_admin" || user.role === "ocm_admin") &&
+      (hasRole(user.roles, "hr_admin") || hasRole(user.roles, "ocm_admin")) &&
       !app.dept_approved_at
     ) {
       return { error: "Department head must approve this leave first" };
@@ -1122,6 +1140,7 @@ export async function approveLeave(id: string) {
         hr_reviewer_id: user.id,
         approved_by: user.email,
         role: user.role,
+        roles: user.roles,
         employee_id: app.employee_id,
         leave_type_id: app.leave_type_id,
         leave_type_code: leaveTypeCode,
@@ -1148,8 +1167,8 @@ export async function rejectLeave(id: string, reason: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
   if (
-    !["hr_admin", "super_admin", "ocm_admin"].includes(user.role) &&
-    !isDeptHead(user.role)
+    !hasAnyRole(user.roles, "hr_admin", "super_admin", "ocm_admin") &&
+    !isDeptHead(user.roles)
   )
     return { error: "Insufficient permissions" };
 
@@ -1170,7 +1189,36 @@ export async function rejectLeave(id: string, reason: string) {
   // The composite Dept Admin + Head role and OCM Admin are exempt and can
   // reject across all departments (OCM Admin is not a Dept Head, so it skips
   // this block entirely).
-  if (isDeptHead(user.role) && !isCompositeDeptAdminHead(user.role)) {
+  // Which step of the two-step workflow does this account work?
+  //
+  // An account can hold BOTH sides now (migration 087) — an HR Admin who also
+  // heads a department, say. It works the department step while that step is
+  // outstanding and moves on to the HR step once the department approval is
+  // recorded, instead of being stuck on a step that is already done. OCM Admin
+  // has always behaved exactly this way; this is that rule generalized.
+  //
+  // A plain Dept Head holds no HR step, so it still falls into the branch below
+  // and still gets "Department-level approval already recorded" rather than a
+  // bare permission error.
+  const holdsDeptHeadStep =
+    isDeptHead(user.roles) || hasRole(user.roles, "ocm_admin");
+  const holdsHrStep = hasAnyRole(
+    user.roles,
+    "hr_admin",
+    "super_admin",
+    "ocm_admin",
+  );
+  const isRejectingAsDeptHead =
+    holdsDeptHeadStep && !(holdsHrStep && app.dept_approved_at);
+
+  // A plain Dept Head rejects only within their own department. The restriction
+  // belongs to the department STEP, not to the account: an HR Admin who also
+  // heads a department still rejects across departments at the HR step.
+  if (
+    isRejectingAsDeptHead &&
+    !isCompositeDeptAdminHead(user.roles) &&
+    !hasRole(user.roles, "ocm_admin")
+  ) {
     if (!user.departmentId) return { error: "User has no department assigned" };
     const empDeptId =
       (app.employees as { department_id?: string | null } | null)?.department_id ?? null;
@@ -1179,15 +1227,13 @@ export async function rejectLeave(id: string, reason: string) {
   }
 
   // HR can only reject leaves the department head has already approved
-  if (user.role === "hr_admin" && !app.dept_approved_at) {
+  if (
+    !isRejectingAsDeptHead &&
+    hasRole(user.roles, "hr_admin") &&
+    !app.dept_approved_at
+  ) {
     return { error: "Department head must approve this leave first" };
   }
-
-  // OCM Admin rejects as Dept Head while dept approval is outstanding, then as
-  // HR once it's recorded — mirroring its approval behaviour.
-  const isRejectingAsDeptHead =
-    isDeptHead(user.role) ||
-    (user.role === "ocm_admin" && !app.dept_approved_at);
 
   const { error } = await supabase
     .schema("hris")
@@ -1222,6 +1268,7 @@ export async function rejectLeave(id: string, reason: string) {
       rejection_reason: reason,
       rejected_by: user.email,
       rejected_by_role: user.role,
+      rejected_by_roles: user.roles,
       employee_id: app.employee_id,
       leave_type_id: app.leave_type_id,
       leave_type_code: leaveTypeCode,
@@ -1448,7 +1495,7 @@ export async function getLeaveBalancesReport(
   year: number,
 ): Promise<LeaveBalanceReport> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     return { year, columns: [], rows: [] };
   }
 
@@ -1539,7 +1586,7 @@ export async function getLeaveBalancesReport(
 export async function flagAllEmployeesNeedingVlSlEntry() {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (user.role !== "super_admin")
+  if (!hasRole(user.roles, "super_admin"))
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();
@@ -1568,7 +1615,7 @@ export async function flagAllEmployeesNeedingVlSlEntry() {
 export async function provisionAllActiveEmployees(year: number) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!["super_admin", "hr_admin"].includes(user.role))
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin"))
     return { error: "Insufficient permissions" };
 
   const supabase = createAdminClient();

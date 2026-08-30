@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 // Fires the SQL helper that posts a delta row for one employee + month,
 // using the same math the DTR/Report display uses. Idempotent: running
@@ -78,7 +79,7 @@ export async function postMonthlyAttendanceDeductions(
   error?: string;
 }> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     return { employees: 0, posts: 0, totalDays: 0, error: "Unauthorized" };
   }
   if (!Number.isInteger(year) || year < 1900 || year > 2100) {
@@ -146,7 +147,7 @@ export async function previewMonthlyAttendanceDeductions(
   departmentId: string | null,
 ): Promise<AttendanceDeductionPreview> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     throw new Error("Unauthorized");
   }
   if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
@@ -261,7 +262,7 @@ export async function getAttendanceDeductionsReport(
   departmentId: string | null,
 ): Promise<AttendanceDeductionRow[]> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     throw new Error("Unauthorized");
   }
 
@@ -340,7 +341,7 @@ export async function reverseAttendanceDeductionForMonth(
   reason?: string,
 ): Promise<{ offset: number; error?: string }> {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     return { offset: 0, error: "Unauthorized" };
   }
   if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {

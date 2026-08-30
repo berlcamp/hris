@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasAnyRole, isDeptHead } from "@/lib/auth-helpers";
 import { getAdjectivalRating } from "@/lib/ipcr-utils";
 
 // --- Types ---
@@ -83,7 +83,7 @@ export async function createIpcrPeriod(input: {
   is_active: boolean;
 }) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     throw new Error("Unauthorized");
   }
 
@@ -124,7 +124,7 @@ export async function updateIpcrPeriod(
   }
 ) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     throw new Error("Unauthorized");
   }
 
@@ -159,7 +159,7 @@ export async function updateIpcrPeriod(
 
 export async function deleteIpcrPeriod(id: string) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin"].includes(user.role)) {
+  if (!user || !hasAnyRole(user.roles, "super_admin")) {
     throw new Error("Unauthorized");
   }
 
@@ -189,7 +189,7 @@ export async function deleteIpcrPeriod(id: string) {
 
 export async function togglePeriodActive(id: string, isActive: boolean) {
   const user = await getCurrentUser();
-  if (!user || !["super_admin", "hr_admin"].includes(user.role)) {
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     throw new Error("Unauthorized");
   }
 
@@ -319,7 +319,7 @@ export async function createIpcrRecord(input: {
   const user = await getCurrentUser();
   if (
     !user ||
-    (!["super_admin", "hr_admin"].includes(user.role) && !isDeptHead(user.role))
+    (!hasAnyRole(user.roles, "super_admin", "hr_admin") && !isDeptHead(user.roles))
   ) {
     throw new Error("Unauthorized");
   }
@@ -372,7 +372,7 @@ export async function updateIpcrRating(
   const user = await getCurrentUser();
   if (
     !user ||
-    (!["super_admin", "hr_admin"].includes(user.role) && !isDeptHead(user.role))
+    (!hasAnyRole(user.roles, "super_admin", "hr_admin") && !isDeptHead(user.roles))
   ) {
     throw new Error("Unauthorized");
   }
@@ -439,7 +439,7 @@ export async function reviewIpcrRecord(
   const user = await getCurrentUser();
   if (
     !user ||
-    (!["super_admin", "hr_admin"].includes(user.role) && !isDeptHead(user.role))
+    (!hasAnyRole(user.roles, "super_admin", "hr_admin") && !isDeptHead(user.roles))
   ) {
     throw new Error("Unauthorized");
   }

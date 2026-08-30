@@ -33,12 +33,13 @@ export default async function EditUserPage({
           id: user.id,
           full_name: user.full_name,
           email: user.email,
-          // Cast to the schema's own role union rather than a hand-written
-          // subset: the previous literal list predated jo_manager/cos_manager
-          // (and ocm_admin, hr_record_manager, dtr_manager), so it read as if
-          // those accounts could not be edited here — they can, and the payroll
-          // switch below is theirs.
-          role: user.role as UserFormValues["role"],
+          // `roles` is the source of truth (migration 087); `role` is only its
+          // derived primary. Falling back to the scalar keeps a row written
+          // before that migration editable rather than opening with no roles
+          // ticked and quietly narrowing the account on save.
+          roles: (user.roles?.length
+            ? user.roles
+            : [user.role]) as UserFormValues["roles"],
           department_id: user.department_id,
           is_active: user.is_active ?? true,
           can_access_attendance_corrections:

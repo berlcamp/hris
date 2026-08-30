@@ -1,5 +1,134 @@
 import type { UserRole } from "@/lib/types";
 
+// ── Multiple roles per account ────────────────────────────────────────────
+//
+// An account holds a SET of roles (user_profiles.roles, migration 087), not
+// one. Every helper below therefore takes `RoleInput`: a single role, a list of
+// them, or null. Passing a list is the normal case — `getServerUser()` and
+// `getCurrentUser()` both return `roles` — and passing one role still works, so
+// a call site that has only a role in hand does not have to invent an array.
+//
+// The rule the whole file follows: a GRANT is the UNION over the account's
+// roles. Holding two roles can only ever add powers, never remove one. The
+// per-account switches (corrections, module payroll) are the single exception
+// and they qualify one role's grant rather than the account — see
+// correctionsSwitchOn / modulePayrollSwitchOn.
+export type RoleInput = UserRole | readonly UserRole[] | null | undefined;
+
+/** Normalizes whatever a call site holds into a plain list of roles. */
+export function toRoleList(input: RoleInput): readonly UserRole[] {
+  if (!input) return [];
+  return typeof input === "string" ? [input] : input;
+}
+
+/** Does the account hold EVERY one of these roles? */
+export function hasEveryRole(
+  input: RoleInput,
+  ...wanted: readonly UserRole[]
+): boolean {
+  const held = toRoleList(input);
+  return wanted.every((w) => held.includes(w));
+}
+
+/** Does the account hold ANY of these roles? This is what a grant asks. */
+export function hasAnyRole(
+  input: RoleInput,
+  ...wanted: readonly UserRole[]
+): boolean {
+  const held = toRoleList(input);
+  return wanted.some((w) => held.includes(w));
+}
+
+/** Does the account hold this exact role? */
+export function hasRole(input: RoleInput, wanted: UserRole): boolean {
+  return toRoleList(input).includes(wanted);
+}
+
+/**
+ * Reads a `roles` value straight off a user_profiles row into a usable list.
+ *
+ * `user_profiles.roles` is NOT NULL from migration 087 on, but the fallback
+ * matters anyway: a select written before that migration, a cached row, or a
+ * partially-typed client all hand back an absent array, and an account with no
+ * roles fails every permission check silently. Falling back to the scalar
+ * `role` gives such a row exactly the access it had before the array existed.
+ */
+export function normalizeRoles(
+  roles: unknown,
+  fallbackRole: string | null | undefined,
+): UserRole[] {
+  const list = Array.isArray(roles)
+    ? roles.filter((r): r is UserRole => typeof r === "string" && r.length > 0)
+    : [];
+  if (list.length > 0) return list;
+  return fallbackRole ? [fallbackRole as UserRole] : [];
+}
+
+// Widest data reach first. Mirrored by hris.user_role_rank in migration 087 —
+// change both together.
+//
+// This ordering decides the PRIMARY role, which is what user_profiles.role
+// stores and what the handful of "how much data does this account see" branches
+// read (own record / own department / everything). Ranking by reach means a
+// multi-role account is scoped by its widest role: an HR Admin who is also a
+// Department Head sees every department, and a Department Admin who also runs
+// Job Orders is still scoped to their department for leave. Ranking any other
+// way would either hide data an account is entitled to or hand a narrow role
+// the run of the system.
+export const ROLE_PRECEDENCE: readonly UserRole[] = [
+  "super_admin",
+  "hr_admin",
+  "ocm_admin",
+  "dtr_manager",
+  "hr_record_manager",
+  "department_admin_and_department_head",
+  "department_head",
+  "department_admin",
+  "jo_manager",
+  "cos_manager",
+  "event_attendance_officer",
+  "employee",
+] as const;
+
+/**
+ * The account's primary role: the widest-reaching role it holds. Equals
+ * user_profiles.role, which the database keeps in step with the array.
+ *
+ * Use this ONLY to decide scope (whose records does this account see). For
+ * "may this account do X", pass the whole `roles` array to the grant helpers —
+ * a power the account holds through a narrower role must not vanish because a
+ * wider role sorts ahead of it.
+ */
+export function primaryRole(input: RoleInput): UserRole | null {
+  const held = toRoleList(input);
+  if (held.length === 0) return null;
+  let best: UserRole | null = null;
+  let bestRank = Number.POSITIVE_INFINITY;
+  for (const role of held) {
+    const rank = ROLE_PRECEDENCE.indexOf(role);
+    const effective = rank === -1 ? Number.MAX_SAFE_INTEGER : rank;
+    if (effective < bestRank) {
+      bestRank = effective;
+      best = role;
+    }
+  }
+  return best;
+}
+
+/**
+ * True only for an account whose ONE role is the scan-only Attendance Checker.
+ *
+ * The Checker is redirected out of the dashboard to /scan, and that redirect
+ * must not catch an account that merely helps at a door on top of a real job —
+ * it would lock them out of every other module they hold. Deliberately not
+ * expressed through primaryRole: "employee" ranks below the Checker, so a
+ * Checker who is also an Employee would still have been redirected.
+ */
+export function isScanOnlyAccount(input: RoleInput): boolean {
+  const held = toRoleList(input);
+  return held.length === 1 && held[0] === "event_attendance_officer";
+}
+
 // Roles that carry department-head powers (the composite role inherits them).
 const DEPT_HEAD_ROLES: readonly UserRole[] = [
   "department_head",
@@ -24,9 +153,9 @@ const HR_RECORDS_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canManageHrRecords(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && HR_RECORDS_ROLES.includes(role);
+  return toRoleList(role).some((r) => HR_RECORDS_ROLES.includes(r));
 }
 
 // Roles allowed to EDIT the salary grade table. The HR Record Manager reaches
@@ -39,9 +168,9 @@ const SALARY_GRADE_EDITOR_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canManageSalaryGrades(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && SALARY_GRADE_EDITOR_ROLES.includes(role);
+  return toRoleList(role).some((r) => SALARY_GRADE_EDITOR_ROLES.includes(r));
 }
 
 // Roles that can fully manage attendance/DTR (read all, manual entry, imports,
@@ -54,9 +183,9 @@ const ATTENDANCE_MANAGER_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function isAttendanceManager(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && ATTENDANCE_MANAGER_ROLES.includes(role);
+  return toRoleList(role).some((r) => ATTENDANCE_MANAGER_ROLES.includes(r));
 }
 
 // Recording attendance by hand is no longer a separate power: the Manual
@@ -75,8 +204,8 @@ const DTR_PRINTER_ROLES: readonly UserRole[] = [
   "ocm_admin",
 ] as const;
 
-export function canPrintDtr(role: UserRole | null | undefined): boolean {
-  return !!role && DTR_PRINTER_ROLES.includes(role);
+export function canPrintDtr(role: RoleInput): boolean {
+  return toRoleList(role).some((r) => DTR_PRINTER_ROLES.includes(r));
 }
 
 // Roles that can manage work schedules. Schedules are an attendance concern, so
@@ -88,9 +217,9 @@ const SCHEDULE_MANAGER_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canManageSchedules(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && SCHEDULE_MANAGER_ROLES.includes(role);
+  return toRoleList(role).some((r) => SCHEDULE_MANAGER_ROLES.includes(r));
 }
 
 // Roles allowed to open the Attendance & DTR module at all. Department-scoped
@@ -105,20 +234,20 @@ const ATTENDANCE_ACCESS_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canAccessAttendance(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && ATTENDANCE_ACCESS_ROLES.includes(role);
+  return toRoleList(role).some((r) => ATTENDANCE_ACCESS_ROLES.includes(r));
 }
 
-export function isDeptHead(role: UserRole | null | undefined): boolean {
-  return !!role && DEPT_HEAD_ROLES.includes(role);
+export function isDeptHead(role: RoleInput): boolean {
+  return toRoleList(role).some((r) => DEPT_HEAD_ROLES.includes(r));
 }
 
-export function isDeptAdmin(role: UserRole | null | undefined): boolean {
-  return !!role && DEPT_ADMIN_ROLES.includes(role);
+export function isDeptAdmin(role: RoleInput): boolean {
+  return toRoleList(role).some((r) => DEPT_ADMIN_ROLES.includes(r));
 }
 
-export function isDeptScoped(role: UserRole | null | undefined): boolean {
+export function isDeptScoped(role: RoleInput): boolean {
   return isDeptHead(role) || isDeptAdmin(role);
 }
 
@@ -136,9 +265,9 @@ const DETAILED_DEPT_EDITOR_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canEditDetailedDepartment(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && DETAILED_DEPT_EDITOR_ROLES.includes(role);
+  return toRoleList(role).some((r) => DETAILED_DEPT_EDITOR_ROLES.includes(r));
 }
 
 // super_admin (full employee editing), OCM Admin (manages employees detailed to
@@ -147,11 +276,9 @@ export function canEditDetailedDepartment(
 // department — unlike the department-scoped editors, who are limited to their
 // own department.
 export function canEditDetailedDepartmentAnyDept(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return (
-    role === "super_admin" || role === "ocm_admin" || role === "dtr_manager"
-  );
+  return hasAnyRole(role, "super_admin", "ocm_admin", "dtr_manager");
 }
 
 // Who may open the Monthly DTR module (/dtr) at all. It is open to every
@@ -165,8 +292,10 @@ const DTR_EXCLUDED_ROLES: readonly UserRole[] = [
   "cos_manager",
 ] as const;
 
-export function canAccessDtr(role: UserRole | null | undefined): boolean {
-  return !!role && !DTR_EXCLUDED_ROLES.includes(role);
+export function canAccessDtr(role: RoleInput): boolean {
+  // An account reaches /dtr as long as ONE of its roles is not excluded:
+  // a JO Manager who is also an Employee still has their own DTR.
+  return toRoleList(role).some((r) => !DTR_EXCLUDED_ROLES.includes(r));
 }
 
 // Roles that can manage the Job Orders module: JO employees, Area Assignments,
@@ -182,9 +311,9 @@ const JOB_ORDER_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canManageJobOrders(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && JOB_ORDER_ROLES.includes(role);
+  return toRoleList(role).some((r) => JOB_ORDER_ROLES.includes(r));
 }
 
 // Payroll WRITE access inside a module a manager role owns, settable per
@@ -201,7 +330,7 @@ const MODULE_PAYROLL_MANAGER_ROLES: readonly UserRole[] = [
 ] as const;
 
 export interface ModulePayrollActor {
-  role: UserRole | null | undefined;
+  roles: RoleInput;
   canManageModulePayroll?: boolean | null;
 }
 
@@ -209,7 +338,7 @@ export interface ModulePayrollActor {
 // read as ON so a caller holding a user object from before migration 077 — or
 // any partial shape — keeps the access the role grants.
 function modulePayrollSwitchOn(actor: ModulePayrollActor): boolean {
-  if (!actor.role || !MODULE_PAYROLL_MANAGER_ROLES.includes(actor.role)) {
+  if (!toRoleList(actor.roles).some((r) => MODULE_PAYROLL_MANAGER_ROLES.includes(r))) {
     return true;
   }
   return actor.canManageModulePayroll !== false;
@@ -225,7 +354,12 @@ function modulePayrollSwitchOn(actor: ModulePayrollActor): boolean {
  * canReopenOrDeletePayroll, which this does not widen.
  */
 export function canManageJobOrderPayroll(actor: ModulePayrollActor): boolean {
-  return canManageJobOrders(actor.role) && modulePayrollSwitchOn(actor);
+  // The switch qualifies the MODULE-MANAGER grant, not the account. An account
+  // that also holds super_admin or hr_admin manages payroll through that role
+  // and the switch never applied to it — turning it off for the JO Manager hat
+  // must not take away the HR Admin one.
+  if (hasAnyRole(actor.roles, "super_admin", "hr_admin")) return true;
+  return canManageJobOrders(actor.roles) && modulePayrollSwitchOn(actor);
 }
 
 // The composite "Dept Admin + Head" role. Acts as a dept-head approver but
@@ -233,9 +367,9 @@ export function canManageJobOrderPayroll(actor: ModulePayrollActor): boolean {
 // e.g. they can file leave for any employee and approve at the dept-head
 // step regardless of which department the employee belongs to.
 export function isCompositeDeptAdminHead(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return role === "department_admin_and_department_head";
+  return hasRole(role, "department_admin_and_department_head");
 }
 
 // Roles that manage the Contract of Service module: the COS employee registry,
@@ -250,8 +384,8 @@ const COS_MANAGER_ROLES: readonly UserRole[] = [
   "cos_manager",
 ] as const;
 
-export function canManageCos(role: UserRole | null | undefined): boolean {
-  return !!role && COS_MANAGER_ROLES.includes(role);
+export function canManageCos(role: RoleInput): boolean {
+  return toRoleList(role).some((r) => COS_MANAGER_ROLES.includes(r));
 }
 
 // Roles that may create and edit contract TEMPLATES — the reusable legal
@@ -266,9 +400,9 @@ const COS_TEMPLATE_EDITOR_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canManageCosTemplates(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && COS_TEMPLATE_EDITOR_ROLES.includes(role);
+  return toRoleList(role).some((r) => COS_TEMPLATE_EDITOR_ROLES.includes(r));
 }
 
 // Roles that may FILE an attendance correction request. Deliberately narrow:
@@ -295,7 +429,7 @@ const CORRECTION_REQUESTER_ROLES: readonly UserRole[] = [
 // that impossible to forget. Pass the object from getCurrentUser/getServerUser
 // as-is.
 export interface CorrectionActor {
-  role: UserRole | null | undefined;
+  roles: RoleInput;
   canAccessAttendanceCorrections?: boolean | null;
 }
 
@@ -303,14 +437,20 @@ export interface CorrectionActor {
 // as ON so a caller holding a user object from before migration 076 — or any
 // partial shape — keeps the access the role grants.
 function correctionsSwitchOn(actor: CorrectionActor): boolean {
-  if (!isDeptAdmin(actor.role)) return true;
+  if (!isDeptAdmin(actor.roles)) return true;
   return actor.canAccessAttendanceCorrections !== false;
 }
 
 export function canRequestAttendanceCorrection(actor: CorrectionActor): boolean {
+  // A reviewer is deliberately NOT a requester, even when the account also
+  // holds a requester role. The two sets must stay disjoint — nothing a
+  // requester files may reach a DTR without a second party approving it — and
+  // an account that holds both loses nothing: canDirectApplyAttendanceCorrection
+  // already lets it record the same correction outright.
+  if (canReviewAttendanceCorrection(actor.roles)) return false;
+
   return (
-    !!actor.role &&
-    CORRECTION_REQUESTER_ROLES.includes(actor.role) &&
+    toRoleList(actor.roles).some((r) => CORRECTION_REQUESTER_ROLES.includes(r)) &&
     correctionsSwitchOn(actor)
   );
 }
@@ -325,9 +465,9 @@ const CORRECTION_REVIEWER_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canReviewAttendanceCorrection(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && CORRECTION_REVIEWER_ROLES.includes(role);
+  return toRoleList(role).some((r) => CORRECTION_REVIEWER_ROLES.includes(r));
 }
 
 // canFlagCorrectionEligible lived here. The per-employee
@@ -353,9 +493,9 @@ const CORRECTION_DIRECT_APPLY_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canDirectApplyAttendanceCorrection(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && CORRECTION_DIRECT_APPLY_ROLES.includes(role);
+  return toRoleList(role).some((r) => CORRECTION_DIRECT_APPLY_ROLES.includes(r));
 }
 
 // --- DTR module (/dtr) ---
@@ -389,9 +529,9 @@ const DTR_ANY_DEPARTMENT_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canSelectDtrDepartment(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && DTR_ANY_DEPARTMENT_ROLES.includes(role);
+  return toRoleList(role).some((r) => DTR_ANY_DEPARTMENT_ROLES.includes(r));
 }
 
 // Who sees the "Import from Dahua device" button ON /dtr. This is a placement
@@ -404,9 +544,9 @@ const DTR_DEVICE_IMPORT_ROLES: readonly UserRole[] = [
 ] as const;
 
 export function canImportDtrDevice(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && DTR_DEVICE_IMPORT_ROLES.includes(role);
+  return toRoleList(role).some((r) => DTR_DEVICE_IMPORT_ROLES.includes(r));
 }
 
 // Anyone who may open the correction wizard at all, by either route. Use this
@@ -415,7 +555,7 @@ export function canImportDtrDevice(
 export function canFileAttendanceCorrection(actor: CorrectionActor): boolean {
   return (
     canRequestAttendanceCorrection(actor) ||
-    canDirectApplyAttendanceCorrection(actor.role)
+    canDirectApplyAttendanceCorrection(actor.roles)
   );
 }
 
@@ -430,9 +570,9 @@ export function canFileAttendanceCorrection(actor: CorrectionActor): boolean {
 const CORRECTION_VIEWER_ROLES: readonly UserRole[] = ["department_head"] as const;
 
 export function canViewAttendanceCorrections(
-  role: UserRole | null | undefined,
+  role: RoleInput,
 ): boolean {
-  return !!role && CORRECTION_VIEWER_ROLES.includes(role);
+  return toRoleList(role).some((r) => CORRECTION_VIEWER_ROLES.includes(r));
 }
 
 // Anyone whose reach over corrections stops at their OWN department — the
@@ -443,7 +583,7 @@ export function canViewAttendanceCorrections(
 export function canReadOwnDeptCorrections(actor: CorrectionActor): boolean {
   return (
     canRequestAttendanceCorrection(actor) ||
-    canViewAttendanceCorrections(actor.role)
+    canViewAttendanceCorrections(actor.roles)
   );
 }
 
@@ -453,8 +593,8 @@ export function canReadOwnDeptCorrections(actor: CorrectionActor): boolean {
 export function canOpenAttendanceCorrections(actor: CorrectionActor): boolean {
   return (
     canFileAttendanceCorrection(actor) ||
-    canReviewAttendanceCorrection(actor.role) ||
-    canViewAttendanceCorrections(actor.role)
+    canReviewAttendanceCorrection(actor.roles) ||
+    canViewAttendanceCorrections(actor.roles)
   );
 }
 
@@ -469,8 +609,8 @@ const EVENT_MANAGER_ROLES: readonly UserRole[] = [
   "hr_admin",
 ] as const;
 
-export function canManageEvents(role: UserRole | null | undefined): boolean {
-  return !!role && EVENT_MANAGER_ROLES.includes(role);
+export function canManageEvents(role: RoleInput): boolean {
+  return toRoleList(role).some((r) => EVENT_MANAGER_ROLES.includes(r));
 }
 
 /**
@@ -479,8 +619,8 @@ export function canManageEvents(role: UserRole | null | undefined): boolean {
  * event, regardless of department. Event managers can scan too, so an admin can
  * cover a door without swapping accounts.
  */
-export function canScanEvents(role: UserRole | null | undefined): boolean {
-  return canManageEvents(role) || role === "event_attendance_officer";
+export function canScanEvents(role: RoleInput): boolean {
+  return canManageEvents(role) || hasRole(role, "event_attendance_officer");
 }
 
 /**
@@ -492,6 +632,6 @@ export function canScanEvents(role: UserRole | null | undefined): boolean {
  * (see src/app/(dashboard)/layout.tsx). This stays the union of both so the
  * module's own guards do not depend on that redirect being the only one.
  */
-export function canAccessEvents(role: UserRole | null | undefined): boolean {
+export function canAccessEvents(role: RoleInput): boolean {
   return canScanEvents(role);
 }

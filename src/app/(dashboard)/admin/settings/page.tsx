@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getSystemSettings } from "@/lib/actions/settings-actions";
 import { SystemSettingsForm } from "@/components/admin/system-settings-form";
+import { hasRole } from "@/lib/auth-helpers";
 
 export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (user.role !== "super_admin") redirect("/dashboard");
+  if (!hasRole(user.roles, "super_admin")) redirect("/dashboard");
 
   const settings = await getSystemSettings();
 

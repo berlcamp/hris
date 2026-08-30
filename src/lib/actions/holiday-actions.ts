@@ -21,8 +21,8 @@ export interface HolidayRow {
   updated_at: string;
 }
 
-function requireManager(role: UserRole | undefined) {
-  if (!canManageSchedules(role)) {
+function requireManager(roles: readonly UserRole[] | undefined) {
+  if (!canManageSchedules(roles)) {
     throw new Error("You do not have permission to manage holidays.");
   }
 }
@@ -80,7 +80,7 @@ export async function createHoliday(
 ): Promise<{ data?: HolidayRow; error?: string }> {
   const user = await getCurrentUser();
   try {
-    requireManager(user?.role);
+    requireManager(user?.roles);
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -125,7 +125,7 @@ export async function updateHoliday(
 ): Promise<{ data?: HolidayRow; error?: string }> {
   const user = await getCurrentUser();
   try {
-    requireManager(user?.role);
+    requireManager(user?.roles);
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -175,7 +175,7 @@ export async function deleteHoliday(
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
   try {
-    requireManager(user?.role);
+    requireManager(user?.roles);
   } catch (e) {
     return { error: (e as Error).message };
   }

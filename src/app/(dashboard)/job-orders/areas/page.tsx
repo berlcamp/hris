@@ -6,7 +6,7 @@ import { JobOrderAreaManager } from "@/components/job-orders/job-order-area-mana
 
 export default async function JobOrderAreasPage() {
   const user = await getServerUser();
-  if (!canManageJobOrders(user?.role)) redirect("/dashboard");
+  if (!canManageJobOrders(user?.roles)) redirect("/dashboard");
 
   const areas = await getJobOrderAreas({ includeInactive: true });
 

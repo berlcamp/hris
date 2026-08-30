@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
 import { getServerUser } from "@/lib/auth";
-import { canManageJobOrders } from "@/lib/auth-helpers";
+import { canManageJobOrders, hasRole } from "@/lib/auth-helpers";
 import { getJobOrderEmployees } from "@/lib/actions/job-order-actions";
 import { getJobOrderAreas } from "@/lib/actions/job-order-area-actions";
 import { JobOrderListClient } from "@/components/job-orders/job-order-list-client";
 
 export default async function JobOrdersPage() {
   const user = await getServerUser();
-  if (!canManageJobOrders(user?.role)) redirect("/dashboard");
+  if (!canManageJobOrders(user?.roles)) redirect("/dashboard");
 
   const [employees, areas] = await Promise.all([
     getJobOrderEmployees({ status: "all" }),
@@ -28,7 +28,7 @@ export default async function JobOrdersPage() {
       <JobOrderListClient
         initialEmployees={employees}
         areas={areas}
-        isSuperAdmin={user?.role === "super_admin"}
+        isSuperAdmin={hasRole(user?.roles, "super_admin")}
       />
     </div>
   );

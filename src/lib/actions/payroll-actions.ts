@@ -10,6 +10,7 @@ import {
   type EmployeePayrollValues,
 } from "@/lib/validations/payroll-schema";
 import { calculatePayrollAmounts } from "@/lib/utils/payrollAmountCalc";
+import { hasRole } from "@/lib/auth-helpers";
 
 const ADMIN_ROLES = ["super_admin", "hr_admin"] as const;
 
@@ -72,8 +73,8 @@ export interface EmployeePayrollWithEmployee {
   } | null;
 }
 
-function requireAdmin(role: string | undefined): boolean {
-  return Boolean(role && (ADMIN_ROLES as readonly string[]).includes(role));
+function requireAdmin(roles: readonly string[] | undefined): boolean {
+  return (roles ?? []).some((r) => (ADMIN_ROLES as readonly string[]).includes(r));
 }
 
 function trimNullable(s: string | null | undefined): string | null {
@@ -94,7 +95,7 @@ export async function getPayrolls(filters: PayrollListFilters = {}): Promise<{
   totalCount: number;
 }> {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) {
+  if (!user || !requireAdmin(user.roles)) {
     return { rows: [], totalCount: 0 };
   }
 
@@ -176,7 +177,7 @@ export async function getPayrollById(id: string): Promise<{
   employees: EmployeePayrollWithEmployee[];
 }> {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) {
+  if (!user || !requireAdmin(user.roles)) {
     return { payroll: null, employees: [] };
   }
 
@@ -217,7 +218,7 @@ export async function getPayrollById(id: string): Promise<{
 
 export async function createPayroll(input: PayrollMetadataValues) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const parsed = payrollMetadataSchema.safeParse(input);
   if (!parsed.success) {
@@ -256,7 +257,7 @@ export async function createPayroll(input: PayrollMetadataValues) {
 
 export async function updatePayroll(id: string, input: PayrollMetadataValues) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const parsed = payrollMetadataSchema.safeParse(input);
   if (!parsed.success) {
@@ -295,7 +296,7 @@ export async function updatePayroll(id: string, input: PayrollMetadataValues) {
 
 export async function deletePayroll(id: string) {
   const user = await getCurrentUser();
-  if (!user || user.role !== "super_admin") return { error: "Unauthorized" };
+  if (!user || !hasRole(user.roles, "super_admin")) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { error } = await supabase
@@ -323,7 +324,7 @@ export async function duplicatePayroll(
   metadata: PayrollMetadataValues,
 ) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const parsed = payrollMetadataSchema.safeParse(metadata);
   if (!parsed.success) {
@@ -399,7 +400,7 @@ export interface AddEmployeesToPayrollInput {
 
 export async function addEmployeesToPayroll(input: AddEmployeesToPayrollInput) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   if (input.employee_ids.length === 0) return { error: "No employees selected" };
 
@@ -454,7 +455,7 @@ export async function updateEmployeePayroll(
   input: EmployeePayrollValues,
 ) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
 
@@ -529,7 +530,7 @@ export async function updateEmployeePayroll(
 
 export async function deleteEmployeePayroll(id: string) {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return { error: "Unauthorized" };
+  if (!user || !requireAdmin(user.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   const { error } = await supabase
@@ -560,7 +561,7 @@ export async function getAvailableEmployeesForPayroll(
   payrollId: string,
 ): Promise<AvailableEmployeeRow[]> {
   const user = await getCurrentUser();
-  if (!user || !requireAdmin(user.role)) return [];
+  if (!user || !requireAdmin(user.roles)) return [];
 
   const supabase = createAdminClient();
 

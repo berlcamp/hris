@@ -8,6 +8,7 @@ import { leaveColumns } from "@/components/tables/columns/leave-columns";
 import { getLeaveApplications } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
+import { hasRole } from "@/lib/auth-helpers";
 
 export default async function LeavesPage() {
   const user = await getCurrentUser();
@@ -18,7 +19,7 @@ export default async function LeavesPage() {
     getDepartments(),
   ]);
 
-  const isSuperAdmin = user.role === "super_admin";
+  const isSuperAdmin = hasRole(user.roles, "super_admin");
 
   return (
     <div className="space-y-6">

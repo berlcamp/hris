@@ -8,6 +8,7 @@ import { ctoColumns } from "@/components/tables/columns/cto-columns";
 import { getCtoApplications } from "@/lib/actions/cto-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function CtoPage() {
   const user = await getCurrentUser();
@@ -18,7 +19,7 @@ export default async function CtoPage() {
     getDepartments(),
   ]);
 
-  const canManageCredits = ["super_admin", "hr_admin"].includes(user.role);
+  const canManageCredits = hasAnyRole(user.roles, "super_admin", "hr_admin");
 
   return (
     <div className="space-y-6">

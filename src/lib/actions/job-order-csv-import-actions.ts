@@ -16,6 +16,7 @@ import {
   normalizeAreaName,
   parseJoBoolean,
 } from "@/lib/job-order-helpers";
+import { hasRole } from "@/lib/auth-helpers";
 
 const UPSERT_CHUNK = 200;
 
@@ -41,7 +42,7 @@ async function requireSuperAdmin(): Promise<
 > {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (user.role !== "super_admin") return { error: "Insufficient permissions" };
+  if (!hasRole(user.roles, "super_admin")) return { error: "Insufficient permissions" };
   return { user };
 }
 

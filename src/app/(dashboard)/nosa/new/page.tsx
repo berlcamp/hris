@@ -2,11 +2,12 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { NosaForm } from "@/components/nosa/nosa-form";
 import { getEmployees } from "@/lib/actions/employee-actions";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function NewNosaPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/nosa");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/nosa");
 
   const employees = await getEmployees();
 

@@ -7,7 +7,7 @@ import { PlantillaTable } from "@/components/plantilla/plantilla-table";
 export default async function PlantillaPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageHrRecords(user.role)) redirect("/dashboard");
+  if (!canManageHrRecords(user.roles)) redirect("/dashboard");
 
   const records = await getAllPlantilla();
 

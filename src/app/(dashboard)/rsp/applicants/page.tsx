@@ -7,11 +7,12 @@ import { rspApplicantColumns } from "@/components/tables/columns/rsp-applicant-c
 import { ApplicantFormDialog } from "@/components/rsp/applicant-form-dialog";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getApplicants } from "@/lib/actions/rsp-actions";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function RspApplicantsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const applicants = await getApplicants();
 

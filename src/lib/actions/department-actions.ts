@@ -105,7 +105,7 @@ export async function getDepartmentEmployeeOptions(
   departmentId: string
 ): Promise<DepartmentEmployeeOption[]> {
   const user = await getCurrentUser();
-  if (!user || !DEPT_MANAGER_ROLES.includes(user.role)) return [];
+  if (!user || !user.roles.some((r) => DEPT_MANAGER_ROLES.includes(r))) return [];
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -150,7 +150,7 @@ export async function getDepartmentEmployeeOptions(
 
 export async function createDepartment(input: { name: string; code: string }) {
   const user = await getCurrentUser();
-  if (!user || !DEPT_MANAGER_ROLES.includes(user.role))
+  if (!user || !user.roles.some((r) => DEPT_MANAGER_ROLES.includes(r)))
     return { error: "Unauthorized" };
 
   const name = input.name.trim();
@@ -190,7 +190,7 @@ export async function updateDepartment(
   input: { name: string; code: string }
 ) {
   const user = await getCurrentUser();
-  if (!user || !DEPT_MANAGER_ROLES.includes(user.role))
+  if (!user || !user.roles.some((r) => DEPT_MANAGER_ROLES.includes(r)))
     return { error: "Unauthorized" };
 
   const name = input.name.trim();
@@ -228,7 +228,7 @@ export async function updateDepartment(
 
 export async function deleteDepartment(id: string) {
   const user = await getCurrentUser();
-  if (!user || !DEPT_MANAGER_ROLES.includes(user.role))
+  if (!user || !user.roles.some((r) => DEPT_MANAGER_ROLES.includes(r)))
     return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
@@ -327,7 +327,7 @@ export async function setDepartmentHead(
   input: { employeeId: string | null; customName: string | null }
 ) {
   const user = await getCurrentUser();
-  if (!user || !DEPT_MANAGER_ROLES.includes(user.role))
+  if (!user || !user.roles.some((r) => DEPT_MANAGER_ROLES.includes(r)))
     return { error: "Unauthorized" };
 
   const supabase = createAdminClient();

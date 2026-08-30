@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { submitNosa, reviewNosa } from "@/lib/actions/nosa-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasAnyRole, hasRole, isDeptHead } from "@/lib/auth-helpers";
 
 interface NosaApprovalActionsProps {
   nosaId: string;
@@ -45,7 +45,7 @@ export function NosaApprovalActions({ nosaId, status, user }: NosaApprovalAction
     setLoading(false);
   };
 
-  if (status === "draft" && ["super_admin", "hr_admin"].includes(user.role)) {
+  if (status === "draft" && hasAnyRole(user.roles, "super_admin", "hr_admin")) {
     return (
       <Button onClick={() => handle(() => submitNosa(nosaId))} disabled={loading}>
         {loading && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -57,11 +57,11 @@ export function NosaApprovalActions({ nosaId, status, user }: NosaApprovalAction
   if (status === "pending") {
     return (
       <div className="flex gap-2 flex-wrap">
-        {(["hr_admin", "super_admin"].includes(user.role) || isDeptHead(user.role)) && (
+        {(hasAnyRole(user.roles, "hr_admin", "super_admin") || isDeptHead(user.roles)) && (
           <>
             <Button onClick={() => handle(() => reviewNosa(nosaId, true))} disabled={loading}>
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {user.role === "super_admin" ? "Final Approve" : "Approve / Recommend"}
+              {hasRole(user.roles, "super_admin") ? "Final Approve" : "Approve / Recommend"}
             </Button>
 
             <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>

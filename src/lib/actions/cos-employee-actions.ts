@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageCos } from "@/lib/auth-helpers";
+import { canManageCos, hasRole } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
   cosEmployeeFormSchema,
@@ -50,7 +50,7 @@ interface AuthOk {
 async function requireCosManager(): Promise<AuthOk | { error: string }> {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (!canManageCos(user.role)) return { error: "Insufficient permissions" };
+  if (!canManageCos(user.roles)) return { error: "Insufficient permissions" };
   return { user: { id: user.id, email: user.email } };
 }
 
@@ -221,7 +221,7 @@ export async function updateCosEmployee(
 export async function deleteCosEmployee(id: string) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
-  if (user.role !== "super_admin") return { error: "Insufficient permissions" };
+  if (!hasRole(user.roles, "super_admin")) return { error: "Insufficient permissions" };
 
   const before = await getCosEmployee(id);
   if (!before) return { error: "COS employee not found" };

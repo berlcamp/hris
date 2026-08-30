@@ -14,6 +14,9 @@
 //     through their role and never see the checkbox
 //   - a missing/undefined flag must read as ON, so a caller holding a user
 //     object shaped before migration 077 keeps the access its role grants
+//   - since migration 087 an account holds a SET of roles, and the switch
+//     qualifies the MODULE-MANAGER grant rather than the account: turning it
+//     off for a JO Manager hat must not take away an HR Admin one
 //
 // Requires Node >= 22 for --experimental-strip-types.
 // Run: npm run test:dtr
@@ -27,7 +30,7 @@ import { canManageJobOrderPayroll } from "../../src/lib/auth-helpers.ts";
 test("jo_manager with the switch on may write payroll", () => {
   assert.equal(
     canManageJobOrderPayroll({
-      role: "jo_manager",
+      roles: ["jo_manager"],
       canManageModulePayroll: true,
     }),
     true,
@@ -37,7 +40,7 @@ test("jo_manager with the switch on may write payroll", () => {
 test("jo_manager with the switch off may not write payroll", () => {
   assert.equal(
     canManageJobOrderPayroll({
-      role: "jo_manager",
+      roles: ["jo_manager"],
       canManageModulePayroll: false,
     }),
     false,
@@ -49,7 +52,7 @@ test("jo_manager with the switch off may not write payroll", () => {
 test("super_admin keeps payroll write access even with the flag off", () => {
   assert.equal(
     canManageJobOrderPayroll({
-      role: "super_admin",
+      roles: ["super_admin"],
       canManageModulePayroll: false,
     }),
     true,
@@ -59,7 +62,7 @@ test("super_admin keeps payroll write access even with the flag off", () => {
 test("hr_admin keeps payroll write access even with the flag off", () => {
   assert.equal(
     canManageJobOrderPayroll({
-      role: "hr_admin",
+      roles: ["hr_admin"],
       canManageModulePayroll: false,
     }),
     true,
@@ -69,13 +72,13 @@ test("hr_admin keeps payroll write access even with the flag off", () => {
 // ── Missing flag reads as ON (pre-migration-077 user objects) ────────
 
 test("an undefined flag reads as ON for jo_manager", () => {
-  assert.equal(canManageJobOrderPayroll({ role: "jo_manager" }), true);
+  assert.equal(canManageJobOrderPayroll({ roles: ["jo_manager"] }), true);
 });
 
 test("a null flag reads as ON for jo_manager", () => {
   assert.equal(
     canManageJobOrderPayroll({
-      role: "jo_manager",
+      roles: ["jo_manager"],
       canManageModulePayroll: null,
     }),
     true,
@@ -89,7 +92,7 @@ test("a null flag reads as ON for jo_manager", () => {
 test("cos_manager cannot write JO payroll even with the switch on", () => {
   assert.equal(
     canManageJobOrderPayroll({
-      role: "cos_manager",
+      roles: ["cos_manager"],
       canManageModulePayroll: true,
     }),
     false,
@@ -99,7 +102,7 @@ test("cos_manager cannot write JO payroll even with the switch on", () => {
 test("employee cannot write JO payroll even with the switch on", () => {
   assert.equal(
     canManageJobOrderPayroll({
-      role: "employee",
+      roles: ["employee"],
       canManageModulePayroll: true,
     }),
     false,
@@ -108,7 +111,50 @@ test("employee cannot write JO payroll even with the switch on", () => {
 
 test("a null role cannot write JO payroll", () => {
   assert.equal(
-    canManageJobOrderPayroll({ role: null, canManageModulePayroll: true }),
+    canManageJobOrderPayroll({ roles: null, canManageModulePayroll: true }),
+    false,
+  );
+});
+
+// ── Multiple roles per account (migration 087) ──────────────────────
+
+// The switch belongs to the jo_manager grant. An account that also holds
+// hr_admin writes payroll through THAT role, which never saw the checkbox.
+test("the switch does not reach an account that is also hr_admin", () => {
+  assert.equal(
+    canManageJobOrderPayroll({
+      roles: ["jo_manager", "hr_admin"],
+      canManageModulePayroll: false,
+    }),
+    true,
+  );
+});
+
+// Union of grants: a second role adds the module the first one lacked.
+test("cos_manager who is also jo_manager may write JO payroll", () => {
+  assert.equal(
+    canManageJobOrderPayroll({
+      roles: ["cos_manager", "jo_manager"],
+      canManageModulePayroll: true,
+    }),
+    true,
+  );
+});
+
+// ...and the switch still bites when every role it holds is a module manager.
+test("cos_manager who is also jo_manager is stopped by the switch", () => {
+  assert.equal(
+    canManageJobOrderPayroll({
+      roles: ["cos_manager", "jo_manager"],
+      canManageModulePayroll: false,
+    }),
+    false,
+  );
+});
+
+test("an empty role set cannot write JO payroll", () => {
+  assert.equal(
+    canManageJobOrderPayroll({ roles: [], canManageModulePayroll: true }),
     false,
   );
 });

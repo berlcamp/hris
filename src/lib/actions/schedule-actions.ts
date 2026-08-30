@@ -32,8 +32,8 @@ function trimTime(t: string | null): string | null {
   return t.slice(0, 5);
 }
 
-function requireAdmin(role: string | undefined) {
-  if (!canManageSchedules(role as UserRole | undefined)) {
+function requireAdmin(roles: readonly UserRole[] | undefined) {
+  if (!canManageSchedules(roles)) {
     throw new Error("You do not have permission to manage schedules.");
   }
 }
@@ -95,7 +95,7 @@ export async function createSchedule(
 ): Promise<{ data?: ScheduleRow; error?: string }> {
   const user = await getCurrentUser();
   try {
-    requireAdmin(user?.role);
+    requireAdmin(user?.roles);
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -148,7 +148,7 @@ export async function updateSchedule(
 ): Promise<{ data?: ScheduleRow; error?: string }> {
   const user = await getCurrentUser();
   try {
-    requireAdmin(user?.role);
+    requireAdmin(user?.roles);
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -202,7 +202,7 @@ export async function deleteSchedule(
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
   try {
-    requireAdmin(user?.role);
+    requireAdmin(user?.roles);
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -284,7 +284,7 @@ export async function assignEmployeesToSchedule(
 ): Promise<{ updated: number; error?: string }> {
   const user = await getCurrentUser();
   try {
-    requireAdmin(user?.role);
+    requireAdmin(user?.roles);
   } catch (e) {
     return { updated: 0, error: (e as Error).message };
   }
@@ -318,7 +318,7 @@ export async function unassignEmployeesFromSchedule(
 ): Promise<{ updated: number; error?: string }> {
   const user = await getCurrentUser();
   try {
-    requireAdmin(user?.role);
+    requireAdmin(user?.roles);
   } catch (e) {
     return { updated: 0, error: (e as Error).message };
   }

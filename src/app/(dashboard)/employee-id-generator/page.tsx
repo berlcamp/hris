@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { ScanSearch } from "lucide-react";
 
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasAnyRole, isDeptHead } from "@/lib/auth-helpers";
 import { EmployeeIdGeneratorClient } from "@/components/employee-id-generator/employee-id-generator-client";
 
 export default async function EmployeeIdGeneratorPage() {
@@ -10,8 +10,8 @@ export default async function EmployeeIdGeneratorPage() {
   if (!user) redirect("/login");
 
   if (
-    !["super_admin", "hr_admin"].includes(user.role) &&
-    !isDeptHead(user.role)
+    !hasAnyRole(user.roles, "super_admin", "hr_admin") &&
+    !isDeptHead(user.roles)
   ) {
     redirect("/dashboard");
   }

@@ -6,11 +6,12 @@ import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getIpcrPeriods } from "@/lib/actions/ipcr-actions";
 import { IpcrSummaryClient } from "@/components/reports/ipcr-summary-client";
+import { hasAnyRole } from "@/lib/auth-helpers";
 
 export default async function IpcrSummaryPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!["super_admin", "hr_admin"].includes(user.role)) redirect("/dashboard");
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const periods = await getIpcrPeriods();
 

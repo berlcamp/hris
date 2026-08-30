@@ -19,8 +19,9 @@
  * against `{ status, deleted_at } | null` inputs tests the real logic.
  */
 
-import type { createAdminClient } from "@/lib/supabase/admin";
 import type { UserRole } from "@/lib/types";
+
+import type { createAdminClient } from "@/lib/supabase/admin";
 
 export interface DraftGateRow {
   status: string;
@@ -65,7 +66,14 @@ export async function assertDraft(
  * the one action in this module reserved for super_admin alone.
  */
 export function canReopenOrDeletePayroll(
-  role: UserRole | null | undefined,
+  // Spelled out rather than imported as RoleInput from auth-helpers: this
+  // module is loaded by a test that runs under bare `node --experimental-
+  // strip-types`, which resolves no "@/" alias. A type-only import is stripped
+  // before it ever reaches the resolver; a value import would not be.
+  roles: UserRole | readonly UserRole[] | null | undefined,
 ): boolean {
-  return role === "super_admin";
+  if (!roles) return false;
+  return typeof roles === "string"
+    ? roles === "super_admin"
+    : roles.includes("super_admin");
 }

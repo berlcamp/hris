@@ -60,7 +60,7 @@ export async function getJobOrderAreas(
   opts: { includeInactive?: boolean } = {},
 ): Promise<JobOrderArea[]> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return [];
+  if (!canManageJobOrders(user?.roles)) return [];
 
   const supabase = createAdminClient();
 
@@ -90,7 +90,7 @@ export async function getJobOrderAreas(
 
 export async function createJobOrderArea(input: JobOrderAreaValues) {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const parsed = jobOrderAreaSchema.safeParse(input);
   if (!parsed.success) {
@@ -140,7 +140,7 @@ export async function updateJobOrderArea(
   input: JobOrderAreaValues,
 ) {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const parsed = jobOrderAreaSchema.safeParse(input);
   if (!parsed.success) {
@@ -241,7 +241,7 @@ export async function updateJobOrderArea(
 
 export async function deleteJobOrderArea(id: string) {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
 

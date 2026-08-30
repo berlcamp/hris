@@ -12,6 +12,7 @@ import {
   parseMoney,
   parseFlexibleCsvDate,
 } from "@/lib/csv-import-helpers";
+import { hasRole } from "@/lib/auth-helpers";
 
 type SalaryChangeReason = Database["hris"]["Enums"]["salary_change_reason"];
 
@@ -31,7 +32,7 @@ const UPSERT_CHUNK = 200;
 
 function requireSuperAdmin(user: Awaited<ReturnType<typeof getCurrentUser>>) {
   if (!user) return "Unauthorized" as const;
-  if (user.role !== "super_admin")
+  if (!hasRole(user.roles, "super_admin"))
     return "Insufficient permissions" as const;
   return null;
 }

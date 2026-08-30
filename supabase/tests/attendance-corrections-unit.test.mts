@@ -48,11 +48,12 @@ import {
 import type { UserRole } from "../../src/lib/types.ts";
 
 // The corrections helpers take the whole user, because a Department Admin's
-// access is also settable per account (migration 076). Most cases here only
-// care about the role, so they use the account whose switch is ON — the
-// default every user profile is created with.
+// access is also settable per account (migration 076) and because an account
+// holds a SET of roles (migration 087). Most cases here only care about the
+// role, so they use the account whose switch is ON — the default every user
+// profile is created with.
 const on = (role: UserRole | null | undefined) => ({
-  role,
+  roles: role ? [role] : role,
   canAccessAttendanceCorrections: true,
 });
 
@@ -71,7 +72,7 @@ test("the corrections switch closes the module for a department admin", () => {
     "department_admin",
     "department_admin_and_department_head",
   ] as const) {
-    const off = { role, canAccessAttendanceCorrections: false };
+    const off = { roles: [role], canAccessAttendanceCorrections: false };
     assert.equal(canRequestAttendanceCorrection(off), false, role);
     assert.equal(canFileAttendanceCorrection(off), false, role);
     assert.equal(canOpenAttendanceCorrections(off), false, role);
@@ -81,14 +82,14 @@ test("the corrections switch closes the module for a department admin", () => {
 
 test("the corrections switch is ignored for every other role", () => {
   for (const role of ["super_admin", "hr_admin", "dtr_manager", "ocm_admin"] as const) {
-    const off = { role, canAccessAttendanceCorrections: false };
+    const off = { roles: [role], canAccessAttendanceCorrections: false };
     assert.equal(canFileAttendanceCorrection(off), true, role);
     assert.equal(canOpenAttendanceCorrections(off), true, role);
   }
   // Read-only viewer: keeps its own department's queue whatever the flag says.
   assert.equal(
     canOpenAttendanceCorrections({
-      role: "department_head",
+      roles: ["department_head"],
       canAccessAttendanceCorrections: false,
     }),
     true,
@@ -98,10 +99,13 @@ test("the corrections switch is ignored for every other role", () => {
 // A user object from before the column existed, or any partial shape, must
 // keep the access its role grants rather than silently losing it.
 test("a missing switch value reads as ON", () => {
-  assert.equal(canRequestAttendanceCorrection({ role: "department_admin" }), true);
+  assert.equal(
+    canRequestAttendanceCorrection({ roles: ["department_admin"] }),
+    true,
+  );
   assert.equal(
     canRequestAttendanceCorrection({
-      role: "department_admin",
+      roles: ["department_admin"],
       canAccessAttendanceCorrections: null,
     }),
     true,
@@ -132,6 +136,58 @@ test("null and undefined roles are denied everywhere", () => {
     assert.equal(canReviewAttendanceCorrection(role), false);
     assert.equal(canDirectApplyAttendanceCorrection(role), false);
   }
+});
+
+
+// ── Multiple roles per account (migration 087) ─────────────────────────
+
+// The requester and reviewer sets must stay disjoint: nothing a requester files
+// may reach a DTR without a second party approving it. An account can now hold
+// a role from each side, so the helper resolves it rather than trusting the
+// configuration — the reviewer wins, and loses nothing, because direct-apply
+// already records the same correction outright.
+test("an account holding both sides reviews rather than requests", () => {
+  const both = {
+    roles: ["hr_admin", "department_admin"] as UserRole[],
+    canAccessAttendanceCorrections: true,
+  };
+  assert.equal(canRequestAttendanceCorrection(both), false);
+  assert.equal(canReviewAttendanceCorrection(both.roles), true);
+  assert.equal(canDirectApplyAttendanceCorrection(both.roles), true);
+  assert.equal(canFileAttendanceCorrection(both), true);
+  assert.equal(canOpenAttendanceCorrections(both), true);
+});
+
+// A grant is the union over the account's roles: a second role only ever adds.
+test("a second role adds reach and never removes it", () => {
+  const deptAdminAndJo = {
+    roles: ["department_admin", "jo_manager"] as UserRole[],
+    canAccessAttendanceCorrections: true,
+  };
+  assert.equal(canRequestAttendanceCorrection(deptAdminAndJo), true);
+  assert.equal(canOpenAttendanceCorrections(deptAdminAndJo), true);
+
+  // ...and the module gate the dept-admin role does NOT open stays shut.
+  assert.equal(canAccessAttendance(deptAdminAndJo.roles), false);
+});
+
+// The switch qualifies the dept-admin GRANT, so an account that reaches the
+// module by another role is unaffected by it.
+test("the corrections switch does not reach a role it was never about", () => {
+  const off = {
+    roles: ["department_admin", "dtr_manager"] as UserRole[],
+    canAccessAttendanceCorrections: false,
+  };
+  assert.equal(canRequestAttendanceCorrection(off), false);
+  assert.equal(canOpenAttendanceCorrections(off), true, "reviews via dtr_manager");
+});
+
+test("an empty role set is denied everywhere", () => {
+  const none = { roles: [] as UserRole[], canAccessAttendanceCorrections: true };
+  assert.equal(canRequestAttendanceCorrection(none), false);
+  assert.equal(canReviewAttendanceCorrection(none.roles), false);
+  assert.equal(canDirectApplyAttendanceCorrection(none.roles), false);
+  assert.equal(canOpenAttendanceCorrections(none), false);
 });
 
 import {

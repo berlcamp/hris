@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasAnyRole, isDeptHead } from "@/lib/auth-helpers";
 import { getEmployees } from "@/lib/actions/employee-actions";
 import { getActivePeriod } from "@/lib/actions/ipcr-actions";
 import { IpcrForm } from "@/components/performance/ipcr-form";
@@ -10,8 +10,8 @@ export default async function NewIpcrPage() {
   if (!user) redirect("/login");
 
   if (
-    !["super_admin", "hr_admin"].includes(user.role) &&
-    !isDeptHead(user.role)
+    !hasAnyRole(user.roles, "super_admin", "hr_admin") &&
+    !isDeptHead(user.roles)
   ) {
     redirect("/performance");
   }

@@ -7,7 +7,7 @@ import { CosTemplateListClient } from "@/components/cos/cos-template-list-client
 export default async function CosTemplatesPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCosTemplates(user.role)) redirect("/dashboard");
+  if (!canManageCosTemplates(user.roles)) redirect("/dashboard");
 
   const templates = await getCosContractTemplates();
 
@@ -24,7 +24,7 @@ export default async function CosTemplatesPage() {
       </div>
       <CosTemplateListClient
         templates={templates}
-        canCreate={canManageCosTemplates(user.role)}
+        canCreate={canManageCosTemplates(user.roles)}
       />
     </div>
   );

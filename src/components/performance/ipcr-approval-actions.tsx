@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { submitIpcrRecord, reviewIpcrRecord } from "@/lib/actions/ipcr-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
-import { isDeptHead } from "@/lib/auth-helpers";
+import { hasAnyRole, hasRole, isDeptHead } from "@/lib/auth-helpers";
 
 interface IpcrApprovalActionsProps {
   recordId: string;
@@ -56,7 +56,7 @@ export function IpcrApprovalActions({
   // Draft → Submit for review
   if (
     status === "draft" &&
-    (["super_admin", "hr_admin"].includes(user.role) || isDeptHead(user.role))
+    (hasAnyRole(user.roles, "super_admin", "hr_admin") || isDeptHead(user.roles))
   ) {
     return (
       <Button
@@ -73,14 +73,14 @@ export function IpcrApprovalActions({
   if (status === "pending") {
     return (
       <div className="flex gap-2 flex-wrap">
-        {(["hr_admin", "super_admin"].includes(user.role) || isDeptHead(user.role)) && (
+        {(hasAnyRole(user.roles, "hr_admin", "super_admin") || isDeptHead(user.roles)) && (
           <>
             <Button
               onClick={() => handle(() => reviewIpcrRecord(recordId, true))}
               disabled={loading}
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {user.role === "super_admin"
+              {hasRole(user.roles, "super_admin")
                 ? "Final Approve"
                 : "Approve / Recommend"}
             </Button>

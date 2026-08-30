@@ -96,7 +96,7 @@ export async function getJobOrderEmployees(
   filters: JobOrderFilters = {},
 ): Promise<JobOrderEmployee[]> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return [];
+  if (!canManageJobOrders(user?.roles)) return [];
 
   const supabase = createAdminClient();
 
@@ -150,7 +150,7 @@ export async function getJobOrderEmployees(
  */
 export async function getActiveJobOrderCount(): Promise<number> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return 0;
+  if (!canManageJobOrders(user?.roles)) return 0;
 
   const { count, error } = await createAdminClient()
     .schema("hris")
@@ -167,7 +167,7 @@ export async function getJobOrderEmployeeById(
   id: string,
 ): Promise<JobOrderEmployee | null> {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return null;
+  if (!canManageJobOrders(user?.roles)) return null;
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -184,7 +184,7 @@ export async function getJobOrderEmployeeById(
 
 export async function createJobOrderEmployee(input: JobOrderEmployeeValues) {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const parsed = jobOrderEmployeeSchema.safeParse(input);
   if (!parsed.success) {
@@ -258,7 +258,7 @@ export async function updateJobOrderEmployee(
   input: JobOrderEmployeeValues,
 ) {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const parsed = jobOrderEmployeeSchema.safeParse(input);
   if (!parsed.success) {
@@ -342,7 +342,7 @@ export async function updateJobOrderEmployee(
 
 export async function deleteJobOrderEmployee(id: string) {
   const user = await getCurrentUser();
-  if (!canManageJobOrders(user?.role)) return { error: "Unauthorized" };
+  if (!canManageJobOrders(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
 

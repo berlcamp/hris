@@ -15,7 +15,7 @@ export default async function EditCosEmployeePage({
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  if (!canManageCos(user.role)) redirect("/dashboard");
+  if (!canManageCos(user.roles)) redirect("/dashboard");
 
   const [employee, departments] = await Promise.all([
     getCosEmployee(id),

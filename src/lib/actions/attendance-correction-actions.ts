@@ -4,13 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
-import {
-  canDirectApplyAttendanceCorrection,
-  canFileAttendanceCorrection,
-  canReadOwnDeptCorrections,
-  canRequestAttendanceCorrection,
-  canReviewAttendanceCorrection,
-} from "@/lib/auth-helpers";
+import { canDirectApplyAttendanceCorrection, canFileAttendanceCorrection, canReadOwnDeptCorrections, canRequestAttendanceCorrection, canReviewAttendanceCorrection, RoleInput } from "@/lib/auth-helpers";
 import {
   correctionRequestSchema,
   type CorrectionRequestInput,
@@ -38,7 +32,6 @@ import {
   proofRejection,
 } from "@/lib/attendance-proof";
 import type { CorrectionReason } from "@/lib/constants";
-import type { UserRole } from "@/lib/types";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -93,7 +86,7 @@ export async function getCorrectableEmployees(): Promise<CorrectableEmployee[]> 
   const user = await getCurrentUser();
   if (!user) throw new Error("Unauthorized");
 
-  const direct = canDirectApplyAttendanceCorrection(user.role);
+  const direct = canDirectApplyAttendanceCorrection(user.roles);
   if (!direct && (!canRequestAttendanceCorrection(user) || !user.departmentId)) {
     throw new Error("Unauthorized");
   }
@@ -142,10 +135,7 @@ async function assertReach(employeeId: string) {
 // a window derived from the filer's browser would move with their machine's
 // timezone (and could be set by hand), and the whole point of the rule is that
 // it is the same for everybody.
-function assertCorrectionWindow(
-  role: UserRole | null | undefined,
-  dates: string[],
-) {
+function assertCorrectionWindow(role: RoleInput, dates: string[]) {
   if (canDirectApplyAttendanceCorrection(role)) return;
   const window = correctionWindow(manilaToday());
   for (const date of dates) {
@@ -160,7 +150,7 @@ export async function getCorrectionWindow(): Promise<CorrectionWindow | null> {
   if (!user || !canFileAttendanceCorrection(user)) {
     throw new Error("Unauthorized");
   }
-  if (canDirectApplyAttendanceCorrection(user.role)) return null;
+  if (canDirectApplyAttendanceCorrection(user.roles)) return null;
   return correctionWindow(manilaToday());
 }
 
@@ -213,7 +203,7 @@ export async function getCorrectionDraftDays(
   // Refuse the range here as well as at submit, so a department admin never
   // fills in a grid of days it turns out they cannot file. createCorrectionRequest
   // re-checks every duty_date — this one is a courtesy, that one is the rule.
-  assertCorrectionWindow(user.role, [dateFrom, dateTo]);
+  assertCorrectionWindow(user.roles, [dateFrom, dateTo]);
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .schema("hris")
@@ -361,14 +351,14 @@ export async function createCorrectionRequest(
   }
   // Whether this filing applies on submit or waits for a reviewer is decided
   // HERE, from the caller's role — never from anything the client sends.
-  const directApply = canDirectApplyAttendanceCorrection(user.role);
+  const directApply = canDirectApplyAttendanceCorrection(user.roles);
   const parsed = correctionRequestSchema.parse(input);
   await assertReach(parsed.employee_id);
   // The authoritative window check. Every duty_date is tested, not just the
   // declared range: the schema already requires items to fall inside
   // date_from..date_to, but this action must not depend on that refinement
   // staying in place to keep a department out of a closed payroll month.
-  assertCorrectionWindow(user.role, [
+  assertCorrectionWindow(user.roles, [
     parsed.date_from,
     parsed.date_to,
     ...parsed.items.map((i) => i.duty_date),
@@ -643,9 +633,9 @@ export async function listCorrectionRequests(): Promise<
     .select("*, employees!attendance_correction_requests_employee_id_fkey(first_name, last_name), departments(code, name)")
     .order("requested_at", { ascending: false });
 
-  if (canReviewAttendanceCorrection(user.role)) {
+  if (canReviewAttendanceCorrection(user.roles)) {
     // Reviewers see everything.
-  } else if (canDirectApplyAttendanceCorrection(user.role)) {
+  } else if (canDirectApplyAttendanceCorrection(user.roles)) {
     // OCM Admin: records attendance across every department, but reviews
     // nothing and has no department of its own to scope by. Its queue is what
     // IT filed. Deliberately not "everything" — it cannot act on another
@@ -711,7 +701,7 @@ export async function getCorrectionRequest(id: string) {
     .single();
   if (error) throw error;
 
-  const isReviewer = canReviewAttendanceCorrection(user.role);
+  const isReviewer = canReviewAttendanceCorrection(user.roles);
   const isOwnDept =
     canReadOwnDeptCorrections(user) &&
     !!user.departmentId &&
@@ -951,7 +941,7 @@ async function applyCorrectionItems(
 
 export async function approveCorrectionRequest(id: string) {
   const user = await getCurrentUser();
-  if (!user || !canReviewAttendanceCorrection(user.role)) {
+  if (!user || !canReviewAttendanceCorrection(user.roles)) {
     throw new Error("Unauthorized");
   }
   const supabase = createAdminClient();
@@ -994,7 +984,7 @@ export async function approveCorrectionRequest(id: string) {
 
 export async function rejectCorrectionRequest(id: string, notes: string) {
   const user = await getCurrentUser();
-  if (!user || !canReviewAttendanceCorrection(user.role)) {
+  if (!user || !canReviewAttendanceCorrection(user.roles)) {
     throw new Error("Unauthorized");
   }
   if (!notes.trim()) throw new Error("Say why the request is being rejected");

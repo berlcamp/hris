@@ -11,7 +11,7 @@ export default async function JobOrderMemoDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await getServerUser();
-  if (!canManageJobOrders(user?.role)) redirect("/dashboard");
+  if (!canManageJobOrders(user?.roles)) redirect("/dashboard");
 
   // Next 16: params is async — await before destructuring.
   const { id } = await params;
@@ -22,7 +22,7 @@ export default async function JobOrderMemoDetailPage({
     <JobOrderMemoDetailClient
       memo={memo}
       members={members}
-      canEdit={canManageJobOrders(user?.role)}
+      canEdit={canManageJobOrders(user?.roles)}
     />
   );
 }

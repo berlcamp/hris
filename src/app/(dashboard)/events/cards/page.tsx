@@ -9,7 +9,7 @@ import { QrCardsClient } from "@/components/events/qr-cards-client";
 export default async function QrCardsPage() {
   const user = await getServerUser();
   // Printing cards mints and rotates bearer credentials. HR only.
-  if (!canManageEvents(user?.role)) redirect("/events");
+  if (!canManageEvents(user?.roles)) redirect("/events");
 
   const [groups, settings] = await Promise.all([
     getEventGroupOptions(),
