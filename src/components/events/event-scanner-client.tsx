@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  CalendarX2,
   CameraOff,
+  ChartColumn,
   CheckCircle2,
   CloudOff,
   Flashlight,
@@ -34,11 +36,13 @@ import {
 } from "@/lib/event-scan-queue";
 import {
   getEventScanPayload,
+  getEventTurnout,
   submitEventScans,
+  type EventTurnout,
 } from "@/lib/actions/event-scan-actions";
 import { recordManualAttendance } from "@/lib/actions/event-actions";
 import { accentForEvent } from "@/lib/event-accent";
-import { manilaDateOf } from "@/lib/format-date";
+import { formatManilaLongDate, manilaDateOf } from "@/lib/format-date";
 import { primeScanFeedback, playScanFeedback } from "@/lib/scan-feedback";
 import { registerScannerWorker } from "@/lib/scanner-pwa";
 import type { EventRecord, EventScanRosterEntry } from "@/lib/types";
@@ -48,6 +52,31 @@ const TOKEN_PATTERN = /^H[0-9A-F]{20}$/;
 
 /** Ignore repeat reads of the same card within this window (ms). */
 const RESCAN_COOLDOWN_MS = 2500;
+
+/**
+ * Why a scan taken right now could not be recorded, or null if it can be.
+ *
+ * The server refuses any scan whose Manila date falls outside the event's own
+ * days (submitEventScans) — but it refuses it at SYNC, which can be hours after
+ * the officer has walked away from the door, and the refusal takes the scan
+ * with it. Checking the same rule here turns a morning silently lost at sync
+ * into a refusal the officer can still do something about: the wrong event
+ * opened, the event moved, or a phone whose own clock is wrong.
+ *
+ * Deliberately a plain function of (event, today) rather than a hook: the
+ * banner reads it once per event, and each scan re-reads it against a freshly
+ * taken date, so a scanner left open across midnight does not keep answering
+ * with yesterday's.
+ */
+function offEventDayDetail(event: EventRecord | null, today: string): string | null {
+  if (!event) return null;
+  if (today >= event.start_date && today <= event.end_date) return null;
+  const runs =
+    event.start_date === event.end_date
+      ? formatManilaLongDate(event.start_date)
+      : `${formatManilaLongDate(event.start_date)} to ${formatManilaLongDate(event.end_date)}`;
+  return `${event.title} runs ${runs}, and this phone says today is ${formatManilaLongDate(today)}. Check the date on the phone if that is wrong.`;
+}
 
 type FeedbackKind = "ok" | "duplicate" | "walk_in" | "reject";
 
@@ -100,6 +129,10 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
   const [manualQuery, setManualQuery] = useState("");
   const [manualSaving, setManualSaving] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summary, setSummary] = useState<EventTurnout | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   // Tokens already accepted on THIS device, so the officer gets an instant
   // "already scanned" instead of waiting for a sync round trip to say so.
@@ -261,6 +294,15 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
       if (last && last.token === token && now - last.at < RESCAN_COOLDOWN_MS) return;
       lastReadRef.current = { token, at: now };
 
+      // Checked before the card is even read: on a day the event does not run,
+      // no card can be recorded, so refusing here beats queueing a scan the
+      // server will throw away at sync.
+      const offDay = offEventDayDetail(event, manilaDateOf(new Date()));
+      if (offDay) {
+        say("reject", "Not an event day", offDay);
+        return;
+      }
+
       if (!TOKEN_PATTERN.test(token)) {
         say(
           "reject",
@@ -309,7 +351,7 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
 
       if (navigator.onLine) void sync();
     },
-    [eventId, refreshQueue, say, sync],
+    [event, eventId, refreshQueue, say, sync],
   );
 
   const scanner = useQrScanner((value) => void handleDecode(value));
@@ -333,6 +375,11 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
 
   const handleManual = useCallback(
     async (entry: EventScanRosterEntry) => {
+      const offDay = offEventDayDetail(event, manilaDateOf(new Date()));
+      if (offDay) {
+        say("reject", "Not an event day", offDay);
+        return;
+      }
       if (!navigator.onLine) {
         say(
           "reject",
@@ -360,7 +407,49 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
         say("reject", "Not recorded", result.error);
       }
     },
-    [eventId, say],
+    [event, eventId, say],
+  );
+
+  /**
+   * Turnout by CSC team, counted on the server.
+   *
+   * The queue is flushed first when there is anything in it: an officer who has
+   * just scanned twenty people and then opens the summary must not be shown a
+   * total that is twenty short and left wondering which is wrong.
+   */
+  const loadSummary = useCallback(async () => {
+    if (!navigator.onLine) {
+      setSummaryError(
+        "Offline — the summary is counted on the server, across every phone at the door. It loads when the connection is back.",
+      );
+      return;
+    }
+    setSummaryLoading(true);
+    setSummaryError(null);
+    try {
+      if ((await getQueue(eventId)).length > 0) await sync();
+      const data = await getEventTurnout(eventId);
+      if (!data) {
+        setSummaryError("This event's summary is not available to this account.");
+      } else {
+        setSummary(data);
+      }
+    } catch {
+      setSummaryError("Could not load the summary. Try again.");
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [eventId, sync]);
+
+  const openSummary = useCallback(() => {
+    setSummaryOpen(true);
+    void loadSummary();
+  }, [loadSummary]);
+
+  /** Non-null when today is not one of the event's days — see offEventDayDetail. */
+  const dayNotice = useMemo(
+    () => offEventDayDetail(event, manilaDateOf(new Date())),
+    [event],
   );
 
   if (loading) {
@@ -434,14 +523,25 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </a>
-        <div className="bg-card/70 min-w-0 flex-1 rounded-2xl px-3.5 py-2 backdrop-blur-sm">
-          <p className="truncate text-sm leading-tight font-semibold">
-            {event?.title ?? "Event"}
-          </p>
-          <p className="text-muted-foreground truncate font-mono text-[0.65rem] tracking-wider uppercase">
-            {roster.length} on roster · {history.length} scanned here
-          </p>
-        </div>
+        {/* The title block is the summary button. The action bar below has no
+            room left for a fourth control on a 360px phone, and the counts are
+            what someone reaches for when they want the fuller picture anyway. */}
+        <button
+          type="button"
+          onClick={openSummary}
+          aria-label="View attendance summary by CSC team"
+          className="bg-card/70 active:bg-card/90 flex min-w-0 flex-1 items-center gap-2.5 rounded-2xl px-3.5 py-2 text-left backdrop-blur-sm"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm leading-tight font-semibold">
+              {event?.title ?? "Event"}
+            </span>
+            <span className="text-muted-foreground block truncate font-mono text-[0.65rem] tracking-wider uppercase">
+              {roster.length} on roster · {history.length} scanned here
+            </span>
+          </span>
+          <ChartColumn className="text-muted-foreground h-5 w-5 shrink-0" />
+        </button>
         {scanner.torchAvailable && (
           <Button
             variant="ghost"
@@ -459,6 +559,17 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
           </Button>
         )}
       </header>
+
+      {/* ── Wrong day ── */}
+      {dayNotice && (
+        <div className="relative z-10 mx-3 mt-2 flex items-start gap-2.5 rounded-2xl border border-[oklch(0.66_0.20_22/0.5)] bg-[oklch(0.66_0.20_22/0.18)] px-3.5 py-2.5 backdrop-blur-sm">
+          <CalendarX2 className="mt-0.5 h-4 w-4 shrink-0 text-[oklch(0.80_0.17_22)]" />
+          <p className="text-[0.72rem] leading-snug text-[oklch(0.86_0.10_22)]">
+            <span className="font-semibold">Nothing can be recorded today.</span>{" "}
+            {dayNotice}
+          </p>
+        </div>
+      )}
 
       {/* ── Reticle ── */}
       <div className="relative z-10 flex flex-1 items-center justify-center px-10">
@@ -586,6 +697,17 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
         </Button>
       </footer>
 
+      {summaryOpen && (
+        <SummarySheet
+          summary={summary}
+          loading={summaryLoading}
+          error={summaryError}
+          unsent={queue.length}
+          onRefresh={() => void loadSummary()}
+          onClose={() => setSummaryOpen(false)}
+        />
+      )}
+
       {manualOpen && (
         <ManualSheet
           query={manualQuery}
@@ -593,6 +715,7 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
           matches={manualMatches}
           saving={manualSaving}
           online={online}
+          offDay={dayNotice}
           onPick={(entry) => void handleManual(entry)}
           onClose={() => setManualOpen(false)}
         />
@@ -616,6 +739,7 @@ function ManualSheet({
   matches,
   saving,
   online,
+  offDay,
   onPick,
   onClose,
 }: {
@@ -624,6 +748,8 @@ function ManualSheet({
   matches: EventScanRosterEntry[];
   saving: boolean;
   online: boolean;
+  /** Set when today is not one of the event's days; nothing can be recorded. */
+  offDay: string | null;
   onPick: (entry: EventScanRosterEntry) => void;
   onClose: () => void;
 }) {
@@ -659,10 +785,19 @@ function ManualSheet({
             className="h-13 rounded-2xl pl-10 text-base"
           />
         </div>
-        {!online && (
-          <p className="mt-2 font-mono text-[0.7rem] text-[oklch(0.87_0.13_80)]">
-            Offline — a manual entry needs a connection. Scan the card if you can.
+        {offDay ? (
+          // Said here as well as on the scanner screen: the sheet covers the
+          // result banner, so an officer who reached for "No card" would
+          // otherwise tap a name and get no visible answer.
+          <p className="mt-2 text-[0.7rem] leading-snug text-[oklch(0.80_0.17_22)]">
+            Nothing can be recorded today. {offDay}
           </p>
+        ) : (
+          !online && (
+            <p className="mt-2 font-mono text-[0.7rem] text-[oklch(0.87_0.13_80)]">
+              Offline — a manual entry needs a connection. Scan the card if you can.
+            </p>
+          )
         )}
       </div>
 
@@ -672,7 +807,7 @@ function ManualSheet({
             <button
               key={`${entry.subject_kind}:${entry.subject_id}`}
               type="button"
-              disabled={saving}
+              disabled={saving || offDay !== null}
               onClick={() => onPick(entry)}
               className="border-border/60 bg-card active:bg-accent w-full rounded-2xl border p-4 text-left disabled:opacity-60"
             >
@@ -695,6 +830,191 @@ function ManualSheet({
             </p>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Turnout by CSC team — the door's read-only view of the same numbers the
+ * events report shows HR.
+ *
+ * People, not scans: a person who came all three days of an event is one in
+ * every number here. `roster` is the denominator, so a team that has not turned
+ * up at all still gets a row reading 0 — the zero is the point.
+ *
+ * On a day outside the event the per-day number would be a column of zeroes
+ * that reads as a failure, so the sheet leads with the whole-event total
+ * instead and says why.
+ */
+function SummarySheet({
+  summary,
+  loading,
+  error,
+  unsent,
+  onRefresh,
+  onClose,
+}: {
+  summary: EventTurnout | null;
+  loading: boolean;
+  error: string | null;
+  unsent: number;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const todayIsTheColumn = summary?.in_range ?? false;
+
+  return (
+    <div className="bg-background/95 fixed inset-0 z-50 flex flex-col backdrop-blur-md">
+      <div className="flex items-center gap-2 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">Attendance summary</p>
+          <p className="text-muted-foreground truncate text-xs">
+            By CSC team{summary ? ` · ${summary.title}` : ""}
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Refresh the summary"
+          onClick={onRefresh}
+          disabled={loading}
+          className="h-11 w-11 rounded-full"
+        >
+          {loading ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-5 w-5" />
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Close"
+          onClick={onClose}
+          className="h-11 w-11 rounded-full"
+        >
+          <X className="h-5 w-5" />
+        </Button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        {error && (
+          <div className="border-border/60 bg-card rounded-2xl border p-4">
+            <p className="text-sm">{error}</p>
+            <Button
+              variant="outline"
+              onClick={onRefresh}
+              disabled={loading}
+              className="mt-3 rounded-full"
+            >
+              Try again
+            </Button>
+          </div>
+        )}
+
+        {!error && !summary && loading && (
+          <div className="flex flex-col items-center gap-3 py-16">
+            <Loader2 className="text-primary h-6 w-6 animate-spin" />
+            <p className="text-muted-foreground font-mono text-xs tracking-[0.2em] uppercase">
+              Counting
+            </p>
+          </div>
+        )}
+
+        {summary && (
+          <>
+            {/* Headline: present, out of the roster. */}
+            <div className="border-border/60 bg-card rounded-2xl border p-4">
+              <p className="text-muted-foreground font-mono text-[0.65rem] tracking-wider uppercase">
+                {todayIsTheColumn
+                  ? `Present ${formatManilaLongDate(summary.date)}`
+                  : "Present over the whole event"}
+              </p>
+              <p className="mt-1 text-3xl leading-none font-bold tabular-nums">
+                {todayIsTheColumn ? summary.today_total : summary.event_total}
+                <span className="text-muted-foreground text-base font-medium">
+                  {" "}
+                  of {summary.roster_total}
+                </span>
+              </p>
+              {todayIsTheColumn && summary.multi_day && (
+                <p className="text-muted-foreground mt-1.5 text-xs">
+                  {summary.event_total} different people over the event so far.
+                </p>
+              )}
+              {!todayIsTheColumn && (
+                <p className="mt-1.5 text-xs text-[oklch(0.80_0.17_22)]">
+                  Today is not one of this event&apos;s days, so there is no
+                  count for today.
+                </p>
+              )}
+              {unsent > 0 && (
+                <p className="mt-1.5 text-xs text-[oklch(0.87_0.13_80)]">
+                  {unsent} scan{unsent === 1 ? "" : "s"} still on this phone are
+                  not in these numbers yet.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-3 space-y-1.5">
+              {summary.rows.length === 0 ? (
+                <p className="text-muted-foreground py-10 text-center text-sm">
+                  Nobody is on this event&apos;s roster yet.
+                </p>
+              ) : (
+                summary.rows.map((row) => {
+                  const present = todayIsTheColumn ? row.today : row.total;
+                  const pct =
+                    row.roster > 0
+                      ? Math.min(100, Math.round((present / row.roster) * 100))
+                      : present > 0
+                        ? 100
+                        : 0;
+                  return (
+                    <div
+                      key={row.team ?? "__unassigned"}
+                      className="border-border/60 bg-card rounded-2xl border p-3.5"
+                    >
+                      <div className="flex items-baseline gap-3">
+                        <span
+                          className={`min-w-0 flex-1 truncate text-sm font-medium ${
+                            row.team === null ? "text-muted-foreground italic" : ""
+                          }`}
+                        >
+                          {row.team ?? "No team assigned"}
+                        </span>
+                        <span className="shrink-0 font-mono text-sm tabular-nums">
+                          {present}
+                          <span className="text-muted-foreground">
+                            {row.roster > 0 ? ` / ${row.roster}` : " · walk-ins"}
+                          </span>
+                        </span>
+                      </div>
+                      <div className="bg-muted mt-2 h-1.5 overflow-hidden rounded-full">
+                        <div
+                          className="h-full rounded-full bg-[oklch(0.75_0.17_152)]"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      {todayIsTheColumn && summary.multi_day && (
+                        <p className="text-muted-foreground mt-1.5 font-mono text-[0.65rem] tracking-wider uppercase">
+                          {row.total} over the event
+                        </p>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <p className="text-muted-foreground mt-4 text-[0.7rem] leading-relaxed">
+              Counted as people, not scans — somebody who came on two days
+              counts once. Teams are read from the personnel registry, so a
+              correction there moves these numbers.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

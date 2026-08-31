@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { canManageEvents, canScanEvents } from "@/lib/auth-helpers";
-import { manilaDateOf } from "@/lib/format-date";
-import { EMPLOYMENT_LABELS, resolveSubject } from "@/lib/event-repo";
+import { manilaDateOf, manilaToday } from "@/lib/format-date";
+import { EMPLOYMENT_LABELS, loadCscTeams, resolveSubject } from "@/lib/event-repo";
 import { eventScanBatchSchema, type EventScanBatchValues } from "@/lib/validations/event-schema";
 import type {
   EventRecord,
@@ -379,4 +379,173 @@ export async function submitEventScans(
 
   revalidatePath(`/events/${parsed.data.event_id}`);
   return { success: true, results };
+}
+
+/** One CSC team's turnout at an event, as the door app reports it. */
+export interface EventTurnoutRow {
+  /** null is "no team on file" — a gap in the registry, not a team. */
+  team: string | null;
+  /** People from this team on the event roster. The denominator. */
+  roster: number;
+  /** Distinct people recorded today (Manila). */
+  today: number;
+  /** Distinct people recorded on any day of the event. */
+  total: number;
+}
+
+export interface EventTurnout {
+  event_id: string;
+  title: string;
+  /** The Manila date `today` counts, echoed so the sheet can label the column. */
+  date: string;
+  /** Whether that date is one of the event's own days. */
+  in_range: boolean;
+  multi_day: boolean;
+  rows: EventTurnoutRow[];
+  roster_total: number;
+  today_total: number;
+  event_total: number;
+}
+
+/**
+ * Turnout by CSC team for one event, for the officer standing at the door.
+ *
+ * Gated on canScanEvents, not canManageEvents: the Attendance Checker is the
+ * account that needs this. It is a COUNT of the event they are already scanning
+ * into — no names, no other event — so it tells them nothing their own scanner
+ * screen does not already show one card at a time.
+ *
+ * Counted as DISTINCT PEOPLE, not attendance rows: a three-day event records a
+ * row per person per day, so summing rows would report a team of 20 who all
+ * came every day as 60. `roster` is the denominator — every team on the roster
+ * gets a row even when nobody from it has arrived yet, because a zero is the
+ * number the officer is actually looking for.
+ *
+ * Teams are read live from the registries (loadCscTeams) for the same reason
+ * the events report reads them live: a team assignment is a correction waiting
+ * to happen, and the totals have to move when HR fixes one.
+ */
+export async function getEventTurnout(eventId: string): Promise<EventTurnout | null> {
+  const user = await getCurrentUser();
+  if (!canScanEvents(user?.roles)) return null;
+
+  const supabase = createAdminClient();
+  const { data: eventRow } = await supabase
+    .schema("hris")
+    .from("events")
+    .select("id, title, start_date, end_date, status")
+    .eq("id", eventId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!eventRow) return null;
+  const event = eventRow as {
+    id: string;
+    title: string;
+    start_date: string;
+    end_date: string;
+    status: string;
+  };
+  if (!canManageEvents(user?.roles) && event.status !== "open") return null;
+
+  const CHUNK = 1000;
+
+  const roster: { subject_kind: EventSubjectKind; subject_id: string }[] = [];
+  for (let from = 0; ; from += CHUNK) {
+    const { data, error } = await supabase
+      .schema("hris")
+      .from("event_roster")
+      .select("subject_kind, subject_id")
+      .eq("event_id", eventId)
+      .order("subject_id")
+      .range(from, from + CHUNK - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as { subject_kind: EventSubjectKind; subject_id: string }[];
+    roster.push(...rows);
+    if (rows.length < CHUNK) break;
+  }
+
+  const attendance: {
+    attendance_date: string;
+    subject_kind: EventSubjectKind;
+    subject_id: string;
+  }[] = [];
+  for (let from = 0; ; from += CHUNK) {
+    const { data, error } = await supabase
+      .schema("hris")
+      .from("event_attendance")
+      .select("attendance_date, subject_kind, subject_id")
+      .eq("event_id", eventId)
+      .order("subject_id")
+      .range(from, from + CHUNK - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as {
+      attendance_date: string;
+      subject_kind: EventSubjectKind;
+      subject_id: string;
+    }[];
+    attendance.push(...rows);
+    if (rows.length < CHUNK) break;
+  }
+
+  // One resolve pass over both lists: a person on the roster and the same
+  // person in the attendance log must land in the same team's row.
+  const teams = await loadCscTeams(supabase, [...roster, ...attendance]);
+  const teamOf = (r: { subject_kind: EventSubjectKind; subject_id: string }) =>
+    teams.get(`${r.subject_kind}:${r.subject_id}`) ?? null;
+
+  const today = manilaToday();
+  const buckets = new Map<
+    string,
+    { team: string | null; roster: number; today: Set<string>; total: Set<string> }
+  >();
+  const bucket = (team: string | null) => {
+    const key = team ?? "";
+    let b = buckets.get(key);
+    if (!b) {
+      b = { team, roster: 0, today: new Set(), total: new Set() };
+      buckets.set(key, b);
+    }
+    return b;
+  };
+
+  for (const r of roster) bucket(teamOf(r)).roster += 1;
+  for (const a of attendance) {
+    const b = bucket(teamOf(a));
+    const person = `${a.subject_kind}:${a.subject_id}`;
+    b.total.add(person);
+    if (a.attendance_date === today) b.today.add(person);
+  }
+
+  const rows = [...buckets.values()]
+    .map((b) => ({
+      team: b.team,
+      roster: b.roster,
+      today: b.today.size,
+      total: b.total.size,
+    }))
+    // Unassigned last: it is a data gap, not a team, and it should not sit in
+    // the middle of the standings.
+    .sort((a, b) =>
+      a.team === null
+        ? 1
+        : b.team === null
+          ? -1
+          : a.team.localeCompare(b.team),
+    );
+
+  const distinct = (
+    list: { attendance_date: string; subject_kind: EventSubjectKind; subject_id: string }[],
+  ) => new Set(list.map((a) => `${a.subject_kind}:${a.subject_id}`)).size;
+
+  return {
+    event_id: event.id,
+    title: event.title,
+    date: today,
+    in_range: today >= event.start_date && today <= event.end_date,
+    multi_day: event.start_date !== event.end_date,
+    rows,
+    roster_total: roster.length,
+    today_total: distinct(attendance.filter((a) => a.attendance_date === today)),
+    event_total: distinct(attendance),
+  };
 }

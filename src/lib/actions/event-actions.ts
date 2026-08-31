@@ -542,6 +542,20 @@ export async function recordManualAttendance(
     .maybeSingle();
   if (!event) return { success: false, error: "Event not found" };
 
+  // The same rule submitEventScans applies to a scan: a record cannot be filed
+  // under a day the event did not run. Without this the manual sheet was the
+  // one way past it — the scanner refuses the card and the officer falls back
+  // to "No card", which used to go straight in.
+  if (
+    parsed.data.attendance_date < event.start_date ||
+    parsed.data.attendance_date > event.end_date
+  ) {
+    return {
+      success: false,
+      error: `${parsed.data.attendance_date} is not one of this event's days.`,
+    };
+  }
+
   const { data: rosterRow } = await supabase
     .schema("hris")
     .from("event_roster")
