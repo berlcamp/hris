@@ -49,3 +49,6 @@ supabase/old_jo_data/
 
 # Superpowers build ledger (per-session scratch, not a project artifact)
 .superpowers/
+
+# playwright mcp scratch output
+.playwright-mcp/
