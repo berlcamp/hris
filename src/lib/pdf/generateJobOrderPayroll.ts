@@ -535,6 +535,11 @@ function renderDailyWagesPayroll({
     // line for this page carries the same figure. The grand TOTAL is added
     // only when there is more than one page to add up; a single-page payroll
     // prints exactly the one SUB TOTAL it always has.
+    //
+    // The certification block below repeats on every sheet with it: each page
+    // is signed for the names it carries, so a page that leaves the office on
+    // its own still says who certified those hours and who approved that
+    // money.
     const grandTotalRow =
       isLastPage && pages.length > 1
         ? totalsRow("TOTAL", grandGross, grandSs, grandEc, grandNet)
@@ -577,7 +582,7 @@ function renderDailyWagesPayroll({
         ${grandTotalRow}
       </tbody>
     </table>
-    ${isLastPage ? renderDailyWagesFooter() : ""}
+    ${renderDailyWagesFooter()}
   </div>`;
   });
 

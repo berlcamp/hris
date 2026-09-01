@@ -101,15 +101,15 @@ export interface JoPayrollPage<M extends JoPayrollMemberLike> {
  *
  * 15 is the office's number, and it fits both layouts with room to spare.
  * Measured in Chromium at 96dpi with the roster's longest real names (31
- * characters) and its real Community Tax values, on the last page — the only
- * one carrying the signature footer and both totals rows:
+ * characters) and its real Community Tax values, on the last page — every page
+ * carries the signature footer, and the last one carries both totals rows:
  *
  *   page box (legal landscape less the 0.3in margins)   758px
  *   title + agency/period block                          53px
  *   table head (3 bands)                                 52px ATM / 64px not
  *   15 body rows at 18.6px                              279px
  *   SUB TOTAL, and TOTAL when the payroll spans pages   1-2 rows
- *   signature footer, last page only                    139px
+ *   signature footer, on every page                     139px
  *   ------------------------------------------------------------
  *                                                      ~560-572px
  *
