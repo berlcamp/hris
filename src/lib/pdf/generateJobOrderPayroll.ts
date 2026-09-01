@@ -440,8 +440,19 @@ function renderDailyWagesPayroll({
   const pages = paginateDailyWages(rows);
 
   // NO. through SIGNATURE — identical in both variants.
+  //
+  // NAME is 2.4in, not the 1.9in it used to be. The form never spent the
+  // paper it had: even the wider of the two layouts (Community Tax) totalled
+  // 12.85in of the 13.4in a legal sheet leaves between the 0.3in @page
+  // margins, and 1.9in of Times at 8.5pt runs out around thirty characters —
+  // short of what a Filipino full name in "SURNAME, GIVEN MIDDLE" order
+  // actually needs, so a real roster wrapped a third of its rows to two
+  // lines. Those wraps are what push a full page past the bottom of the
+  // sheet. The extra 0.5in comes out of the slack, not out of another
+  // column: no-ATM now totals 13.35in and ATM 12.2in, both still inside the
+  // printable width, and every other column keeps the width it had.
   const leadingColWidths = [
-    "0.4in", "1.9in", "0.85in", "0.55in", "0.5in", "0.85in", "0.6in",
+    "0.4in", "2.4in", "0.85in", "0.55in", "0.5in", "0.85in", "0.6in",
     "0.55in", "0.7in", "0.85in", "0.45in", "0.45in", "0.85in", "1.1in",
   ];
   // Community Tax group, sized against the roster's real values rather than
