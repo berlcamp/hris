@@ -31,6 +31,7 @@
 import {
   computeJoGross,
   computeJoOvertimeGross,
+  DAILY_WAGES_ROWS_PER_PAGE,
   paginateDailyWages,
 } from "@/lib/job-order-payroll-helpers";
 import type { JobOrderPayrollPrintRow } from "@/lib/job-order-payroll-helpers";
@@ -322,28 +323,51 @@ const DAILY_WAGES_STYLES = `
   .meta-row .period { font-weight: bold; font-size: 10pt; }
   .meta-row .period u { text-decoration: underline; }
   table.payroll { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  /* Only a page carrying a full roster stretches. flex: 1 hands the sheet's
+     leftover height (see .payroll-page) to the table, and the browser spreads
+     it across the rows: a full page breathes into the space instead of leaving
+     a band of white above the signatories, and a full page whose names wrap
+     gives that same surplus straight back rather than spilling onto another
+     sheet -- the padding below is only the floor. A short final page must NOT
+     stretch: three names sharing seven inches would print rows over an inch
+     tall. It leaves the white above the footer instead. */
+  table.payroll.stretch { flex: 1 1 auto; }
   table.payroll th, table.payroll td { border: 1px solid #000; padding: 2px 3px; vertical-align: middle; word-wrap: break-word; }
   table.payroll thead th { font-weight: bold; text-align: center; font-size: 8pt; line-height: 1.15; }
-  table.payroll tbody td { font-size: 8.5pt; }
+  table.payroll tbody td { font-size: 8.5pt; padding: 6px 3px; }
+  /* A stretching page gets its row height from the leftover space instead, so
+     its floor is deliberately lower than the short page's fixed padding: a
+     full roster whose names wrap needs every point it can give back, and the
+     stretch has already made those rows taller than this floor anyway. */
+  table.payroll.stretch tbody td { padding: 3px 3px; }
   .text-right { text-align: right; }
   .text-center { text-align: center; }
   .text-left { text-align: left; }
   .signature-cell { position: relative; padding-left: 14px !important; }
   .sig-num { position: absolute; left: 2px; top: 2px; font-size: 7pt; }
   tr.subtotal td { font-weight: bold; }
-  table.footer-table { width: 100%; border-collapse: collapse; margin-top: 0; }
-  table.footer-table td { border: 1px solid #000; vertical-align: top; padding: 4px 6px; height: 1.3in; width: 25%; }
+  /* margin-top:auto is what pushes the block to the foot of the sheet -- see
+     the .payroll-page flex column below. */
+  table.footer-table { width: 100%; border-collapse: collapse; margin-top: auto; }
+  table.footer-table td { border: 1px solid #000; vertical-align: top; padding: 4px 6px; height: 1.6in; width: 25%; }
   .foot-label { font-weight: bold; font-size: 9pt; }
   .foot-text { font-size: 9pt; margin-top: 4px; text-indent: 18px; }
-  .foot-name { text-align: center; font-weight: bold; font-size: 10pt; margin-top: 32px; }
+  .foot-name { text-align: center; font-weight: bold; font-size: 10pt; margin-top: 48px; }
   .foot-title { text-align: center; font-size: 9pt; }
   .foot-role { text-align: center; font-size: 8.5pt; margin-top: 6px; }
-  .foot-line { text-align: center; margin-top: 38px; border-top: 1px solid #000; padding-top: 0; min-height: 1px; }
+  .foot-line { text-align: center; margin-top: 56px; border-top: 1px solid #000; padding-top: 0; min-height: 1px; }
   /* One .payroll-page per printed sheet. The break is forced rather than left
      to the browser because the Summary of Payrolls numbers its lines after
      these pages -- see DAILY_WAGES_ROWS_PER_PAGE. The :last-child rule keeps
-     the final break from emitting a trailing blank sheet. */
-  .payroll-page { break-after: page; page-break-after: always; }
+     the final break from emitting a trailing blank sheet.
+     The sheet is a full-height flex column so a page carrying fewer than
+     DAILY_WAGES_ROWS_PER_PAGE names still fills the paper: the table stays at
+     the top and the signatory footer is pushed to the bottom edge by its
+     margin-top:auto instead of floating up under a short roster.
+     min-height, not height: legal landscape less the 0.3in @page margins is
+     8.5 - 0.6 = 7.9in, and min-height lets a row that wraps (a long name in
+     the no-ATM layout) grow the box rather than spill out of a fixed one. */
+  .payroll-page { display: flex; flex-direction: column; min-height: 7.9in; break-after: page; page-break-after: always; }
   .payroll-page:last-child { break-after: auto; page-break-after: auto; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 `;
@@ -545,10 +569,14 @@ function renderDailyWagesPayroll({
         ? totalsRow("TOTAL", grandGross, grandSs, grandEc, grandNet)
         : "";
 
+    // Only a page holding a full roster stretches its rows to the footer --
+    // see table.payroll.stretch in DAILY_WAGES_STYLES.
+    const stretch = page.members.length >= DAILY_WAGES_ROWS_PER_PAGE;
+
     return `
   <div class="payroll-page">
     ${renderDailyWagesHeader(periodHeader)}
-    <table class="payroll">
+    <table class="payroll${stretch ? " stretch" : ""}">
       <colgroup>${colgroup}</colgroup>
       <thead>
         <tr>
