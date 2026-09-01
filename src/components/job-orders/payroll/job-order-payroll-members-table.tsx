@@ -121,6 +121,7 @@ export function JobOrderPayrollMembersTable({
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Sub-area</TableHead>
+                <TableHead>LandBank ATM</TableHead>
                 <TableHead className="w-20">Days</TableHead>
                 <TableHead className="w-20">Hours</TableHead>
                 <TableHead className="w-24">Rate</TableHead>
@@ -134,7 +135,7 @@ export function JobOrderPayrollMembersTable({
               {groups.map((g) => (
                 <Fragment key={g.area ?? "no-area"}>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableCell colSpan={9} className="py-2 text-sm font-semibold">
+                    <TableCell colSpan={10} className="py-2 text-sm font-semibold">
                       {g.area ?? "No area"}{" "}
                       <span className="font-normal text-muted-foreground">
                         ({g.members.length})
@@ -275,6 +276,12 @@ function MemberRow({ member, editable, onRemove, onSaved }: MemberRowProps) {
       </TableCell>
       <TableCell className="text-muted-foreground">
         {member.sub_area ?? "—"}
+      </TableCell>
+      {/* The snapshot's account number, not the roster's: this is exactly what
+          the ATM payroll prints, so a blank here is the warning that the row
+          needs "Refresh from roster" before printing. */}
+      <TableCell className="tabular-nums text-muted-foreground">
+        {member.landbank_account_number ?? "—"}
       </TableCell>
       <TableCell>
         <Input

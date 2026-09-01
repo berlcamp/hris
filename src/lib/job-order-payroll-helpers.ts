@@ -326,3 +326,26 @@ export function deriveAreasLabel(
   ).sort();
   return names.length === 0 ? null : names.join(", ");
 }
+
+/**
+ * Has the roster drifted from what this member froze?
+ *
+ * Members are a frozen snapshot taken when the JO is added to the payroll, so
+ * a later correction on the roster — a Landbank account number typed in after
+ * the payroll was built, say — never reaches the printout on its own. This is
+ * the comparison behind the detail page's "Refresh from roster": true means
+ * the row is stale and should be rewritten.
+ *
+ * Every snapshot column is compared, `daily_rate` included: a refresh
+ * deliberately overwrites a per-payroll rate correction with the roster's
+ * current rate.
+ */
+export function snapshotDiffersFromMember(
+  member: JobOrderPayrollMember,
+  snapshot: JobOrderPayrollSnapshot,
+): boolean {
+  const current = member as unknown as Record<string, unknown>;
+  return (Object.keys(snapshot) as (keyof JobOrderPayrollSnapshot)[]).some(
+    (key) => (current[key] ?? null) !== (snapshot[key] ?? null),
+  );
+}

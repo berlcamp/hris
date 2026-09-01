@@ -5,12 +5,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { canManageJobOrderPayroll } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
-import { toPayrollMemberSnapshot } from "@/lib/job-order-payroll-helpers";
+import {
+  snapshotDiffersFromMember,
+  toPayrollMemberSnapshot,
+} from "@/lib/job-order-payroll-helpers";
 import { assertDraft } from "@/lib/job-order-payroll-guards";
 import {
   loadJobOrdersForSnapshot,
   loadMembers,
   recomputeAreas,
+  UPSERT_CHUNK,
 } from "@/lib/job-order-payroll-repo";
 import {
   jobOrderPayrollMemberSchema,
@@ -210,4 +214,122 @@ export async function removeJobOrderPayrollMember(
 
   revalidate(payrollId);
   return { success: true };
+}
+
+export interface JobOrderPayrollRefreshResult {
+  /** Rows rewritten because the roster had drifted from the snapshot. */
+  updated: number;
+  /** Rows already identical to the roster. */
+  unchanged: number;
+  /**
+   * Rows left alone because there is nothing to refresh them from: the member
+   * was added manually or its JO was deleted (job_order_employee_id is null),
+   * or the linked JO is now inactive or soft-deleted.
+   */
+  skipped: number;
+}
+
+/**
+ * Re-copy every linked member's snapshot from the Job Order roster.
+ *
+ * `addJobOrderPayrollMember` freezes the roster row into the member, and
+ * nothing refreshes it afterwards — so correcting an employee's Landbank
+ * account number (or name, area, SSS, cedula, rate) left the payroll printing
+ * the stale value. This is the explicit way back in step: draft payrolls only,
+ * never automatic, so a finalized record — an issued government document —
+ * cannot be rewritten by a roster edit.
+ *
+ * `daily_rate` is refreshed too, which overwrites any per-payroll rate
+ * correction made in the members table. That is why this is a button behind a
+ * confirmation rather than something that happens on its own.
+ */
+export async function refreshJobOrderPayrollMembers(
+  payrollId: string,
+): Promise<{ data?: JobOrderPayrollRefreshResult; error?: string }> {
+  const user = await getCurrentUser();
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return { error: "Unauthorized" };
+  }
+
+  const supabase = createAdminClient();
+  const blocked = await assertDraft(supabase, payrollId);
+  if (blocked) return { error: blocked };
+
+  const members = await loadMembers(supabase, payrollId);
+  const linked = members.filter(
+    (m): m is typeof m & { job_order_employee_id: string } =>
+      m.job_order_employee_id != null,
+  );
+
+  const roster =
+    linked.length === 0
+      ? []
+      : await loadJobOrdersForSnapshot(supabase, {
+          ids: linked.map((m) => m.job_order_employee_id),
+        });
+  const byId = new Map(roster.map((jo) => [jo.id, jo]));
+
+  const rows: Record<string, unknown>[] = [];
+  let unchanged = 0;
+  // Members with no roster link at all can never be refreshed.
+  let skipped = members.length - linked.length;
+
+  for (const m of linked) {
+    const jo = byId.get(m.job_order_employee_id);
+    // loadJobOrdersForSnapshot filters to active, non-deleted JOs, so a miss
+    // here means the employee left the active roster after being added. Their
+    // snapshot is what the payroll still owes them — leave it.
+    if (!jo) {
+      skipped += 1;
+      continue;
+    }
+    const snapshot = toPayrollMemberSnapshot(jo);
+    if (!snapshotDiffersFromMember(m, snapshot)) {
+      unchanged += 1;
+      continue;
+    }
+    rows.push({
+      id: m.id,
+      payroll_id: m.payroll_id,
+      job_order_employee_id: m.job_order_employee_id,
+      // The period's own inputs, re-sent unchanged. `days`/`hours` are keyed
+      // in per payroll and are not roster data — a refresh must never blank
+      // them.
+      days: m.days,
+      hours: m.hours,
+      ...snapshot,
+    });
+  }
+
+  // Chunked because supabase/config.toml caps PostgREST's max_rows at 1000 and
+  // an area-picker payroll can carry ~578 members. A chunk that fails aborts
+  // the rest, leaving earlier chunks written: the operation is idempotent, so
+  // re-running it finishes the job.
+  for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
+    const { error } = await supabase
+      .schema("hris")
+      .from("job_order_payroll_members")
+      .upsert(rows.slice(i, i + UPSERT_CHUNK), { onConflict: "id" });
+    if (error) return { error: error.message };
+  }
+
+  // area_name is part of the snapshot, so the payroll's denormalized label can
+  // have gone stale with it.
+  if (rows.length > 0) await recomputeAreas(supabase, payrollId);
+
+  await logAudit({
+    userId: user!.id,
+    userEmail: user!.email,
+    action: "update",
+    tableName: "job_order_payroll_members",
+    recordId: payrollId,
+    newValues: {
+      refreshed_from_roster: rows.length,
+      unchanged,
+      skipped,
+    },
+  });
+
+  revalidate(payrollId);
+  return { data: { updated: rows.length, unchanged, skipped } };
 }

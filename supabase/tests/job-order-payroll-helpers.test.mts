@@ -18,11 +18,15 @@ import {
   computeJoNetAmount,
   deriveAreasLabel,
   groupMembersByRate,
+  snapshotDiffersFromMember,
   summarizeMembers,
   toPayrollMemberSnapshot,
   toPrintRow,
 } from "../../src/lib/job-order-payroll-helpers.ts";
-import type { JobOrderEmployee } from "../../src/lib/types.ts";
+import type {
+  JobOrderEmployee,
+  JobOrderPayrollMember,
+} from "../../src/lib/types.ts";
 
 // ── countWeekdays ───────────────────────────────────────────────────
 
@@ -347,5 +351,64 @@ test("groupMembersByRate sorts ascending by rate", () => {
   assert.deepEqual(
     groups.map((g) => g.rate),
     [400, 500],
+  );
+});
+
+// ── snapshotDiffersFromMember ───────────────────────────────────────
+//
+// The bug this guards: a member is frozen when it is added to the payroll, so
+// correcting a JO's LandBank account number afterwards left the payroll
+// printing a blank ATM column. The refresh action rewrites a member only when
+// this reports drift.
+
+function payrollMember(
+  overrides: Partial<JobOrderPayrollMember> = {},
+): JobOrderPayrollMember {
+  return {
+    id: "33333333-3333-3333-3333-333333333333",
+    payroll_id: "44444444-4444-4444-4444-444444444444",
+    job_order_employee_id: "11111111-1111-1111-1111-111111111111",
+    days: 11,
+    hours: 4,
+    ...toPayrollMemberSnapshot(jo()),
+    legacy_id: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+test("an untouched member matches its roster row", () => {
+  assert.equal(
+    snapshotDiffersFromMember(payrollMember(), toPayrollMemberSnapshot(jo())),
+    false,
+  );
+});
+
+test("a LandBank number added on the roster after the payroll counts as drift", () => {
+  const stale = payrollMember({ has_atm: false, landbank_account_number: null });
+  assert.equal(
+    snapshotDiffersFromMember(stale, toPayrollMemberSnapshot(jo())),
+    true,
+  );
+});
+
+test("a rate corrected on the payroll counts as drift, so a refresh restores the roster rate", () => {
+  assert.equal(
+    snapshotDiffersFromMember(
+      payrollMember({ daily_rate: 500 }),
+      toPayrollMemberSnapshot(jo()),
+    ),
+    true,
+  );
+});
+
+test("days and overtime hours are not snapshot fields and never count as drift", () => {
+  assert.equal(
+    snapshotDiffersFromMember(
+      payrollMember({ days: 1, hours: 99 }),
+      toPayrollMemberSnapshot(jo()),
+    ),
+    false,
   );
 });

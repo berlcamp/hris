@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Loader2, Lock, LockOpen, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Lock, LockOpen, Pencil, RefreshCw, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
   finalizeJobOrderPayroll,
   reopenJobOrderPayroll,
 } from "@/lib/actions/job-order-payroll-actions";
+import { refreshJobOrderPayrollMembers } from "@/lib/actions/job-order-payroll-member-actions";
 import type { JobOrderPayroll, JobOrderPayrollMember } from "@/lib/types";
 
 /** Typed verbatim (case-sensitive) before Delete unlocks. */
@@ -68,6 +69,8 @@ export function JobOrderPayrollDetailClient({
   const [finalizing, setFinalizing] = useState(false);
   const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -111,6 +114,36 @@ export function JobOrderPayrollDetailClient({
       );
     } finally {
       setReopening(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const result = await refreshJobOrderPayrollMembers(payroll.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      const { updated, skipped } = result.data!;
+      toast.success(
+        updated === 0
+          ? "Every member already matches the roster."
+          : `${updated} member${updated === 1 ? "" : "s"} updated from the roster.`,
+        skipped > 0
+          ? {
+              description: `${skipped} member${skipped === 1 ? " is" : "s are"} no longer linked to an active roster record and kept its snapshot.`,
+            }
+          : undefined,
+      );
+      setRefreshConfirmOpen(false);
+      router.refresh();
+    } catch {
+      toast.error(
+        "Something went wrong refreshing these members. Please try again.",
+      );
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -193,6 +226,16 @@ export function JobOrderPayrollDetailClient({
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setRefreshConfirmOpen(true)}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh from roster
+            </Button>
+          )}
+          {isDraft && canEdit && (
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setFinalizeConfirmOpen(true)}
             >
               <Lock className="h-4 w-4" />
@@ -258,6 +301,36 @@ export function JobOrderPayrollDetailClient({
             <AlertDialogAction onClick={handleFinalize} disabled={finalizing}>
               {finalizing && <Loader2 className="h-4 w-4 animate-spin" />}
               Finalize
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={refreshConfirmOpen}
+        onOpenChange={setRefreshConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Refresh members from the roster?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Members were snapshotted when they were added, so later edits to
+              a Job Order employee — a corrected LandBank account number, for
+              instance — do not reach this payroll on their own. This re-copies
+              each member&apos;s name, area, daily rate, SSS, LandBank account
+              and community tax details from the roster.
+              <br />
+              <br />
+              Days and overtime hours are untouched, but any daily rate typed
+              into the members table is replaced by the roster&apos;s current
+              rate.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={refreshing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRefresh} disabled={refreshing}>
+              {refreshing && <Loader2 className="h-4 w-4 animate-spin" />}
+              Refresh
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
