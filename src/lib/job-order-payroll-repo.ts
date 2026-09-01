@@ -39,18 +39,23 @@ export type PayrollDbClient = ReturnType<typeof createAdminClient>;
 const PAGE_SIZE = 1000;
 
 /**
- * Every member of a payroll, ordered by area then name.
+ * Every member of a payroll, ordered by name.
+ *
+ * It used to come back by area then name, so the members table could band the
+ * rows under area headings by walking the list. That table lists names flat
+ * and alphabetically now — the order the printed payroll uses — and nothing
+ * else ever wanted the area ordering (`deriveAreasLabel` sorts its own set,
+ * and the printables re-sort through `paginateDailyWages`), so the area key
+ * is gone rather than left as an ordering no caller reads.
  *
  * Paged with `.range()` in chunks of 1000 because supabase/config.toml caps
  * PostgREST's max_rows at 1000 — an area-picker payroll can snapshot ~578
  * active JOs today, and this result feeds mutations (duplicate, finalize's
  * empty-check), not just display, so a silent
  * truncation here is worse than the same cap on a read-only list. Same
- * pattern as `loadJobOrdersForSnapshot` below. `area_name`/`full_name` do not
- * uniquely order rows, so `id` is appended as a tiebreaker to keep page
- * boundaries stable — the members table relies on the area/name ordering
- * itself to group rows when it walks the list, so that ordering must not
- * change.
+ * pattern as `loadJobOrdersForSnapshot` below. `full_name` does not uniquely
+ * order rows, so `id` is appended as a tiebreaker to keep page boundaries
+ * stable.
  */
 export async function loadMembers(
   supabase: PayrollDbClient,
@@ -65,7 +70,6 @@ export async function loadMembers(
       .from("job_order_payroll_members")
       .select(MEMBER_SELECT)
       .eq("payroll_id", payrollId)
-      .order("area_name", { ascending: true, nullsFirst: false })
       .order("full_name", { ascending: true })
       .order("id", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);

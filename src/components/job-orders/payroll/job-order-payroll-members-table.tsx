@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2 } from "lucide-react";
@@ -45,26 +45,6 @@ interface JobOrderPayrollMembersTableProps {
   editable: boolean;
 }
 
-/** A run of consecutive members sharing the same area, built by walking the
- * already-sorted (area_name, full_name) list — never re-sorted here. */
-interface AreaGroup {
-  area: string | null;
-  members: JobOrderPayrollMember[];
-}
-
-function groupByArea(members: JobOrderPayrollMember[]): AreaGroup[] {
-  const groups: AreaGroup[] = [];
-  for (const m of members) {
-    const last = groups[groups.length - 1];
-    if (last && last.area === m.area_name) {
-      last.members.push(m);
-    } else {
-      groups.push({ area: m.area_name, members: [m] });
-    }
-  }
-  return groups;
-}
-
 export function JobOrderPayrollMembersTable({
   payrollId,
   members,
@@ -76,8 +56,6 @@ export function JobOrderPayrollMembersTable({
     null,
   );
   const [removing, setRemoving] = useState(false);
-
-  const groups = groupByArea(members);
 
   const handleRemove = async () => {
     if (!removeTarget) return;
@@ -120,6 +98,7 @@ export function JobOrderPayrollMembersTable({
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
+                <TableHead>Area</TableHead>
                 <TableHead>Sub-area</TableHead>
                 <TableHead>LandBank ATM</TableHead>
                 <TableHead className="w-20">Days</TableHead>
@@ -132,26 +111,20 @@ export function JobOrderPayrollMembersTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {groups.map((g) => (
-                <Fragment key={g.area ?? "no-area"}>
-                  <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableCell colSpan={10} className="py-2 text-sm font-semibold">
-                      {g.area ?? "No area"}{" "}
-                      <span className="font-normal text-muted-foreground">
-                        ({g.members.length})
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                  {g.members.map((m) => (
-                    <MemberRow
-                      key={m.id}
-                      member={m}
-                      editable={editable}
-                      onRemove={() => setRemoveTarget(m)}
-                      onSaved={() => router.refresh()}
-                    />
-                  ))}
-                </Fragment>
+              {/* One flat list in the order loadMembers returns it: by name,
+                  the same order the printed payroll lists people in. Members
+                  used to be banded under area headings, which meant finding a
+                  name on screen and finding it on the printout were two
+                  different searches. Area is a column now instead, so nothing
+                  it carried is lost. */}
+              {members.map((m) => (
+                <MemberRow
+                  key={m.id}
+                  member={m}
+                  editable={editable}
+                  onRemove={() => setRemoveTarget(m)}
+                  onSaved={() => router.refresh()}
+                />
               ))}
             </TableBody>
           </Table>
@@ -273,6 +246,9 @@ function MemberRow({ member, editable, onRemove, onSaved }: MemberRowProps) {
             Roster link removed — snapshot preserved
           </p>
         )}
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        {member.area_name ?? "—"}
       </TableCell>
       <TableCell className="text-muted-foreground">
         {member.sub_area ?? "—"}
