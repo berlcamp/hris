@@ -308,7 +308,11 @@ function renderDraftWatermark(draft: boolean | undefined): string {
 
 const DAILY_WAGES_STYLES = `
   @page { size: legal landscape; margin: 0.3in; }
-  body { position: relative; font-family: "Times New Roman", Times, serif; font-size: 9pt; line-height: 1.2; color: #000; }
+  /* margin: 0 is load-bearing now that .payroll-page fills the sheet. The UA
+     stylesheet's default 8px body margin is inside the @page margin box, so
+     it steals 16px of the height the sheet is sized against and pushes the
+     footer's bottom border onto a sheet of its own. */
+  body { margin: 0; position: relative; font-family: "Times New Roman", Times, serif; font-size: 9pt; line-height: 1.2; color: #000; }
   ${WATERMARK_STYLES}
   .report-header { display: grid; grid-template-columns: 1fr 2fr 1fr; align-items: start; margin-bottom: 2px; }
   .report-header .center { text-align: center; }
