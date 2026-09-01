@@ -3,8 +3,8 @@
  * from the same member rows:
  *
  *   generateJoPayrollPrint        -> the DAILY WAGES PAYROLL form (below)
- *   generateJoPayrollSummaryPrint -> SUMMARY OF PAYROLLS, one line per daily
- *                                    rate, net amounts
+ *   generateJoPayrollSummaryPrint -> SUMMARY OF PAYROLLS, one line per printed
+ *                                    page of the form above, net amounts
  *   generateJoPayrollObrPrint     -> the Obligation Request, one form for the
  *                                    whole payroll at gross
  *
@@ -31,7 +31,7 @@
 import {
   computeJoGross,
   computeJoOvertimeGross,
-  groupMembersByRate,
+  paginateDailyWages,
 } from "@/lib/job-order-payroll-helpers";
 import type { JobOrderPayrollPrintRow } from "@/lib/job-order-payroll-helpers";
 import { generatePayrollOBRPrint } from "@/lib/pdf/generatePayroll";
@@ -339,6 +339,12 @@ const DAILY_WAGES_STYLES = `
   .foot-title { text-align: center; font-size: 9pt; }
   .foot-role { text-align: center; font-size: 8.5pt; margin-top: 6px; }
   .foot-line { text-align: center; margin-top: 38px; border-top: 1px solid #000; padding-top: 0; min-height: 1px; }
+  /* One .payroll-page per printed sheet. The break is forced rather than left
+     to the browser because the Summary of Payrolls numbers its lines after
+     these pages -- see DAILY_WAGES_ROWS_PER_PAGE. The :last-child rule keeps
+     the final break from emitting a trailing blank sheet. */
+  .payroll-page { break-after: page; page-break-after: always; }
+  .payroll-page:last-child { break-after: auto; page-break-after: auto; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 `;
 
@@ -405,65 +411,24 @@ function renderDailyWagesPayroll({
   draft,
 }: GenerateJoPayrollPrintParams): string {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
-  const sorted = [...rows].sort((a, b) => a.fullname.localeCompare(b.fullname));
-
-  let totalGross = 0;
-  let totalSs = 0;
-  let totalEc = 0;
-  let totalNet = 0;
-
-  const bodyRows = sorted
-    .map((m, i) => {
-      const daysPay = computeJoGross(m.rate, m.days);
-      const ratePerHour = (m.rate ?? 0) / 8;
-      const otPay = computeJoOvertimeGross(m.rate, m.hours);
-      const gross = daysPay + otPay;
-      const ss = showSss ? m.sss_ss ?? 0 : 0;
-      const ec = showSss ? m.sss_ec ?? 0 : 0;
-      const net = gross - ss - ec;
-
-      totalGross += gross;
-      totalSs += ss;
-      totalEc += ec;
-      totalNet += net;
-
-      const hasOt = (m.hours ?? 0) > 0;
-
-      const trailingCells = withAtm
-        ? `<td class="text-center">${escapeHtml(m.account_number)}</td>`
-        : `<td class="text-center">${escapeHtml(m.tax_number)}</td>
-          <td class="text-center">${escapeHtml(m.tax_date)}</td>
-          <td class="text-center">${escapeHtml(m.tax_issued)}</td>`;
-
-      return `
-        <tr>
-          <td class="text-center">${i + 1}</td>
-          <td class="text-left">${escapeHtml(m.fullname)}</td>
-          <td class="text-center">JOB ORDER</td>
-          <td class="text-center">${m.days ?? ""}</td>
-          <td class="text-right">${fmtInt(m.rate)}</td>
-          <td class="text-right">${fmt(daysPay)}</td>
-          <td class="text-center">${hasOt ? fmt(m.hours) : ""}</td>
-          <td class="text-right">${hasOt ? fmt(ratePerHour) : ""}</td>
-          <td class="text-right">${hasOt ? fmt(otPay) : ""}</td>
-          <td class="text-right">${fmt(gross)}</td>
-          <td class="text-right">${showSss ? fmtInt(m.sss_ss) : ""}</td>
-          <td class="text-right">${showSss ? fmtInt(m.sss_ec) : ""}</td>
-          <td class="text-right">${fmt(net)}</td>
-          <td class="signature-cell"><span class="sig-num">${i + 1}</span></td>
-          ${trailingCells}
-        </tr>`;
-    })
-    .join("");
+  // Sorted by name and cut into printed pages by the same function the Summary
+  // of Payrolls uses, so its numbered lines always describe these pages.
+  const pages = paginateDailyWages(rows);
 
   // NO. through SIGNATURE — identical in both variants.
   const leadingColWidths = [
     "0.4in", "1.9in", "0.85in", "0.55in", "0.5in", "0.85in", "0.6in",
     "0.55in", "0.7in", "0.85in", "0.45in", "0.45in", "0.85in", "1.1in",
   ];
+  // Community Tax group, sized against the roster's real values rather than
+  // the header labels: NUMBER holds an 8-digit CTC serial, DATE a 10-character
+  // ISO date, and PLACE ISSUED "OZAMIZ CITY". It used to be 0.9 / 0.75 / 0.6,
+  // which starved PLACE ISSUED into wrapping to two lines on EVERY row and
+  // made this layout hold barely half the names per page that the ATM one
+  // does. Same 2.25in total, so nothing else on the form moves.
   const colgroup = [
     ...leadingColWidths,
-    ...(withAtm ? ["1.1in"] : ["0.9in", "0.75in", "0.6in"]),
+    ...(withAtm ? ["1.1in"] : ["0.6in", "0.7in", "0.95in"]),
   ]
     .map((w) => `<col style="width:${w}">`)
     .join("");
@@ -477,10 +442,144 @@ function renderDailyWagesPayroll({
     ? ""
     : `<th>Number</th><th>Date</th><th>Place Issued</th>`;
 
-  // Trailing blanks on SUB TOTAL: signature + (ATM | the three CT columns).
-  const trailingSubtotalCells = withAtm
+  // Trailing blanks on a totals row: signature + (ATM | the three CT columns).
+  const trailingTotalCells = withAtm
     ? `<td></td><td></td>`
     : `<td></td><td></td><td></td><td></td>`;
+
+  const totalsRow = (
+    label: string,
+    gross: number,
+    ss: number,
+    ec: number,
+    net: number,
+  ): string => `
+      <tr class="subtotal">
+        <td></td>
+        <td class="text-left">${label}</td>
+        <td colspan="7"></td>
+        <td class="text-right">${fmt(gross)}</td>
+        <td class="text-right">${showSss ? fmt(ss) : ""}</td>
+        <td class="text-right">${showSss ? fmt(ec) : ""}</td>
+        <td class="text-right">${fmt(net)}</td>
+        ${trailingTotalCells}
+      </tr>`;
+
+  // NO. runs unbroken across pages: it numbers the payee on the payroll, not
+  // the line on the sheet.
+  let rowNumber = 0;
+  let grandGross = 0;
+  let grandSs = 0;
+  let grandEc = 0;
+  let grandNet = 0;
+
+  const pageBlocks = pages.map((page, pageIndex) => {
+    const isLastPage = pageIndex === pages.length - 1;
+
+    let pageGross = 0;
+    let pageSs = 0;
+    let pageEc = 0;
+    let pageNet = 0;
+
+    const bodyRows = page.members
+      .map((m) => {
+        rowNumber += 1;
+        const daysPay = computeJoGross(m.rate, m.days);
+        const ratePerHour = (m.rate ?? 0) / 8;
+        const otPay = computeJoOvertimeGross(m.rate, m.hours);
+        const gross = daysPay + otPay;
+        const ss = showSss ? m.sss_ss ?? 0 : 0;
+        const ec = showSss ? m.sss_ec ?? 0 : 0;
+        const net = gross - ss - ec;
+
+        pageGross += gross;
+        pageSs += ss;
+        pageEc += ec;
+        pageNet += net;
+
+        const hasOt = (m.hours ?? 0) > 0;
+
+        const trailingCells = withAtm
+          ? `<td class="text-center">${escapeHtml(m.account_number)}</td>`
+          : `<td class="text-center">${escapeHtml(m.tax_number)}</td>
+          <td class="text-center">${escapeHtml(m.tax_date)}</td>
+          <td class="text-center">${escapeHtml(m.tax_issued)}</td>`;
+
+        return `
+        <tr>
+          <td class="text-center">${rowNumber}</td>
+          <td class="text-left">${escapeHtml(m.fullname)}</td>
+          <td class="text-center">JOB ORDER</td>
+          <td class="text-center">${m.days ?? ""}</td>
+          <td class="text-right">${fmtInt(m.rate)}</td>
+          <td class="text-right">${fmt(daysPay)}</td>
+          <td class="text-center">${hasOt ? fmt(m.hours) : ""}</td>
+          <td class="text-right">${hasOt ? fmt(ratePerHour) : ""}</td>
+          <td class="text-right">${hasOt ? fmt(otPay) : ""}</td>
+          <td class="text-right">${fmt(gross)}</td>
+          <td class="text-right">${showSss ? fmtInt(m.sss_ss) : ""}</td>
+          <td class="text-right">${showSss ? fmtInt(m.sss_ec) : ""}</td>
+          <td class="text-right">${fmt(net)}</td>
+          <td class="signature-cell"><span class="sig-num">${rowNumber}</span></td>
+          ${trailingCells}
+        </tr>`;
+      })
+      .join("");
+
+    grandGross += pageGross;
+    grandSs += pageSs;
+    grandEc += pageEc;
+    grandNet += pageNet;
+
+    // SUB TOTAL closes every page — it is this page's money, and the Summary's
+    // line for this page carries the same figure. The grand TOTAL is added
+    // only when there is more than one page to add up; a single-page payroll
+    // prints exactly the one SUB TOTAL it always has.
+    const grandTotalRow =
+      isLastPage && pages.length > 1
+        ? totalsRow("TOTAL", grandGross, grandSs, grandEc, grandNet)
+        : "";
+
+    return `
+  <div class="payroll-page">
+    ${renderDailyWagesHeader(periodHeader)}
+    <table class="payroll">
+      <colgroup>${colgroup}</colgroup>
+      <thead>
+        <tr>
+          <th rowspan="3">NO.</th>
+          <th rowspan="3">NAME</th>
+          <th rowspan="3">Designation</th>
+          <th rowspan="3">No. of Days Worked</th>
+          <th rowspan="3">Rate Per Day</th>
+          <th rowspan="3">Total Pay on Days Worked</th>
+          <th rowspan="3">Add'l Time Services</th>
+          <th rowspan="3">Rate per Hour</th>
+          <th rowspan="3">Overtime Pay</th>
+          <th rowspan="3">GROSS PAY</th>
+          <th colspan="2">DEDUCTIONS</th>
+          <th rowspan="3">NET PAY</th>
+          <th rowspan="3">SIGNATURE</th>
+          ${trailingHeader}
+        </tr>
+        <tr>
+          <th colspan="2">SSS</th>
+        </tr>
+        <tr>
+          <th>SS</th>
+          <th>EC</th>
+          ${trailingSubHeader}
+        </tr>
+      </thead>
+      <tbody>
+        ${bodyRows}
+        ${totalsRow("SUB TOTAL", pageGross, pageSs, pageEc, pageNet)}
+        ${grandTotalRow}
+      </tbody>
+    </table>
+    ${isLastPage ? renderDailyWagesFooter() : ""}
+  </div>`;
+  });
 
   return `<!DOCTYPE html>
 <html>
@@ -488,50 +587,7 @@ function renderDailyWagesPayroll({
 <style>${DAILY_WAGES_STYLES}</style></head>
 <body>
   ${renderDraftWatermark(draft)}
-  ${renderDailyWagesHeader(periodHeader)}
-  <table class="payroll">
-    <colgroup>${colgroup}</colgroup>
-    <thead>
-      <tr>
-        <th rowspan="3">NO.</th>
-        <th rowspan="3">NAME</th>
-        <th rowspan="3">Designation</th>
-        <th rowspan="3">No. of Days Worked</th>
-        <th rowspan="3">Rate Per Day</th>
-        <th rowspan="3">Total Pay on Days Worked</th>
-        <th rowspan="3">Add'l Time Services</th>
-        <th rowspan="3">Rate per Hour</th>
-        <th rowspan="3">Overtime Pay</th>
-        <th rowspan="3">GROSS PAY</th>
-        <th colspan="2">DEDUCTIONS</th>
-        <th rowspan="3">NET PAY</th>
-        <th rowspan="3">SIGNATURE</th>
-        ${trailingHeader}
-      </tr>
-      <tr>
-        <th colspan="2">SSS</th>
-      </tr>
-      <tr>
-        <th>SS</th>
-        <th>EC</th>
-        ${trailingSubHeader}
-      </tr>
-    </thead>
-    <tbody>
-      ${bodyRows}
-      <tr class="subtotal">
-        <td></td>
-        <td class="text-left">SUB TOTAL</td>
-        <td colspan="7"></td>
-        <td class="text-right">${fmt(totalGross)}</td>
-        <td class="text-right">${showSss ? fmt(totalSs) : ""}</td>
-        <td class="text-right">${showSss ? fmt(totalEc) : ""}</td>
-        <td class="text-right">${fmt(totalNet)}</td>
-        ${trailingSubtotalCells}
-      </tr>
-    </tbody>
-  </table>
-  ${renderDailyWagesFooter()}
+  ${pageBlocks.join("\n")}
 </body></html>`;
 }
 
@@ -544,11 +600,18 @@ export function generateJoPayrollPrint(
 // ---------------------------------------------------------------------------
 // Summary of Payrolls
 // ---------------------------------------------------------------------------
-// One line per distinct daily rate — the "payroll number" on this form is the
-// rate group's position, not a database id. Amounts are NET (gross less the
-// SSS shares), which is why `showSss` reaches this document too: with the
-// deductions switched off, net collapses back to gross and the two amount
-// columns still agree with the Daily Wages form's NET PAY column.
+// One line per printed page of the Daily Wages Payroll — the "payroll number"
+// on this form is the page's position, not a database id. It used to be one
+// line per distinct daily rate, which had nothing to do with how the payroll
+// actually prints: a twelve-member payroll that fits on a single page was
+// summarized as payrolls 1 and 2 because those twelve people happened to be on
+// two different rates. Both documents now cut their pages with
+// `paginateDailyWages`, so the count and the order cannot drift apart.
+//
+// Amounts are NET (gross less the SSS shares), which is why `showSss` reaches
+// this document too: with the deductions switched off, net collapses back to
+// gross and the two amount columns still agree with the Daily Wages form's
+// SUB TOTAL for the same page.
 //
 // "Amount paid on payroll" repeats the amount and "Amount unpaid on rolls" is
 // left blank: nothing in this module tracks partial disbursement, so the
@@ -584,12 +647,12 @@ export function generateJoPayrollSummaryPrint({
   draft,
 }: GenerateJoPayrollPrintParams): void {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
-  const groups = groupMembersByRate(rows);
+  const pages = paginateDailyWages(rows);
 
   let total = 0;
-  const bodyRows = groups
-    .map((g, i) => {
-      const amount = showSss ? g.totalNet : g.totalGross;
+  const bodyRows = pages
+    .map((page, i) => {
+      const amount = showSss ? page.totalNet : page.totalGross;
       total += amount;
       return `
         <tr>
@@ -601,7 +664,7 @@ export function generateJoPayrollSummaryPrint({
     })
     .join("");
 
-  const fillerCount = Math.max(0, SUMMARY_BODY_ROWS - groups.length - 1);
+  const fillerCount = Math.max(0, SUMMARY_BODY_ROWS - pages.length - 1);
   const fillerRows = `<tr><td></td><td></td><td></td><td></td></tr>`.repeat(
     fillerCount,
   );

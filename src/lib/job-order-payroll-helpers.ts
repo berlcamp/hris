@@ -79,45 +79,93 @@ export interface JoPayrollMemberLike {
   sss_ec: number | null;
 }
 
-export interface JoPayrollGroup<M extends JoPayrollMemberLike> {
-  rate: number;
+/**
+ * The names on one printed page of the Daily Wages Payroll, with that page's
+ * money already added up.
+ */
+export interface JoPayrollPage<M extends JoPayrollMemberLike> {
   members: M[];
   totalGross: number;
   totalSss: number;
   totalNet: number;
 }
 
-export function groupMembersByRate<M extends JoPayrollMemberLike>(
+/**
+ * Names per printed page of the Daily Wages Payroll.
+ *
+ * This number is what makes the Summary of Payrolls truthful: each of its
+ * numbered lines is one page of the payroll, so the two documents only agree
+ * if the form breaks its pages where this says it does. `renderDailyWagesPayroll`
+ * therefore forces a break every N rows rather than leaving it to the browser,
+ * which neither document can predict.
+ *
+ * 15 is the office's number, and it fits both layouts with room to spare.
+ * Measured in Chromium at 96dpi with the roster's longest real names (31
+ * characters) and its real Community Tax values, on the last page — the only
+ * one carrying the signature footer and both totals rows:
+ *
+ *   page box (legal landscape less the 0.3in margins)   758px
+ *   title + agency/period block                          53px
+ *   table head (3 bands)                                 52px ATM / 64px not
+ *   15 body rows at 18.6px                              279px
+ *   SUB TOTAL, and TOTAL when the payroll spans pages   1-2 rows
+ *   signature footer, last page only                    139px
+ *   ------------------------------------------------------------
+ *                                                      ~560-572px
+ *
+ * The ~190px left over absorbs a dozen cells wrapping to a second line. Both
+ * layouts hold the same number only because the no-ATM Community Tax columns
+ * were rebalanced to stop PLACE ISSUED wrapping on every row — see the
+ * colgroup in generateJobOrderPayroll.ts. Raising this risks a page silently
+ * spilling onto a physical sheet the Summary does not know about, which is the
+ * whole defect this replaced. To re-measure after a layout change, render the
+ * form to HTML and compare `.payroll-page` heights against 758px.
+ */
+export const DAILY_WAGES_ROWS_PER_PAGE = 15;
+
+function summarizePage<M extends JoPayrollMemberLike>(
   members: M[],
-): JoPayrollGroup<M>[] {
-  const byRate = new Map<number, M[]>();
-  for (const m of members) {
-    const r = n(m.rate);
-    if (!byRate.has(r)) byRate.set(r, []);
-    byRate.get(r)!.push(m);
+): JoPayrollPage<M> {
+  const totalGross = members.reduce(
+    (s, m) =>
+      s + computeJoGross(m.rate, m.days) + computeJoOvertimeGross(m.rate, m.hours),
+    0,
+  );
+  const totalSss = members.reduce(
+    (s, m) => s + computeJoSssDeduction(m.sss_ss, m.sss_ec),
+    0,
+  );
+  return { members, totalGross, totalSss, totalNet: totalGross - totalSss };
+}
+
+/**
+ * Split the payroll into printed pages.
+ *
+ * Sorted by name first, because that is the order the Daily Wages form lists
+ * people in — a page of the Summary has to cover the same names as the page of
+ * the payroll it is numbered after. Both documents call this, so neither can
+ * drift from the other.
+ *
+ * A payroll with no members still returns one (empty) page: a draft with
+ * nobody on it yet still prints, and the Summary still needs its one zero
+ * line.
+ */
+export function paginateDailyWages<
+  M extends JoPayrollMemberLike & { fullname: string },
+>(
+  members: M[],
+  rowsPerPage: number = DAILY_WAGES_ROWS_PER_PAGE,
+): JoPayrollPage<M>[] {
+  const size = Math.max(1, Math.trunc(rowsPerPage));
+  const sorted = [...members].sort((a, b) =>
+    a.fullname.localeCompare(b.fullname),
+  );
+
+  const pages: JoPayrollPage<M>[] = [];
+  for (let i = 0; i < sorted.length; i += size) {
+    pages.push(summarizePage(sorted.slice(i, i + size)));
   }
-  return Array.from(byRate.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([rate, ms]) => {
-      const totalGross = ms.reduce(
-        (s, m) =>
-          s +
-          computeJoGross(m.rate, m.days) +
-          computeJoOvertimeGross(m.rate, m.hours),
-        0,
-      );
-      const totalSss = ms.reduce(
-        (s, m) => s + computeJoSssDeduction(m.sss_ss, m.sss_ec),
-        0,
-      );
-      return {
-        rate,
-        members: ms,
-        totalGross,
-        totalSss,
-        totalNet: totalGross - totalSss,
-      };
-    });
+  return pages.length > 0 ? pages : [summarizePage([])];
 }
 
 // ---------------------------------------------------------------------------

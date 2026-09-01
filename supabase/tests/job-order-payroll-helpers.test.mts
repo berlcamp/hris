@@ -17,7 +17,8 @@ import {
   computeJoGross,
   computeJoNetAmount,
   deriveAreasLabel,
-  groupMembersByRate,
+  DAILY_WAGES_ROWS_PER_PAGE,
+  paginateDailyWages,
   snapshotDiffersFromMember,
   summarizeMembers,
   toPayrollMemberSnapshot,
@@ -334,24 +335,96 @@ test("overtime alone, with no regular days, still produces net", () => {
   assert.equal(out.net, out.gross);
 });
 
-test("groupMembersByRate's group gross includes overtime", () => {
-  const [group] = groupMembersByRate([
-    { rate: 400, days: 10, hours: 8, sss_ss: 100, sss_ec: 10 },
-  ]);
-  assert.equal(group!.totalGross, 400 * 10 + (400 / 8) * 8);
-  assert.equal(group!.totalSss, 110);
-  assert.equal(group!.totalNet, group!.totalGross - 110);
+// ── paginateDailyWages ──────────────────────────────────────────────
+//
+// The bug this guards: the Summary of Payrolls numbers one line per printed
+// page of the Daily Wages form, but used to number one line per distinct daily
+// rate instead — so a twelve-member payroll that prints on a single page was
+// summarized as payrolls 1 and 2 the moment those twelve people sat on two
+// rates. Both documents now cut their pages here.
+
+function payee(fullname: string, rate = 400): {
+  fullname: string;
+  rate: number;
+  days: number;
+  hours: number | null;
+  sss_ss: number | null;
+  sss_ec: number | null;
+} {
+  return { fullname, rate, days: 10, hours: null, sss_ss: null, sss_ec: null };
+}
+
+function payees(count: number) {
+  // Zero-padded so lexical order is also numeric order.
+  return Array.from({ length: count }, (_, i) =>
+    payee(`Payee ${String(i).padStart(3, "0")}`),
+  );
+}
+
+test("a page holds the fifteen names the office asked for", () => {
+  assert.equal(DAILY_WAGES_ROWS_PER_PAGE, 15);
 });
 
-test("groupMembersByRate sorts ascending by rate", () => {
-  const groups = groupMembersByRate([
-    { rate: 500, days: 1, hours: null, sss_ss: null, sss_ec: null },
-    { rate: 400, days: 1, hours: null, sss_ss: null, sss_ec: null },
+test("a payroll that fits on one page is one page, whatever the rates are", () => {
+  const pages = paginateDailyWages([
+    ...payees(6),
+    ...payees(6).map((p) => ({ ...p, rate: 500 })),
   ]);
+  assert.equal(pages.length, 1);
+  assert.equal(pages[0]!.members.length, 12);
+});
+
+test("a payroll splits at DAILY_WAGES_ROWS_PER_PAGE, remainder on the last page", () => {
+  const pages = paginateDailyWages(payees(DAILY_WAGES_ROWS_PER_PAGE + 1));
   assert.deepEqual(
-    groups.map((g) => g.rate),
-    [400, 500],
+    pages.map((p) => p.members.length),
+    [DAILY_WAGES_ROWS_PER_PAGE, 1],
   );
+});
+
+test("an exactly-full page does not spill into an empty second page", () => {
+  assert.equal(paginateDailyWages(payees(DAILY_WAGES_ROWS_PER_PAGE)).length, 1);
+});
+
+test("a sixteenth name opens a second page", () => {
+  assert.equal(paginateDailyWages(payees(16)).length, 2);
+});
+
+test("pages are ordered by name, as the payroll form lists them", () => {
+  const pages = paginateDailyWages(
+    [payee("Zamora, Zeny"), payee("Abella, Ana"), payee("Molina, Mila")],
+    2,
+  );
+  assert.deepEqual(
+    pages.map((p) => p.members.map((m) => m.fullname)),
+    [["Abella, Ana", "Molina, Mila"], ["Zamora, Zeny"]],
+  );
+});
+
+test("a page's totals cover that page only, and the pages add up to the whole", () => {
+  const pages = paginateDailyWages(payees(3), 2);
+  assert.equal(pages[0]!.totalGross, 400 * 10 * 2);
+  assert.equal(pages[1]!.totalGross, 400 * 10);
+  assert.equal(
+    pages.reduce((s, p) => s + p.totalGross, 0),
+    400 * 10 * 3,
+  );
+});
+
+test("a page's gross includes overtime, and net is gross less the SSS shares", () => {
+  const [page] = paginateDailyWages([
+    { ...payee("Solo, Sol"), hours: 8, sss_ss: 100, sss_ec: 10 },
+  ]);
+  assert.equal(page!.totalGross, 400 * 10 + (400 / 8) * 8);
+  assert.equal(page!.totalSss, 110);
+  assert.equal(page!.totalNet, page!.totalGross - 110);
+});
+
+test("a payroll with no members is still one page, so the Summary has its zero line", () => {
+  const pages = paginateDailyWages([]);
+  assert.equal(pages.length, 1);
+  assert.equal(pages[0]!.members.length, 0);
+  assert.equal(pages[0]!.totalGross, 0);
 });
 
 // ── snapshotDiffersFromMember ───────────────────────────────────────
