@@ -107,6 +107,18 @@ export function jobOrderColumns(handlers: {
       cell: ({ row }) => fmtDate(row.getValue("date_started")),
     },
     {
+      accessorKey: "recommended_by",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="Recommended By" />
+      ),
+      cell: ({ row }) => {
+        const recommendedBy = row.getValue("recommended_by") as string | null;
+        return recommendedBy ?? (
+          <span className="text-muted-foreground">—</span>
+        );
+      },
+    },
+    {
       id: "has_atm",
       accessorFn: (row) => (row.has_atm ? "yes" : "no"),
       header: ({ column }) => (
