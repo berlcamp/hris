@@ -77,25 +77,17 @@ export function jobOrderPayrollColumns(handlers: {
       ),
     },
     {
-      id: "status",
-      header: "Status",
-      cell: ({ row }) => (
-        <div className="flex gap-1">
+      id: "reconstructed",
+      header: "",
+      cell: ({ row }) =>
+        row.original.is_reconstructed ? (
           <Badge
-            variant={row.original.status === "finalized" ? "default" : "secondary"}
+            variant="outline"
+            title="Imported from the legacy system and priced at the employee's rate at import time — a reconstruction, not the original record."
           >
-            {row.original.status === "finalized" ? "Finalized" : "Draft"}
+            Reconstructed
           </Badge>
-          {row.original.is_reconstructed && (
-            <Badge
-              variant="outline"
-              title="Imported from the legacy system and priced at the employee's rate at import time — a reconstruction, not the original record."
-            >
-              Reconstructed
-            </Badge>
-          )}
-        </div>
-      ),
+        ) : null,
     },
     {
       id: "payroll_date",

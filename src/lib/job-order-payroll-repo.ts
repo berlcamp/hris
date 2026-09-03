@@ -50,8 +50,8 @@ const PAGE_SIZE = 1000;
  *
  * Paged with `.range()` in chunks of 1000 because supabase/config.toml caps
  * PostgREST's max_rows at 1000 — an area-picker payroll can snapshot ~578
- * active JOs today, and this result feeds mutations (duplicate, finalize's
- * empty-check), not just display, so a silent
+ * active JOs today, and this result feeds mutations (duplicate), not just
+ * display, so a silent
  * truncation here is worse than the same cap on a read-only list. Same
  * pattern as `loadJobOrdersForSnapshot` below. `full_name` does not uniquely
  * order rows, so `id` is appended as a tiebreaker to keep page boundaries
@@ -184,7 +184,7 @@ export interface LegacyUpsertOutcome {
  * Two properties this exists to hold, both load-bearing:
  *
  *  1. `ignoreDuplicates: true` makes this insert-or-skip, never overwrite. A
- *     finalized payroll is an issued government record; a second run of the
+ *     migrated payroll is an issued government record; a second run of the
  *     importer must never re-price it at whatever the roster says months
  *     later (I3 in the final review). The caller also pre-filters existing
  *     `legacy_id`s in JS — this is the belt-and-suspenders half, and the only
@@ -233,7 +233,7 @@ export async function upsertLegacyChunks<Row extends { legacy_id: number }>(
 /**
  * `legacy_id -> id` for every row of `table` whose `legacy_id` is in
  * `legacyIds`. Used two ways: to decide which rows to SKIP on a re-run (I3 —
- * a finalized payroll must never be rewritten at whatever the roster says
+ * a migrated payroll must never be rewritten at whatever the roster says
  * later), and, for payrolls specifically, to resolve member rows' parent FK
  * even when that parent payroll already existed and was skipped this run
  * rather than freshly inserted.

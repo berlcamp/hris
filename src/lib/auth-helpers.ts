@@ -345,13 +345,13 @@ function modulePayrollSwitchOn(actor: ModulePayrollActor): boolean {
 }
 
 /**
- * May this account create, edit, finalize or duplicate a Job Order payroll,
- * and add/edit/remove its members?
+ * May this account create, edit or duplicate a Job Order payroll, and
+ * add/edit/remove its members?
  *
  * Reading a payroll is NOT gated by this — a JO Manager with the switch off
  * still opens the list and detail pages and still prints. super_admin and
- * hr_admin are unaffected. Reopening and deleting remain super_admin-only via
- * canReopenOrDeletePayroll, which this does not widen.
+ * hr_admin are unaffected. Deleting remains super_admin-only via
+ * canDeletePayroll, which this does not widen.
  */
 export function canManageJobOrderPayroll(actor: ModulePayrollActor): boolean {
   // The switch qualifies the MODULE-MANAGER grant, not the account. An account

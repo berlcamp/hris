@@ -10,13 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -74,13 +67,12 @@ export function JobOrderPayrollListClient({
   const sp = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  // `q`/`status`/`from`/`to` are not passed as props — the page component
+  // `q`/`from`/`to` are not passed as props — the page component
   // only computes `page` server-side (see page.tsx). The rest of the filter
   // bar reads its initial values straight off the URL, same idea as
   // cos-payroll-list-client's `initialFrom`/`initialTo` props but without the
   // extra prop plumbing.
   const [search, setSearch] = useState(sp.get("q") ?? "");
-  const [status, setStatus] = useState(sp.get("status") ?? "all");
   const [from, setFrom] = useState(sp.get("from") ?? "");
   const [to, setTo] = useState(sp.get("to") ?? "");
 
@@ -91,15 +83,13 @@ export function JobOrderPayrollListClient({
   // navigation while the table underneath shows different rows. `updateUrl`
   // remains the only writer of the URL; this only ever reads from it.
   const spQ = sp.get("q") ?? "";
-  const spStatus = sp.get("status") ?? "all";
   const spFrom = sp.get("from") ?? "";
   const spTo = sp.get("to") ?? "";
   useEffect(() => {
     setSearch(spQ);
-    setStatus(spStatus);
     setFrom(spFrom);
     setTo(spTo);
-  }, [spQ, spStatus, spFrom, spTo]);
+  }, [spQ, spFrom, spTo]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [duplicateSource, setDuplicateSource] =
@@ -131,25 +121,17 @@ export function JobOrderPayrollListClient({
 
   const applySearch = () => updateUrl({ q: search || undefined, page: "1" });
 
-  const onStatusChange = (value: string | null) => {
-    if (!value) return;
-    setStatus(value);
-    updateUrl({ status: value === "all" ? undefined : value, page: "1" });
-  };
-
   const applyPeriod = () =>
     updateUrl({ from: from || undefined, to: to || undefined, page: "1" });
 
   const clearFilters = () => {
     setSearch("");
-    setStatus("all");
     setFrom("");
     setTo("");
-    updateUrl({ q: undefined, status: undefined, from: undefined, to: undefined, page: "1" });
+    updateUrl({ q: undefined, from: undefined, to: undefined, page: "1" });
   };
 
-  const filtersActive =
-    !!sp.get("q") || !!sp.get("status") || !!sp.get("from") || !!sp.get("to");
+  const filtersActive = !!sp.get("q") || !!sp.get("from") || !!sp.get("to");
 
   const handleDelete = async () => {
     if (!deleteTarget || !deleteUnlocked) return;
@@ -204,25 +186,6 @@ export function JobOrderPayrollListClient({
             <Search className="h-4 w-4" />
           </Button>
         </div>
-
-        <Select
-          value={status}
-          items={[
-            { value: "all", label: "All" },
-            { value: "draft", label: "Draft" },
-            { value: "finalized", label: "Finalized" },
-          ]}
-          onValueChange={onStatusChange}
-        >
-          <SelectTrigger className="h-8 w-[130px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
-            <SelectItem value="finalized">Finalized</SelectItem>
-          </SelectContent>
-        </Select>
 
         <div className="flex items-center gap-1">
           <Input

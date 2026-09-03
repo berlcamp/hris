@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Loader2, Lock, LockOpen, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,11 +23,7 @@ import {
 import { JobOrderPayrollMembersTable } from "./job-order-payroll-members-table";
 import { JobOrderPayrollEditDialog } from "./job-order-payroll-edit-dialog";
 import { JobOrderPayrollPrintMenu } from "./job-order-payroll-print-menu";
-import {
-  deleteJobOrderPayroll,
-  finalizeJobOrderPayroll,
-  reopenJobOrderPayroll,
-} from "@/lib/actions/job-order-payroll-actions";
+import { deleteJobOrderPayroll } from "@/lib/actions/job-order-payroll-actions";
 import { refreshJobOrderPayrollMembers } from "@/lib/actions/job-order-payroll-member-actions";
 import type { JobOrderPayroll, JobOrderPayrollMember } from "@/lib/types";
 
@@ -62,13 +58,8 @@ export function JobOrderPayrollDetailClient({
   canEdit,
 }: JobOrderPayrollDetailClientProps) {
   const router = useRouter();
-  const isDraft = payroll.status === "draft";
 
   const [editOpen, setEditOpen] = useState(false);
-  const [finalizeConfirmOpen, setFinalizeConfirmOpen] = useState(false);
-  const [finalizing, setFinalizing] = useState(false);
-  const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false);
-  const [reopening, setReopening] = useState(false);
   const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -76,46 +67,6 @@ export function JobOrderPayrollDetailClient({
   const [deleting, setDeleting] = useState(false);
 
   const deleteUnlocked = deleteConfirmText === DELETE_CONFIRM_PHRASE;
-
-  const handleFinalize = async () => {
-    setFinalizing(true);
-    try {
-      const result = await finalizeJobOrderPayroll(payroll.id);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("Payroll finalized.");
-      setFinalizeConfirmOpen(false);
-      router.refresh();
-    } catch {
-      toast.error(
-        "Something went wrong finalizing this payroll. Please try again.",
-      );
-    } finally {
-      setFinalizing(false);
-    }
-  };
-
-  const handleReopen = async () => {
-    setReopening(true);
-    try {
-      const result = await reopenJobOrderPayroll(payroll.id);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("Payroll reopened.");
-      setReopenConfirmOpen(false);
-      router.refresh();
-    } catch {
-      toast.error(
-        "Something went wrong reopening this payroll. Please try again.",
-      );
-    } finally {
-      setReopening(false);
-    }
-  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -175,9 +126,6 @@ export function JobOrderPayrollDetailClient({
             <h1 className="text-2xl font-semibold tracking-tight">
               {fmtDate(payroll.period_start)} – {fmtDate(payroll.period_end)}
             </h1>
-            <Badge variant={isDraft ? "secondary" : "default"}>
-              {isDraft ? "Draft" : "Finalized"}
-            </Badge>
             {payroll.is_reconstructed && (
               <Badge
                 variant="outline"
@@ -212,7 +160,7 @@ export function JobOrderPayrollDetailClient({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {isDraft && canEdit && (
+          {canEdit && (
             <Button
               variant="outline"
               size="sm"
@@ -222,7 +170,7 @@ export function JobOrderPayrollDetailClient({
               Edit details
             </Button>
           )}
-          {isDraft && canEdit && (
+          {canEdit && (
             <Button
               variant="outline"
               size="sm"
@@ -230,26 +178,6 @@ export function JobOrderPayrollDetailClient({
             >
               <RefreshCw className="h-4 w-4" />
               Refresh from roster
-            </Button>
-          )}
-          {isDraft && canEdit && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setFinalizeConfirmOpen(true)}
-            >
-              <Lock className="h-4 w-4" />
-              Finalize
-            </Button>
-          )}
-          {!isDraft && isSuperAdmin && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setReopenConfirmOpen(true)}
-            >
-              <LockOpen className="h-4 w-4" />
-              Reopen
             </Button>
           )}
           {isSuperAdmin && (
@@ -263,18 +191,14 @@ export function JobOrderPayrollDetailClient({
             </Button>
           )}
 
-          <JobOrderPayrollPrintMenu
-            payroll={payroll}
-            members={members}
-            isDraft={isDraft}
-          />
+          <JobOrderPayrollPrintMenu payroll={payroll} members={members} />
         </div>
       </div>
 
       <JobOrderPayrollMembersTable
         payrollId={payroll.id}
         members={members}
-        editable={isDraft && canEdit}
+        editable={canEdit}
       />
 
       <JobOrderPayrollEditDialog
@@ -282,29 +206,6 @@ export function JobOrderPayrollDetailClient({
         onOpenChange={setEditOpen}
         payroll={payroll}
       />
-
-      <AlertDialog
-        open={finalizeConfirmOpen}
-        onOpenChange={setFinalizeConfirmOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Finalize this payroll?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Finalizing makes this payroll read-only — members, rates, and
-              metadata can no longer be edited. Only a super admin can reopen
-              it afterward.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={finalizing}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleFinalize} disabled={finalizing}>
-              {finalizing && <Loader2 className="h-4 w-4 animate-spin" />}
-              Finalize
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog
         open={refreshConfirmOpen}
@@ -331,25 +232,6 @@ export function JobOrderPayrollDetailClient({
             <AlertDialogAction onClick={handleRefresh} disabled={refreshing}>
               {refreshing && <Loader2 className="h-4 w-4 animate-spin" />}
               Refresh
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={reopenConfirmOpen} onOpenChange={setReopenConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Reopen this payroll?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This returns the payroll to draft so members and metadata can be
-              edited again.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={reopening}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleReopen} disabled={reopening}>
-              {reopening && <Loader2 className="h-4 w-4 animate-spin" />}
-              Reopen
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

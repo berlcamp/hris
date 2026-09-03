@@ -25,7 +25,6 @@ import type { JobOrderPayroll, JobOrderPayrollMember } from "@/lib/types";
 interface JobOrderPayrollPrintMenuProps {
   payroll: JobOrderPayroll;
   members: JobOrderPayrollMember[];
-  isDraft: boolean;
 }
 
 /**
@@ -48,7 +47,6 @@ interface JobOrderPayrollPrintMenuProps {
 export function JobOrderPayrollPrintMenu({
   payroll,
   members,
-  isDraft,
 }: JobOrderPayrollPrintMenuProps) {
   // Base UI's checkbox items do not close the menu on click (closeOnClick
   // defaults to false), so both toggles and the Print Payroll click happen in
@@ -63,7 +61,6 @@ export function JobOrderPayrollPrintMenu({
     particulars: payroll.particulars,
     withAtm,
     showSss: includeSss,
-    draft: isDraft,
   };
 
   return (

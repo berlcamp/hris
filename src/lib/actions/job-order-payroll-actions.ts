@@ -13,8 +13,8 @@ import {
   toPayrollMemberSnapshot,
 } from "@/lib/job-order-payroll-helpers";
 import {
-  assertDraft,
-  canReopenOrDeletePayroll,
+  assertWritable,
+  canDeletePayroll,
 } from "@/lib/job-order-payroll-guards";
 import {
   loadJobOrdersForSnapshot,
@@ -51,10 +51,8 @@ import type {
 
 /**
  * Deletes a just-created payroll row after its member insert failed, so a
- * zero-member draft isn't left stranded (finalizeJobOrderPayroll refuses to
- * finalize an empty payroll, so it would otherwise sit inert forever with no
- * normal-use path to clean it up). Logged, not thrown: the caller already has
- * the original insert error to surface and must still return it.
+ * zero-member payroll isn't left stranded. Logged, not thrown: the caller
+ * already has the original insert error to surface and must still return it.
  */
 async function cleanupOrphanedPayroll(
   supabase: ReturnType<typeof createAdminClient>,
@@ -72,8 +70,8 @@ async function cleanupOrphanedPayroll(
   }
 }
 
-// `assertDraft` (the shared draft guard used below and by
-// job-order-payroll-member-actions.ts) now lives in the plain,
+// `assertWritable` (the shared write guard used below and by
+// job-order-payroll-member-actions.ts) lives in the plain,
 // non-`"use server"` `@/lib/job-order-payroll-guards` module so its decision
 // logic can be unit-tested without a Supabase client — see
 // supabase/tests/job-order-payroll-guards.test.mts. Imported at the top of
@@ -82,7 +80,6 @@ async function cleanupOrphanedPayroll(
 // ── Reads ────────────────────────────────────────────────────────────
 
 export interface JobOrderPayrollFilters {
-  status?: "draft" | "finalized" | "all";
   periodFrom?: string | null;
   periodTo?: string | null;
   search?: string | null;
@@ -117,9 +114,6 @@ export async function getJobOrderPayrolls(
     .order("period_start", { ascending: false })
     .order("period_end", { ascending: false });
 
-  if (filters.status && filters.status !== "all") {
-    query = query.eq("status", filters.status);
-  }
   if (filters.periodFrom) query = query.gte("period_end", filters.periodFrom);
   if (filters.periodTo) query = query.lte("period_start", filters.periodTo);
   if (filters.search?.trim()) {
@@ -387,7 +381,7 @@ export async function updateJobOrderPayroll(
   }
 
   const supabase = createAdminClient();
-  const blocked = await assertDraft(supabase, id);
+  const blocked = await assertWritable(supabase, id);
   if (blocked) return { error: blocked };
 
   const v = parsed.data;
@@ -521,102 +515,12 @@ export async function duplicateJobOrderPayroll(
   return { data: { id: newId } };
 }
 
-export async function finalizeJobOrderPayroll(
-  id: string,
-): Promise<{ success?: true; error?: string }> {
-  const user = await getCurrentUser();
-  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
-    return { error: "Unauthorized" };
-  }
-
-  const supabase = createAdminClient();
-  const blocked = await assertDraft(supabase, id);
-  if (blocked) return { error: blocked };
-
-  const members = await loadMembers(supabase, id);
-  if (members.length === 0) {
-    return { error: "Cannot finalize a payroll with no members" };
-  }
-
-  const { error } = await supabase
-    .schema("hris")
-    .from("job_order_payrolls")
-    .update({
-      status: "finalized",
-      finalized_at: new Date().toISOString(),
-      finalized_by: user!.id,
-      updated_by: user!.id,
-    })
-    .eq("id", id);
-  if (error) return { error: error.message };
-
-  await logAudit({
-    userId: user!.id,
-    userEmail: user!.email,
-    action: "finalize",
-    tableName: "job_order_payrolls",
-    recordId: id,
-    newValues: { members: members.length },
-  });
-
-  revalidatePath("/job-orders/payroll");
-  revalidatePath(`/job-orders/payroll/${id}`);
-  return { success: true };
-}
-
-/** super_admin only. Unlocks an issued record, so it is audited explicitly. */
-export async function reopenJobOrderPayroll(
-  id: string,
-): Promise<{ success?: true; error?: string }> {
-  const user = await getCurrentUser();
-  if (!canReopenOrDeletePayroll(user?.roles)) return { error: "Unauthorized" };
-
-  const supabase = createAdminClient();
-  const { data: current, error: readErr } = await supabase
-    .schema("hris")
-    .from("job_order_payrolls")
-    .select("status, finalized_at, finalized_by")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (readErr) return { error: readErr.message };
-  if (!current) return { error: "Payroll not found" };
-  if ((current as { status: string }).status !== "finalized") {
-    return { error: "This payroll is already a draft" };
-  }
-
-  const { error } = await supabase
-    .schema("hris")
-    .from("job_order_payrolls")
-    .update({
-      status: "draft",
-      finalized_at: null,
-      finalized_by: null,
-      updated_by: user!.id,
-    })
-    .eq("id", id);
-  if (error) return { error: error.message };
-
-  await logAudit({
-    userId: user!.id,
-    userEmail: user!.email,
-    action: "reopen",
-    tableName: "job_order_payrolls",
-    recordId: id,
-    oldValues: current as unknown as Record<string, unknown>,
-  });
-
-  revalidatePath("/job-orders/payroll");
-  revalidatePath(`/job-orders/payroll/${id}`);
-  return { success: true };
-}
-
 /** super_admin only, soft delete. */
 export async function deleteJobOrderPayroll(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
   const user = await getCurrentUser();
-  if (!canReopenOrDeletePayroll(user?.roles)) return { error: "Unauthorized" };
+  if (!canDeletePayroll(user?.roles)) return { error: "Unauthorized" };
 
   const supabase = createAdminClient();
   // Only soft-delete a row that is actually there and not already deleted, so

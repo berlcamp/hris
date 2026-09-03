@@ -82,8 +82,6 @@ export interface GenerateJoPayrollPrintParams {
    * payroll whose net pay quietly disagrees with the members table.
    */
   showSss: boolean;
-  /** Renders a diagonal DRAFT watermark. Set when payroll.status === "draft". */
-  draft?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,62 +240,7 @@ function printHTMLContent(htmlContent: string): void {
 
 // This module renders each printable as an HTML string played through an
 // iframe's native print (`printHTMLContent`), not @react-pdf/renderer — that
-// library is used elsewhere under src/components/pdf/ but not here. The
-// watermark below is the HTML/CSS equivalent of the brief's react-pdf
-// <Text style={{position:"absolute", transform:"rotate(-30deg)"}}> snippet:
-// same visual result (centered, rotated, translucent grey "DRAFT"), just
-// expressed in the DOM this file actually builds.
-//
-// Getting it BEHIND the table is not a matter of DOM order the way it is in
-// react-pdf's sequential-canvas model. In real CSS, a positioned descendant
-// with z-index: auto or >= 0 paints above non-positioned in-flow siblings
-// regardless of where it sits in the markup — so being "first child" alone
-// would still paint on top of the table, not behind it. `z-index: -1` is
-// what actually pushes it below: per the CSS painting order, a negative
-// z-index descendant paints above its stacking-context root's own
-// background/border but below that root's non-positioned in-flow content
-// (here, the table). `.draft-watermark`'s stacking-context root is `body`,
-// which sets no background-color, so there is nothing opaque for the
-// watermark to sink beneath.
-//
-// `position: fixed`, verified against a real multi-page print (Task 8): the
-// payroll renders exactly one `.draft-watermark` div for the ENTIRE document,
-// positioned `top: 45%` of `body`. With `position: absolute` that 45% is
-// relative to the whole flowed document's height, not each physical page, so
-// on a payroll spanning N printed pages the watermark only ever lands once,
-// on whichever single page happens to sit at the document's vertical
-// midpoint — confirmed by rendering a 150-row payroll to a 5-page PDF: pages
-// 1, 2, 4 and 5 came back completely unmarked, only page 3 (the midpoint)
-// showed it. `position: fixed` is anchored to each page box during paginated
-// media instead of the document's total height, so browsers repaint it on
-// every physical page — confirmed by re-rendering the same 5-page PDF after
-// this change: all 5 pages now show it.
-const WATERMARK_STYLES = `
-  .draft-watermark {
-    position: fixed;
-    top: 45%;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font-size: 72pt;
-    color: #e5e5e5;
-    transform: rotate(-30deg);
-    opacity: 0.5;
-    pointer-events: none;
-    z-index: -1;
-  }
-`;
-
-/**
- * Rendered first inside `<body>`. DOM order doesn't matter for stacking here —
- * `.draft-watermark`'s negative z-index (see WATERMARK_STYLES above) is what
- * actually keeps it behind the table. Returns "" (not rendered) when not
- * draft.
- */
-function renderDraftWatermark(draft: boolean | undefined): string {
-  if (!draft) return "";
-  return `<div class="draft-watermark">DRAFT</div>`;
-}
+// library is used elsewhere under src/components/pdf/ but not here.
 
 // ---------------------------------------------------------------------------
 // Daily Wages Payroll (LGU Ozamiz template)
@@ -313,7 +256,6 @@ const DAILY_WAGES_STYLES = `
      it steals 16px of the height the sheet is sized against and pushes the
      footer's bottom border onto a sheet of its own. */
   body { margin: 0; position: relative; font-family: "Times New Roman", Times, serif; font-size: 9pt; line-height: 1.2; color: #000; }
-  ${WATERMARK_STYLES}
   .report-header { display: grid; grid-template-columns: 1fr 2fr 1fr; align-items: start; margin-bottom: 2px; }
   .report-header .center { text-align: center; }
   .report-header .right { text-align: center; }
@@ -436,7 +378,6 @@ function renderDailyWagesPayroll({
   periodEnd,
   withAtm,
   showSss,
-  draft,
 }: GenerateJoPayrollPrintParams): string {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   // Sorted by name and cut into printed pages by the same function the Summary
@@ -634,7 +575,6 @@ function renderDailyWagesPayroll({
 <head><meta charset="UTF-8"><title>Daily Wages Payroll${withAtm ? "" : " (Without ATM)"}</title>
 <style>${DAILY_WAGES_STYLES}</style></head>
 <body>
-  ${renderDraftWatermark(draft)}
   ${pageBlocks.join("\n")}
 </body></html>`;
 }
@@ -672,7 +612,6 @@ const SUMMARY_BODY_ROWS = 25;
 const SUMMARY_STYLES = `
   @page { size: legal portrait; margin: 0.5in; }
   body { position: relative; font-family: "Times New Roman", Times, serif; font-size: 11pt; line-height: 1.2; color: #000; }
-  ${WATERMARK_STYLES}
   .report-title { text-align: center; font-size: 14pt; font-weight: bold; }
   .report-sub { text-align: center; font-size: 13pt; font-weight: bold; margin-top: 6px; }
   .meta-row { display: flex; justify-content: space-between; align-items: baseline; margin: 10px 0 4px; font-weight: bold; font-size: 10.5pt; }
@@ -692,7 +631,6 @@ export function generateJoPayrollSummaryPrint({
   periodStart,
   periodEnd,
   showSss,
-  draft,
 }: GenerateJoPayrollPrintParams): void {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   const pages = paginateDailyWages(rows);
@@ -722,7 +660,6 @@ export function generateJoPayrollSummaryPrint({
 <head><meta charset="UTF-8"><title>Summary of Payrolls</title>
 <style>${SUMMARY_STYLES}</style></head>
 <body>
-  ${renderDraftWatermark(draft)}
   <div class="report-title">SUMMARY OF PAYROLLS</div>
   <div class="report-sub">JOB ORDER SERVICES</div>
   <div class="meta-row">

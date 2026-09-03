@@ -146,7 +146,7 @@ export function JobOrderPayrollImportClient() {
           marked <em>Reconstructed</em> — the legacy system had no rate column on payroll members,
           so migrated amounts are priced at each employee&apos;s current rate. Rows are matched on
           the legacy id; a row already imported is skipped, not overwritten, so re-running this
-          import is safe to repeat and never rewrites an already-finalized payroll at a later
+          import is safe to repeat and never rewrites an already-imported payroll at a later
           rate. To correct historical data, delete the affected payroll(s) first, then re-run the
           import.
         </CardDescription>

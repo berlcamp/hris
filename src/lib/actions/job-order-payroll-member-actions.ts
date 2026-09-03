@@ -9,7 +9,7 @@ import {
   snapshotDiffersFromMember,
   toPayrollMemberSnapshot,
 } from "@/lib/job-order-payroll-helpers";
-import { assertDraft } from "@/lib/job-order-payroll-guards";
+import { assertWritable } from "@/lib/job-order-payroll-guards";
 import {
   loadJobOrdersForSnapshot,
   loadMembers,
@@ -58,7 +58,7 @@ export async function addJobOrderPayrollMember(
   }
 
   const supabase = createAdminClient();
-  const blocked = await assertDraft(supabase, payrollId);
+  const blocked = await assertWritable(supabase, payrollId);
   if (blocked) return { error: blocked };
 
   const [jo] = await loadJobOrdersForSnapshot(supabase, {
@@ -145,7 +145,7 @@ export async function updateJobOrderPayrollMember(
   if (!member) return { error: "Member not found" };
 
   const payrollId = (member as { payroll_id: string }).payroll_id;
-  const blocked = await assertDraft(supabase, payrollId);
+  const blocked = await assertWritable(supabase, payrollId);
   if (blocked) return { error: blocked };
 
   const { error } = await supabase
@@ -192,7 +192,7 @@ export async function removeJobOrderPayrollMember(
   if (!member) return { error: "Member not found" };
 
   const payrollId = (member as { payroll_id: string }).payroll_id;
-  const blocked = await assertDraft(supabase, payrollId);
+  const blocked = await assertWritable(supabase, payrollId);
   if (blocked) return { error: blocked };
 
   const { error } = await supabase
@@ -235,9 +235,8 @@ export interface JobOrderPayrollRefreshResult {
  * `addJobOrderPayrollMember` freezes the roster row into the member, and
  * nothing refreshes it afterwards — so correcting an employee's Landbank
  * account number (or name, area, SSS, cedula, rate) left the payroll printing
- * the stale value. This is the explicit way back in step: draft payrolls only,
- * never automatic, so a finalized record — an issued government document —
- * cannot be rewritten by a roster edit.
+ * the stale value. This is the explicit way back in step, and it is never
+ * automatic — a roster edit never rewrites a payroll on its own.
  *
  * `daily_rate` is refreshed too, which overwrites any per-payroll rate
  * correction made in the members table. That is why this is a button behind a
@@ -252,7 +251,7 @@ export async function refreshJobOrderPayrollMembers(
   }
 
   const supabase = createAdminClient();
-  const blocked = await assertDraft(supabase, payrollId);
+  const blocked = await assertWritable(supabase, payrollId);
   if (blocked) return { error: blocked };
 
   const members = await loadMembers(supabase, payrollId);

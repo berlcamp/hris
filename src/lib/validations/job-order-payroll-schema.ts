@@ -87,7 +87,7 @@ export type JobOrderPayrollCreateValues = z.infer<
 
 /**
  * The three per-row editable values. `daily_rate` is editable because it is a
- * snapshot — correcting a wrongly stamped rate before finalizing is
+ * snapshot — correcting a wrongly stamped rate on the payroll is
  * legitimate, and it never writes back to hris.job_order_employees.
  */
 export const jobOrderPayrollMemberSchema = z.object({

@@ -21,12 +21,10 @@ export default async function JobOrderPayrollPage({
   const one = (k: string) => (Array.isArray(sp[k]) ? sp[k][0] : sp[k]);
 
   const page = Number(one("page") ?? "1") || 1;
-  const status = (one("status") ?? "all") as "all" | "draft" | "finalized";
 
   const [{ rows, totalCount }, areas] = await Promise.all([
     getJobOrderPayrolls({
       page,
-      status,
       periodFrom: one("from") ?? null,
       periodTo: one("to") ?? null,
       search: one("q") ?? null,
