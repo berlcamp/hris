@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,6 +33,7 @@ const blankDefaults: EventMetadataValues = {
   venue: "",
   start_date: "",
   end_date: "",
+  exclusive_participation: false,
 };
 
 export function EventFormDialog({
@@ -67,6 +69,7 @@ export function EventFormDialog({
             venue: event.venue ?? "",
             start_date: event.start_date,
             end_date: event.end_date,
+            exclusive_participation: event.exclusive_participation,
           }
         : blankDefaults,
     );
@@ -144,6 +147,31 @@ export function EventFormDialog({
           <div className="space-y-1.5">
             <Label htmlFor="description">Description</Label>
             <Textarea id="description" rows={3} {...register("description")} />
+          </div>
+
+          {/* Cross-event rule, so it sits apart from the event's own details. */}
+          <div className="border-border/60 bg-muted/30 flex items-start gap-3 rounded-lg border p-3">
+            <Checkbox
+              id="exclusive_participation"
+              checked={watch("exclusive_participation")}
+              onCheckedChange={(checked) =>
+                setValue("exclusive_participation", checked === true, {
+                  shouldDirty: true,
+                })
+              }
+              className="mt-0.5"
+            />
+            <div className="space-y-1">
+              <Label htmlFor="exclusive_participation" className="font-medium">
+                One event only
+              </Label>
+              <p className="text-muted-foreground text-xs leading-snug">
+                Warn the scanner when someone has already been recorded at
+                another event with this ticked — the same seminar run on several
+                dates, one seat each. The scan is still recorded; the officer at
+                the door is only told.
+              </p>
+            </div>
           </div>
 
           <DialogFooter>

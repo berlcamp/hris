@@ -755,6 +755,13 @@ export interface EventRecord {
   start_date: string;
   end_date: string;
   status: EventStatus;
+  /**
+   * "One event only". Scanning a card here warns the officer when the same
+   * person has already been recorded at another event carrying this flag —
+   * the same seminar run on four dates, one seat each. A warning, never a
+   * rejection: see migration 088.
+   */
+  exclusive_participation: boolean;
   closed_at: string | null;
   closed_by: string | null;
   created_at: string;
@@ -806,6 +813,13 @@ export interface EventAttendanceRecord {
    * the way the name and department are.
    */
   csc_team: string | null;
+  /**
+   * Set when this event is flagged exclusive_participation and this person was
+   * ALSO counted at another flagged event — the door warning, kept for the
+   * report. Read live rather than stamped on the row: the rule is a fact about
+   * two events, and closing or unticking the other one has to move it.
+   */
+  prior_participation: PriorParticipation | null;
 }
 
 /**
@@ -821,6 +835,22 @@ export interface EventScanRosterEntry {
   group_name: string | null;
   employment_label: string;
   token: string | null;
+  /**
+   * Where this person has already been counted, when both this event and that
+   * one are flagged exclusive_participation. Downloaded with the roster and
+   * cached, so the warning still fires at a venue with no signal — the whole
+   * point being that the officer sees it while the person is still at the door.
+   * Null for everyone in the ordinary case, including every event that is not
+   * flagged at all.
+   */
+  prior_participation: PriorParticipation | null;
+}
+
+/** One earlier appearance at a flagged event — what the door warning names. */
+export interface PriorParticipation {
+  event_id: string;
+  event_title: string;
+  attendance_date: string;
 }
 
 /**

@@ -11,6 +11,9 @@
 //   * At most one LIVE QR credential per person, so a reissued card genuinely
 //     kills the old one rather than leaving two valid codes in circulation.
 //   * The polymorphic attendee key really does span registries with no FK.
+//   * "One event only" (migration 088) can actually be ANSWERED — the flag
+//     defaults off, and the subject-first lookup behind the door warning finds
+//     a prior appearance at a flagged event while ignoring an unflagged one.
 //
 // Requires Node >= 22 and a running stack:
 //   colima start && npm run db:start && npm run db:reset && npm run test:db
@@ -45,7 +48,7 @@ async function scannerProfileId(): Promise<string> {
 }
 
 /** A three-day event, so the per-day rule has something to be tested against. */
-async function createEvent(title: string) {
+async function createEvent(title: string, exclusive = false) {
   const { data, error } = await admin
     .from("events")
     .insert({
@@ -53,6 +56,7 @@ async function createEvent(title: string) {
       start_date: "2026-03-02",
       end_date: "2026-03-04",
       status: "open",
+      exclusive_participation: exclusive,
     })
     .select("id")
     .single();
@@ -206,4 +210,71 @@ test("an event cannot end before it starts", async () => {
     end_date: "2026-03-02",
   });
   assert.equal(error?.code, "23514", "chk_events_dates must reject a reversed range");
+});
+
+test('"one event only" finds a prior appearance, and ignores unflagged events', async () => {
+  const scannedBy = await scannerProfileId();
+
+  // The default matters as much as the flag: every event recorded before
+  // migration 088 must stay an ordinary one, warning about nothing.
+  const ordinary = await createEvent("Ordinary event");
+  const { data: ordinaryRow } = await admin
+    .from("events")
+    .select("exclusive_participation")
+    .eq("id", ordinary)
+    .single();
+  assert.equal(
+    ordinaryRow?.exclusive_participation,
+    false,
+    "an event nobody ticked the box on must not be exclusive",
+  );
+
+  const seminarA = await createEvent("Seminar, batch A", true);
+  const seminarB = await createEvent("Seminar, batch B", true);
+
+  const attend = (eventId: string, subjectId: string, clientScanId: string) =>
+    admin.from("event_attendance").insert({
+      event_id: eventId,
+      attendance_date: "2026-03-02",
+      subject_kind: "employee",
+      subject_id: subjectId,
+      full_name: "Test, Employee",
+      method: "scan",
+      scanned_at: "2026-03-02T09:00:00+08:00",
+      client_scan_id: clientScanId,
+      scanned_by: scannedBy,
+    });
+
+  // EMPLOYEE took their seat at batch A. EMPLOYEE_2 only ever went to the
+  // unflagged event, which must not count against them.
+  assert.equal((await attend(seminarA, EMPLOYEE, "excl-a")).error, null);
+  assert.equal((await attend(ordinary, EMPLOYEE_2, "excl-o")).error, null);
+
+  // The lookup loadPriorExclusiveParticipation runs when a card is scanned at
+  // batch B: the OTHER flagged events, then this person's rows in them.
+  const { data: others, error: othersError } = await admin
+    .from("events")
+    .select("id, title")
+    .eq("exclusive_participation", true)
+    .neq("id", seminarB)
+    .is("deleted_at", null);
+  assert.equal(othersError, null);
+  const otherIds = (others ?? []).map((e) => e.id as string);
+  assert.ok(otherIds.includes(seminarA), "batch A is the other flagged event");
+  assert.ok(!otherIds.includes(ordinary), "the unflagged event must not be consulted");
+
+  const { data: prior, error: priorError } = await admin
+    .from("event_attendance")
+    .select("event_id, attendance_date, subject_kind, subject_id")
+    .in("event_id", otherIds)
+    .in("subject_id", [EMPLOYEE, EMPLOYEE_2])
+    .order("attendance_date");
+  assert.equal(priorError, null);
+
+  const hits = prior ?? [];
+  assert.equal(hits.length, 1, "only the person counted at a flagged event is a hit");
+  assert.equal(hits[0].subject_id, EMPLOYEE);
+  assert.equal(hits[0].event_id, seminarA);
+
+  await admin.from("events").delete().in("id", [ordinary, seminarA, seminarB]);
 });

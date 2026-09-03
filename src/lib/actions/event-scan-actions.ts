@@ -5,12 +5,18 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { canManageEvents, canScanEvents } from "@/lib/auth-helpers";
 import { manilaDateOf, manilaToday } from "@/lib/format-date";
-import { EMPLOYMENT_LABELS, loadCscTeams, resolveSubject } from "@/lib/event-repo";
+import {
+  EMPLOYMENT_LABELS,
+  loadCscTeams,
+  loadPriorExclusiveParticipation,
+  resolveSubject,
+} from "@/lib/event-repo";
 import { eventScanBatchSchema, type EventScanBatchValues } from "@/lib/validations/event-schema";
 import type {
   EventRecord,
   EventScanRosterEntry,
   EventSubjectKind,
+  PriorParticipation,
   ScannableEvent,
 } from "@/lib/types";
 
@@ -28,6 +34,14 @@ export interface ScanResult {
   full_name: string | null;
   is_walk_in: boolean;
   synced_late: boolean;
+  /**
+   * Set when this event is flagged "one event only" and the person has already
+   * been counted at another flagged event. Never changes the outcome — the scan
+   * is recorded exactly as it would have been — but it is the answer for a
+   * walk-in, whom the device's cached roster could not have warned about, and
+   * for anybody counted elsewhere after this phone last downloaded the roster.
+   */
+  prior_participation?: PriorParticipation | null;
   message?: string;
 }
 
@@ -165,8 +179,17 @@ export async function getEventScanPayload(eventId: string): Promise<{
       .order("subject_id")
       .range(from, from + CHUNK - 1);
     if (rErr) throw new Error(rErr.message);
-    const rows = (data ?? []) as unknown as Omit<EventScanRosterEntry, "token">[];
-    roster.push(...rows.map((r) => ({ ...r, token: null as string | null })));
+    const rows = (data ?? []) as unknown as Omit<
+      EventScanRosterEntry,
+      "token" | "prior_participation"
+    >[];
+    roster.push(
+      ...rows.map((r) => ({
+        ...r,
+        token: null as string | null,
+        prior_participation: null as PriorParticipation | null,
+      })),
+    );
     if (rows.length < CHUNK) break;
     from += CHUNK;
   }
@@ -192,6 +215,17 @@ export async function getEventScanPayload(eventId: string): Promise<{
       const entry = byKey.get(`${c.subject_kind}:${c.subject_id}`);
       if (entry) entry.token = c.token;
     }
+  }
+
+  // "One event only": who on this roster has already been counted at another
+  // flagged event. Downloaded with the roster rather than asked for at scan
+  // time, because the venue that most needs the warning is the one with no
+  // signal — and a warning that only works online is a warning nobody trusts.
+  // A no-op returning an empty map for every event that is not flagged.
+  const prior = await loadPriorExclusiveParticipation(supabase, eventId, roster);
+  for (const entry of roster) {
+    entry.prior_participation =
+      prior.get(`${entry.subject_kind}:${entry.subject_id}`) ?? null;
   }
 
   return { event, roster };
@@ -284,6 +318,18 @@ export async function submitEventScans(
     }
   }
 
+  // "One event only": resolved once for the whole batch, before anything is
+  // inserted, so a person scanned twice inside the same batch is not reported
+  // as their own prior appearance. Empty for every event that is not flagged.
+  const priorParticipation = await loadPriorExclusiveParticipation(
+    supabase,
+    parsed.data.event_id,
+    [...credentials.values()].map((c) => ({
+      subject_kind: c.kind,
+      subject_id: c.id,
+    })),
+  );
+
   const results: ScanResult[] = [];
 
   for (const scan of parsed.data.scans) {
@@ -354,6 +400,7 @@ export async function submitEventScans(
           full_name: fullName,
           is_walk_in: isWalkIn,
           synced_late: false,
+          prior_participation: priorParticipation.get(key) ?? null,
         });
         continue;
       }
@@ -374,6 +421,7 @@ export async function submitEventScans(
       full_name: fullName,
       is_walk_in: isWalkIn,
       synced_late: syncedLate,
+      prior_participation: priorParticipation.get(key) ?? null,
     });
   }
 

@@ -10,6 +10,7 @@ import {
   countOrphanedLegacyRows,
   loadCscTeams,
   loadEventCandidates,
+  loadPriorExclusiveParticipation,
 } from "@/lib/event-repo";
 import {
   eventManualAttendanceSchema,
@@ -26,6 +27,7 @@ import type {
   EventRecord,
   EventRosterEntry,
   EventStatus,
+  PriorParticipation,
 } from "@/lib/types";
 
 type ActionResult<T = undefined> =
@@ -33,7 +35,7 @@ type ActionResult<T = undefined> =
   | { success: false; error: string };
 
 const EVENT_SELECT =
-  "id, title, description, venue, start_date, end_date, status, closed_at, closed_by, created_at, updated_at, created_by, updated_by, deleted_at";
+  "id, title, description, venue, start_date, end_date, status, exclusive_participation, closed_at, closed_by, created_at, updated_at, created_by, updated_by, deleted_at";
 
 // ── Reads ─────────────────────────────────────────────────────────────────
 
@@ -199,8 +201,15 @@ export async function getEventAttendance(
   // The team is not stored on the attendance row; it is read from the registry
   // so that fixing a wrong assignment moves the summary with it.
   const teams = await loadCscTeams(supabase, out);
+  // "One event only": who among the people actually RECORDED here had already
+  // taken their seat elsewhere. Asked of the attendance log rather than the
+  // roster on purpose — a roster member who never turned up has tripped
+  // nothing, and listing them would read as an accusation.
+  const prior = await loadPriorExclusiveParticipation(supabase, eventId, out);
   for (const row of out) {
-    row.csc_team = teams.get(`${row.subject_kind}:${row.subject_id}`) ?? null;
+    const key = `${row.subject_kind}:${row.subject_id}`;
+    row.csc_team = teams.get(key) ?? null;
+    row.prior_participation = prior.get(key) ?? null;
   }
   return out;
 }
@@ -276,6 +285,7 @@ export async function createEvent(
       venue: parsed.data.venue || null,
       start_date: parsed.data.start_date,
       end_date: parsed.data.end_date,
+      exclusive_participation: parsed.data.exclusive_participation,
       created_by: user!.id,
       updated_by: user!.id,
     })
@@ -327,6 +337,7 @@ export async function updateEvent(
       venue: parsed.data.venue || null,
       start_date: parsed.data.start_date,
       end_date: parsed.data.end_date,
+      exclusive_participation: parsed.data.exclusive_participation,
       updated_by: user!.id,
     })
     .eq("id", id);
@@ -521,7 +532,7 @@ export async function buildEventRoster(
  */
 export async function recordManualAttendance(
   values: EventManualAttendanceValues,
-): Promise<ActionResult> {
+): Promise<ActionResult<{ prior_participation: PriorParticipation | null }>> {
   const user = await getCurrentUser();
   if (!canScanEvents(user?.roles)) {
     return { success: false, error: "Not authorized" };
@@ -589,6 +600,15 @@ export async function recordManualAttendance(
     return { success: false, error: error.message };
   }
 
+  // "One event only": checked AFTER the insert, deliberately. The entry is
+  // recorded either way — see migration 088 — and the officer is told, so the
+  // check must never be able to stand between a real attendee and their record.
+  const prior = await loadPriorExclusiveParticipation(
+    supabase,
+    parsed.data.event_id,
+    [{ subject_kind: parsed.data.subject_kind, subject_id: parsed.data.subject_id }],
+  );
+
   await logAudit({
     userId: user!.id,
     userEmail: user!.email,
@@ -599,5 +619,11 @@ export async function recordManualAttendance(
   });
 
   revalidatePath(`/events/${parsed.data.event_id}`);
-  return { success: true };
+  return {
+    success: true,
+    data: {
+      prior_participation:
+        prior.get(`${parsed.data.subject_kind}:${parsed.data.subject_id}`) ?? null,
+    },
+  };
 }

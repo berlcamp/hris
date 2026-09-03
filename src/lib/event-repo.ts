@@ -1,7 +1,11 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
 import { idText } from "@/lib/id-text";
-import type { EventCandidate, EventSubjectKind } from "@/lib/types";
+import type {
+  EventCandidate,
+  EventSubjectKind,
+  PriorParticipation,
+} from "@/lib/types";
 
 // Page sizes live here rather than in the actions file: a `"use server"` module
 // may only export async functions, so a plain `export const` there is a build
@@ -298,6 +302,101 @@ export async function loadCscTeams(
       teamById.get(r.subject_id) ?? null,
     );
   }
+  return out;
+}
+
+/**
+ * Where each of these people has already been counted at ANOTHER event flagged
+ * exclusive_participation — the "one event only" lookup behind the door warning.
+ *
+ * Returns an empty map unless `eventId` is itself flagged: the rule is
+ * symmetric, and an unflagged event is an ordinary one whose officer should
+ * never be told anything about other events at all.
+ *
+ * Keyed `${kind}:${id}` like every other cross-registry map in this module,
+ * because the three person registries share no key.
+ *
+ * The EARLIEST appearance wins when somebody has managed to be counted at
+ * several. That is the one that used up the entitlement; naming a later
+ * duplicate would send HR to the wrong event to unpick it.
+ */
+export async function loadPriorExclusiveParticipation(
+  supabase: Db,
+  eventId: string,
+  refs: { subject_kind: EventSubjectKind; subject_id: string }[],
+): Promise<Map<string, PriorParticipation>> {
+  const out = new Map<string, PriorParticipation>();
+  if (refs.length === 0) return out;
+
+  const { data: eventRow, error: eventError } = await supabase
+    .schema("hris")
+    .from("events")
+    .select("id, exclusive_participation")
+    .eq("id", eventId)
+    .maybeSingle();
+  if (eventError) throw new Error(eventError.message);
+  if (!eventRow || !(eventRow as { exclusive_participation: boolean }).exclusive_participation) {
+    return out;
+  }
+
+  const { data: others, error: othersError } = await supabase
+    .schema("hris")
+    .from("events")
+    .select("id, title")
+    .eq("exclusive_participation", true)
+    .neq("id", eventId)
+    .is("deleted_at", null);
+  if (othersError) throw new Error(othersError.message);
+
+  const titleById = new Map(
+    ((others ?? []) as { id: string; title: string }[]).map((e) => [e.id, e.title]),
+  );
+  if (titleById.size === 0) return out;
+
+  // Asked subject-first and in id chunks, so the request stays inside
+  // PostgREST's URL limits on a several-thousand-person roster and the answer
+  // covers only the people actually being looked up.
+  const wanted = new Set(refs.map((r) => `${r.subject_kind}:${r.subject_id}`));
+  const ids = [...new Set(refs.map((r) => r.subject_id))];
+  const otherIds = [...titleById.keys()];
+  const ID_CHUNK = 200;
+
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const slice = ids.slice(i, i + ID_CHUNK);
+    for (let from = 0; ; from += REGISTRY_CHUNK) {
+      const { data, error } = await supabase
+        .schema("hris")
+        .from("event_attendance")
+        .select("event_id, attendance_date, subject_kind, subject_id")
+        .in("event_id", otherIds)
+        .in("subject_id", slice)
+        .order("attendance_date")
+        .range(from, from + REGISTRY_CHUNK - 1);
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []) as {
+        event_id: string;
+        attendance_date: string;
+        subject_kind: EventSubjectKind;
+        subject_id: string;
+      }[];
+
+      for (const row of rows) {
+        const key = `${row.subject_kind}:${row.subject_id}`;
+        if (!wanted.has(key)) continue;
+        const title = titleById.get(row.event_id);
+        if (!title) continue;
+        const existing = out.get(key);
+        if (existing && existing.attendance_date <= row.attendance_date) continue;
+        out.set(key, {
+          event_id: row.event_id,
+          event_title: title,
+          attendance_date: row.attendance_date,
+        });
+      }
+      if (rows.length < REGISTRY_CHUNK) break;
+    }
+  }
+
   return out;
 }
 

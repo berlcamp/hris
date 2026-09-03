@@ -13,6 +13,7 @@ import {
   RefreshCw,
   ScanLine,
   Search,
+  ShieldAlert,
   TriangleAlert,
   UserPlus,
   X,
@@ -45,7 +46,11 @@ import { accentForEvent } from "@/lib/event-accent";
 import { formatManilaLongDate, manilaDateOf } from "@/lib/format-date";
 import { primeScanFeedback, playScanFeedback } from "@/lib/scan-feedback";
 import { registerScannerWorker } from "@/lib/scanner-pwa";
-import type { EventRecord, EventScanRosterEntry } from "@/lib/types";
+import type {
+  EventRecord,
+  EventScanRosterEntry,
+  PriorParticipation,
+} from "@/lib/types";
 
 /** Matches the token shape minted by migration 081 and qr-card-actions. */
 const TOKEN_PATTERN = /^H[0-9A-F]{20}$/;
@@ -78,7 +83,16 @@ function offEventDayDetail(event: EventRecord | null, today: string): string | n
   return `${event.title} runs ${runs}, and this phone says today is ${formatManilaLongDate(today)}. Check the date on the phone if that is wrong.`;
 }
 
-type FeedbackKind = "ok" | "duplicate" | "walk_in" | "reject";
+/**
+ * The one-line version of the "one event only" warning, used wherever the
+ * conflict is reported — the banner under the viewfinder, the popup, and the
+ * line the sync path raises for a walk-in the cached roster knew nothing about.
+ */
+function priorParticipationLine(prior: PriorParticipation): string {
+  return `Already recorded at "${prior.event_title}" on ${formatManilaLongDate(prior.attendance_date)}.`;
+}
+
+type FeedbackKind = "ok" | "duplicate" | "walk_in" | "conflict" | "reject";
 
 type Feedback = {
   kind: FeedbackKind;
@@ -109,6 +123,14 @@ const TONE: Record<FeedbackKind, { ring: string; chip: string; text: string }> =
     chip: "bg-[oklch(0.72_0.13_235/0.16)] text-[oklch(0.82_0.12_235)]",
     text: "text-[oklch(0.84_0.12_235)]",
   },
+  // Recorded, but this person has already been counted at another event
+  // flagged "one event only". Its own hue — neither the green of a clean scan
+  // nor the red of a refusal, because it is neither.
+  conflict: {
+    ring: "border-[oklch(0.72_0.19_45/0.9)]",
+    chip: "bg-[oklch(0.72_0.19_45/0.18)] text-[oklch(0.84_0.16_45)]",
+    text: "text-[oklch(0.86_0.15_45)]",
+  },
   reject: {
     ring: "border-[oklch(0.66_0.20_22/0.9)]",
     chip: "bg-[oklch(0.66_0.20_22/0.18)] text-[oklch(0.80_0.17_22)]",
@@ -133,12 +155,32 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
   const [summary, setSummary] = useState<EventTurnout | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  /**
+   * The "one event only" popup. A banner alone is not enough here: it is the
+   * one outcome where the officer has to DO something — send the person to HR,
+   * or wave them through knowingly — and the banner is read after the fact, if
+   * at all, by somebody looking at a card rather than at the phone.
+   */
+  const [conflict, setConflict] = useState<{
+    name: string;
+    prior: PriorParticipation;
+    /** Others in the same sync batch, so a queue drained at once says so. */
+    others: number;
+    seq: number;
+  } | null>(null);
 
   // Tokens already accepted on THIS device, so the officer gets an instant
   // "already scanned" instead of waiting for a sync round trip to say so.
   const seenRef = useRef<Set<string>>(new Set());
   const lastReadRef = useRef<{ token: string; at: number } | null>(null);
   const feedbackSeq = useRef(0);
+  /**
+   * Scans this device has already warned about at the door, by client_scan_id.
+   * The same conflict comes back from the server when the scan syncs seconds
+   * later, and warning twice for one card teaches the officer to dismiss the
+   * popup without reading it.
+   */
+  const warnedRef = useRef<Set<string>>(new Set());
 
   const accent = accentForEvent(eventId);
 
@@ -149,6 +191,15 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
       playScanFeedback(kind);
     },
     [],
+  );
+
+  /** Raises both halves of the warning: the banner tone, and the popup. */
+  const warnPrior = useCallback(
+    (name: string, prior: PriorParticipation, others = 0) => {
+      say("conflict", name, priorParticipationLine(prior));
+      setConflict({ name, prior, others, seq: feedbackSeq.current });
+    },
+    [say],
   );
 
   const refreshQueue = useCallback(async () => {
@@ -257,6 +308,25 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
           .map((r) => r.client_scan_id);
         await dequeueScans(settled);
 
+        // Conflicts the cached roster could not have caught: a walk-in, or
+        // somebody counted at the other event after this phone last downloaded
+        // the roster. Skipped when the door already warned about that very scan.
+        const conflicts = result.results.filter(
+          (r) =>
+            r.prior_participation &&
+            (r.outcome === "recorded" || r.outcome === "duplicate") &&
+            !warnedRef.current.has(r.client_scan_id),
+        );
+        if (conflicts.length > 0) {
+          const first = conflicts[0];
+          for (const c of conflicts) warnedRef.current.add(c.client_scan_id);
+          warnPrior(
+            first.full_name ?? "Someone on this event",
+            first.prior_participation!,
+            conflicts.length - 1,
+          );
+        }
+
         const problems = result.results.filter(
           (r) => r.outcome === "unknown_token" || r.outcome === "out_of_range",
         );
@@ -272,7 +342,7 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
       setSyncing(false);
       await refreshQueue();
     }
-  }, [eventId, refreshQueue, say, syncing]);
+  }, [eventId, refreshQueue, say, syncing, warnPrior]);
 
   // Flush whenever the connection comes back.
   useEffect(() => {
@@ -331,7 +401,15 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
       seenRef.current.add(token);
       await refreshQueue();
 
-      if (entry) {
+      if (entry?.prior_participation) {
+        // Recorded all the same — the queue entry above already went in. The
+        // officer is told, not overruled: see migration 088.
+        warnedRef.current.add(clientScanId);
+        warnPrior(entry.full_name, entry.prior_participation);
+        setHistory((h) =>
+          [{ name: `${entry.full_name} (already elsewhere)`, at: scannedAt }, ...h].slice(0, 50),
+        );
+      } else if (entry) {
         say(
           "ok",
           entry.full_name,
@@ -351,7 +429,7 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
 
       if (navigator.onLine) void sync();
     },
-    [event, eventId, refreshQueue, say, sync],
+    [event, eventId, refreshQueue, say, sync, warnPrior],
   );
 
   const scanner = useQrScanner((value) => void handleDecode(value));
@@ -397,7 +475,13 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
       });
       setManualSaving(false);
       if (result.success) {
-        say("ok", entry.full_name, "Recorded manually — no card scanned.");
+        const prior =
+          result.data?.prior_participation ?? entry.prior_participation ?? null;
+        if (prior) {
+          warnPrior(entry.full_name, prior);
+        } else {
+          say("ok", entry.full_name, "Recorded manually — no card scanned.");
+        }
         setHistory((h) =>
           [{ name: `${entry.full_name} (manual)`, at: new Date().toISOString() }, ...h].slice(0, 50),
         );
@@ -407,7 +491,7 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
         say("reject", "Not recorded", result.error);
       }
     },
-    [event, eventId, say],
+    [event, eventId, say, warnPrior],
   );
 
   /**
@@ -708,6 +792,16 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
         />
       )}
 
+      {conflict && (
+        <ConflictDialog
+          key={conflict.seq}
+          name={conflict.name}
+          prior={conflict.prior}
+          others={conflict.others}
+          onClose={() => setConflict(null)}
+        />
+      )}
+
       {manualOpen && (
         <ManualSheet
           query={manualQuery}
@@ -720,6 +814,86 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
           onClose={() => setManualOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * The "one event only" warning — the one thing on this screen that has to be
+ * dismissed before the officer can carry on.
+ *
+ * Deliberately modal, unlike every other outcome. The rest of the scanner is
+ * built so the officer never has to look at the phone: a beep and a banner say
+ * "next person". This one says the opposite — stop, this person has already
+ * been counted somewhere else — and a banner that scrolls past under a queue of
+ * people is exactly how that gets missed.
+ *
+ * It reports; it does not decide. The scan is already recorded (migration 088)
+ * and the officer at a door cannot adjudicate an entitlement, so the only
+ * control is an acknowledgement. HR settles it from the report, where the
+ * duplicate is now visible instead of silently absent.
+ *
+ * z-[60], above the manual sheet: the warning also fires on a manual entry, and
+ * it must not open underneath the sheet that raised it.
+ */
+function ConflictDialog({
+  name,
+  prior,
+  others,
+  onClose,
+}: {
+  name: string;
+  prior: PriorParticipation;
+  /** Further conflicts found in the same sync batch, summarised rather than queued. */
+  others: number;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="conflict-title"
+      className="bg-background/92 fixed inset-0 z-[60] flex flex-col items-center justify-center gap-5 p-6 text-center backdrop-blur-md"
+    >
+      <span className="grid h-20 w-20 place-items-center rounded-3xl bg-[oklch(0.72_0.19_45/0.18)]">
+        <ShieldAlert className="h-10 w-10 text-[oklch(0.84_0.16_45)]" />
+      </span>
+
+      <div className="space-y-2">
+        <p
+          id="conflict-title"
+          className="font-mono text-xs tracking-[0.2em] text-[oklch(0.84_0.16_45)] uppercase"
+        >
+          Already participated
+        </p>
+        <p className="text-2xl leading-tight font-bold text-balance">{name}</p>
+        <p className="text-base leading-snug text-balance">
+          {priorParticipationLine(prior)}
+        </p>
+      </div>
+
+      <p className="text-muted-foreground max-w-xs text-sm leading-relaxed text-balance">
+        This event is marked one event only. The scan has still been recorded —
+        HR will see both and settle it.
+        {others > 0 && (
+          <>
+            {" "}
+            <span className="text-[oklch(0.84_0.16_45)]">
+              {others} more scan{others === 1 ? "" : "s"} in this batch hit the
+              same rule.
+            </span>
+          </>
+        )}
+      </p>
+
+      <Button
+        size="lg"
+        autoFocus
+        onClick={onClose}
+        className="h-14 w-full max-w-xs rounded-full text-base"
+      >
+        Got it
+      </Button>
     </div>
   );
 }

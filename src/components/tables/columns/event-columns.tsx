@@ -2,7 +2,7 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
-import { Eye, ScanLine } from "lucide-react";
+import { Eye, ScanLine, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
@@ -58,9 +58,19 @@ export function eventColumns(opts: {
       id: "status",
       header: "Status",
       cell: ({ row }) => (
-        <Badge variant={STATUS_VARIANT[row.original.status]}>
-          {row.original.status}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-1">
+          <Badge variant={STATUS_VARIANT[row.original.status]}>
+            {row.original.status}
+          </Badge>
+          {/* The flag changes what happens at the door, so it belongs where
+              somebody scanning the list will see it. */}
+          {row.original.exclusive_participation && (
+            <Badge variant="outline" className="gap-1">
+              <ShieldAlert className="h-3 w-3" />
+              One event only
+            </Badge>
+          )}
+        </div>
       ),
     },
     {

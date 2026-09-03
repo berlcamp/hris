@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { Lock, LockOpen, Pencil, ScanLine, Trash2 } from "lucide-react";
+import { Lock, LockOpen, Pencil, ScanLine, ShieldAlert, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -134,6 +134,52 @@ export function EventDetailClient({
       );
   }, [attendance, days]);
 
+  /**
+   * Everyone recorded HERE who had already been counted at another event
+   * flagged "one event only" — the door warning, gathered up for HR.
+   *
+   * One row per PERSON, not per scan: on a three-day event the same conflict
+   * would otherwise be listed three times and read as three problems. The days
+   * they were here are folded into a column instead.
+   *
+   * Walk-ins are in this list like anybody else. They are in fact the ones most
+   * worth reading: the device's cached roster could not have warned about them
+   * at the door, so this table may be the first time anyone sees it.
+   */
+  const conflicts = useMemo(() => {
+    if (!event.exclusive_participation) return [];
+    const byPerson = new Map<
+      string,
+      {
+        name: string;
+        team: string;
+        walkIn: boolean;
+        dates: string[];
+        prior: NonNullable<EventAttendanceRecord["prior_participation"]>;
+      }
+    >();
+    for (const a of attendance) {
+      if (!a.prior_participation) continue;
+      const key = `${a.subject_kind}:${a.subject_id}`;
+      const existing = byPerson.get(key);
+      if (existing) {
+        existing.dates.push(a.attendance_date);
+        existing.walkIn ||= a.is_walk_in;
+        continue;
+      }
+      byPerson.set(key, {
+        name: a.full_name,
+        team: a.csc_team ?? UNASSIGNED,
+        walkIn: a.is_walk_in,
+        dates: [a.attendance_date],
+        prior: a.prior_participation,
+      });
+    }
+    return [...byPerson.values()]
+      .map((p) => ({ ...p, dates: [...p.dates].sort() }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [attendance, event.exclusive_participation]);
+
   /** Distinct people present at all, for the footer total. */
   const distinctPresent = useMemo(
     () => new Set(attendance.map((a) => `${a.subject_kind}:${a.subject_id}`)).size,
@@ -151,6 +197,9 @@ export function EventDetailClient({
         method: a.method,
         walk_in: a.is_walk_in ? "yes" : "no",
         amendment: a.synced_late ? "yes" : "no",
+        already_counted_at: a.prior_participation
+          ? `${a.prior_participation.event_title} (${a.prior_participation.attendance_date})`
+          : "",
         scanned_at: a.scanned_at,
       })),
     [attendance],
@@ -199,6 +248,12 @@ export function EventDetailClient({
             <Badge variant={event.status === "open" ? "default" : "secondary"}>
               {event.status}
             </Badge>
+            {event.exclusive_participation && (
+              <Badge variant="outline" className="gap-1">
+                <ShieldAlert className="h-3 w-3" />
+                One event only
+              </Badge>
+            )}
           </div>
           <p className="text-muted-foreground text-sm">
             {event.start_date === event.end_date
@@ -325,6 +380,12 @@ export function EventDetailClient({
             {amendments.length > 0 && (
               <Badge variant="secondary">{amendments.length} amendment</Badge>
             )}
+            {conflicts.length > 0 && (
+              <Badge variant="destructive" className="gap-1">
+                <ShieldAlert className="h-3 w-3" />
+                {conflicts.length} already counted elsewhere
+              </Badge>
+            )}
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <ExportCsvButton
                 label="Download names"
@@ -338,6 +399,7 @@ export function EventDetailClient({
                   { key: "method", header: "Method" },
                   { key: "walk_in", header: "Walk-in" },
                   { key: "amendment", header: "Amendment" },
+                  { key: "already_counted_at", header: "Already counted at" },
                   { key: "scanned_at", header: "Scanned at" },
                 ]}
               />
@@ -364,6 +426,76 @@ export function EventDetailClient({
               closed — queued on a device that was offline. They are shown as
               amendments so a report already printed stays explainable.
             </p>
+          )}
+
+          {/* Only for a flagged event: on an ordinary one the rule does not
+              exist, and an empty "no conflicts" panel would imply it does. */}
+          {event.exclusive_participation && (
+            <div className="space-y-2">
+              <div>
+                <h2 className="flex items-center gap-1.5 text-sm font-medium">
+                  <ShieldAlert className="text-muted-foreground h-4 w-4" />
+                  Already counted elsewhere
+                </h2>
+                <p className="text-muted-foreground text-xs">
+                  This event is marked one event only. These people were
+                  recorded here after already being counted at another event
+                  carrying the same flag — the scan was never refused, so the
+                  call is yours.
+                </p>
+              </div>
+
+              {conflicts.length === 0 ? (
+                <p className="text-muted-foreground rounded-lg border border-dashed px-4 py-6 text-center text-sm">
+                  Nobody recorded here has been counted at another one-event-only
+                  event.
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>CSC Team</TableHead>
+                        <TableHead>Recorded here</TableHead>
+                        <TableHead>Already counted at</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {conflicts.map((c) => (
+                        <TableRow key={`${c.name}:${c.prior.event_id}`}>
+                          <TableCell className="font-medium">
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              {c.name}
+                              {c.walkIn && (
+                                <Badge variant="secondary" className="font-normal">
+                                  walk-in
+                                </Badge>
+                              )}
+                            </span>
+                          </TableCell>
+                          <TableCell
+                            className={c.team === UNASSIGNED ? "text-muted-foreground" : ""}
+                          >
+                            {c.team}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {c.dates.map((d) => fmtDate(d)).join(", ")}
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-medium">{c.prior.event_title}</span>
+                            <span className="text-muted-foreground">
+                              {" · "}
+                              {fmtDate(c.prior.attendance_date)}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
           )}
 
           <div className="overflow-x-auto rounded-lg border">

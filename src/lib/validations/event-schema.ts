@@ -14,6 +14,12 @@ export const eventMetadataSchema = z
     venue: z.string().trim().max(200).optional().or(z.literal("")),
     start_date: z.string().min(1, "Start date is required"),
     end_date: z.string().min(1, "End date is required"),
+    /**
+     * "One event only". Always sent by the form (unticked is `false`, not an
+     * absent field): a zod `.default()` here would make the schema's INPUT type
+     * differ from its output and react-hook-form cannot resolve against that.
+     */
+    exclusive_participation: z.boolean(),
   })
   .refine((v) => v.end_date >= v.start_date, {
     message: "End date cannot be before the start date",
