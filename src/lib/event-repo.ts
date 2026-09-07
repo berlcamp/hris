@@ -1,6 +1,7 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
 import { idText } from "@/lib/id-text";
+import { PERSON_REGISTRY_TABLE } from "@/lib/csc-team";
 import type {
   EventCandidate,
   EventSubjectKind,
@@ -263,17 +264,10 @@ export async function loadCscTeams(
   const out = new Map<string, string | null>();
   if (refs.length === 0) return out;
 
-  const tables: Record<EventSubjectKind, string> = {
-    employee: "employees",
-    temporary: "employees",
-    job_order: "job_order_employees",
-    cos: "cos_employees",
-  };
-
   // One read per TABLE, not per kind — employee and temporary share one.
   const idsByTable = new Map<string, Set<string>>();
   for (const r of refs) {
-    const table = tables[r.subject_kind];
+    const table = PERSON_REGISTRY_TABLE[r.subject_kind];
     if (!table) continue;
     if (!idsByTable.has(table)) idsByTable.set(table, new Set());
     idsByTable.get(table)!.add(r.subject_id);

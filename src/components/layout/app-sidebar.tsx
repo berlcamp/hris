@@ -41,6 +41,7 @@ import {
   Mail,
   PartyPopper,
   QrCode,
+  UsersRound,
 } from "lucide-react";
 
 import {
@@ -389,6 +390,12 @@ const navGroups: NavGroup[] = [
       { title: "Work Schedules", href: "/admin/schedules", icon: CalendarClock, roles: ["super_admin", "dtr_manager"] },
       { title: "Holidays", href: "/attendance/holidays", icon: CalendarOff, roles: ["super_admin", "dtr_manager"] },
       { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin"] },
+      {
+        title: "CSC Team Members",
+        href: "/admin/csc-teams",
+        icon: UsersRound,
+        roles: ["super_admin"],
+      },
       { title: "Audit Trail", href: "/admin/audit-log", icon: Shield, roles: ["super_admin"] },
       { title: "Settings", href: "/admin/settings", icon: Settings, roles: ["super_admin"] },
     ],
