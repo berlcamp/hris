@@ -2,27 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Printer, QrCode, RotateCcw } from "lucide-react";
+import { Loader2, Printer, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { pdf } from "@react-pdf/renderer";
 
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { QrCardsPdf, cardCode } from "@/components/pdf/qr-cards-pdf";
 import {
   issueQrCardForEmployee,
-  rotateQrCredential,
   markQrCardsPrinted,
   type EmployeeQrCardState,
 } from "@/lib/actions/qr-card-actions";
@@ -102,23 +90,6 @@ export function EmployeeQrCardPanel({
     setBusy(false);
   };
 
-  const handleReissue = async () => {
-    if (!card) return;
-    setBusy(true);
-    const result = await rotateQrCredential(
-      card.subject_kind,
-      card.subject_id,
-      "Card reissued from employee profile",
-    );
-    setBusy(false);
-    if (!result.success) {
-      toast.error(result.error);
-      return;
-    }
-    toast.success("New code issued — the old card no longer scans. Reprint it.");
-    router.refresh();
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -160,8 +131,8 @@ export function EmployeeQrCardPanel({
 
             <p className="text-muted-foreground text-xs">
               The card carries no photo, so whoever holds it scans as this
-              person. Reissuing rotates the code and the old card stops working
-              at once.
+              person. A lost card is reissued from QR ID Cards, which rotates
+              the code and stops the old one scanning.
             </p>
 
             <div className="flex flex-wrap gap-2">
@@ -173,30 +144,6 @@ export function EmployeeQrCardPanel({
                 )}
                 Print card
               </Button>
-              <AlertDialog>
-                <AlertDialogTrigger
-                  render={<Button size="sm" variant="outline" disabled={busy} />}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  Reissue
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Reissue this card?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      A new code is minted and the current card stops scanning
-                      immediately. Attendance already recorded against the old
-                      code is untouched. Print the replacement afterwards.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleReissue}>
-                      Reissue
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
             </div>
           </>
         ) : (
