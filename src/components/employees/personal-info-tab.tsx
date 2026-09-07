@@ -6,6 +6,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
+import type { EmployeeQrCardState } from "@/lib/actions/qr-card-actions";
+import { EmployeeQrCardPanel } from "@/components/employees/employee-qr-card";
 
 function InfoRow({ label, value }: { label: string; value: string | null }) {
   return (
@@ -20,8 +22,17 @@ function InfoRow({ label, value }: { label: string; value: string | null }) {
 
 export function PersonalInfoTab({
   employee,
+  qrCard,
+  organizationName,
 }: {
   employee: EmployeeWithRelations;
+  /**
+   * The employee's attendance card. Null for anyone who may not see a token —
+   * it is a bearer credential, so the page decides (canManageEvents) and this
+   * tab simply renders nothing when it is not passed one.
+   */
+  qrCard?: EmployeeQrCardState | null;
+  organizationName: string;
 }) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -56,6 +67,14 @@ export function PersonalInfoTab({
           <InfoRow label="Address" value={employee.address} />
         </CardContent>
       </Card>
+
+      {qrCard && (
+        <EmployeeQrCardPanel
+          employeeId={employee.id}
+          state={qrCard}
+          organizationName={organizationName}
+        />
+      )}
     </div>
   );
 }

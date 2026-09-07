@@ -4,7 +4,6 @@ import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Loader2, Printer, RotateCcw } from "lucide-react";
 import { pdf } from "@react-pdf/renderer";
-import QRCode from "qrcode";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +30,7 @@ import {
   rotateQrCredential,
 } from "@/lib/actions/qr-card-actions";
 import { EMPLOYMENT_LABELS } from "@/lib/event-repo";
+import { generateQrCardDataUrl } from "@/lib/qr-card-image";
 import type { EventSubjectKind, QrCardSubject } from "@/lib/types";
 
 const KINDS: EventSubjectKind[] = [
@@ -100,12 +100,7 @@ export function QrCardsClient({
           employment_label:
             s.subject_kind === "temporary" ? "" : s.employment_label,
           token: s.token,
-          qrDataUrl: await QRCode.toDataURL(s.token, {
-            width: 512,
-            margin: 1,
-            // High correction: these cards live in wallets and get creased.
-            errorCorrectionLevel: "H",
-          }),
+          qrDataUrl: await generateQrCardDataUrl(s.token),
         })),
       );
 

@@ -6,7 +6,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { canManageEvents } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
-import { loadEventCandidates } from "@/lib/event-repo";
+import { EMPLOYMENT_LABELS, loadEventCandidates } from "@/lib/event-repo";
+import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
+import { generateQrCardDataUrl } from "@/lib/qr-card-image";
+import { idText } from "@/lib/id-text";
 import { eventSubjectKindSchema } from "@/lib/validations/event-schema";
 import type { EventSubjectKind, QrCardSubject } from "@/lib/types";
 
@@ -226,4 +229,196 @@ export async function markQrCardsPrinted(
   });
 
   return { success: true, data: { count: updated } };
+}
+
+// ── One employee's card, on their own profile ─────────────────────────────
+//
+// Same credential the bulk print screen issues — one token per person, minted
+// once and rotated on reissue — shown on /employees/[id] so HR can hand out or
+// reprint a single card without going back to the bulk screen to hunt for one
+// name. Gated on canManageEvents like every other path that can see a token:
+// the card carries no photo, so the token IS the identity.
+
+/** A card ready to render or print: the credential plus its QR image. */
+export interface EmployeeQrCard extends QrCardSubject {
+  /** PNG data URL of the token, rendered server-side. */
+  qrDataUrl: string;
+}
+
+export interface EmployeeQrCardState {
+  /** The live card, or null when nobody has issued one for this record yet. */
+  card: EmployeeQrCard | null;
+  /** May a card be issued now? False once `reason` explains why not. */
+  canIssue: boolean;
+  /** Why this record has no card and cannot be given one. Null when it can. */
+  reason: string | null;
+}
+
+/**
+ * Which events subject an hris.employees row is.
+ *
+ * Only plantilla and temporary rows are: Job Order and COS personnel have
+ * registries of their own, and the rows sitting in hris.employees with those
+ * employment types are the legacy orphans loadEventCandidates deliberately
+ * skips. Issuing a card against one would mint a credential that no scan could
+ * ever resolve back to a person.
+ */
+function employeeSubjectKind(employmentType: string): EventSubjectKind | null {
+  if (employmentType === "plantilla") return "employee";
+  if (employmentType === "temporary") return "temporary";
+  return null;
+}
+
+async function readEmployeeCardRow(supabase: ReturnType<typeof createAdminClient>, employeeId: string) {
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select(
+      "id, first_name, middle_name, last_name, suffix, id_number, employee_no, employment_type, status, departments!employees_department_id_fkey(name)",
+    )
+    .eq("id", employeeId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data as {
+    id: string;
+    first_name: string;
+    middle_name: string | null;
+    last_name: string;
+    suffix: string | null;
+    id_number: string | number | null;
+    employee_no: string | number | null;
+    employment_type: string;
+    status: string;
+    departments: { name: string } | null;
+  } | null;
+}
+
+/**
+ * The employee's attendance card as it stands — no minting.
+ *
+ * Deliberately read-only: this runs while the profile page renders, and a page
+ * view is the wrong place to mint a bearer credential. Issuing is the explicit
+ * button next to the empty slot (issueQrCardForEmployee).
+ */
+export async function getEmployeeQrCard(
+  employeeId: string,
+): Promise<EmployeeQrCardState> {
+  const user = await getCurrentUser();
+  if (!canManageEvents(user?.roles)) {
+    return { card: null, canIssue: false, reason: null };
+  }
+
+  const supabase = createAdminClient();
+  const row = await readEmployeeCardRow(supabase, employeeId);
+  if (!row) return { card: null, canIssue: false, reason: null };
+
+  const kind = employeeSubjectKind(row.employment_type);
+  if (!kind) {
+    return {
+      card: null,
+      canIssue: false,
+      reason:
+        "Job Order and COS personnel carry their card in their own registry — print it from QR ID Cards.",
+    };
+  }
+
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("qr_credentials")
+    .select("token")
+    .eq("subject_kind", kind)
+    .eq("subject_id", employeeId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+
+  const token = (data as { token: string } | null)?.token ?? null;
+  if (!token) {
+    // An inactive record keeps a card it already has — attendance filed against
+    // it stays resolvable — but is not given a new one.
+    const active = row.status === "active";
+    return {
+      card: null,
+      canIssue: active,
+      reason: active
+        ? null
+        : "Cards are issued to active personnel only.",
+    };
+  }
+
+  return {
+    card: {
+      subject_kind: kind,
+      subject_id: row.id,
+      full_name: formatEmployeeDisplayName(row),
+      // Same fallback the bulk print screen uses, so one person's card reads
+      // identically wherever it was produced.
+      id_number: idText(row.id_number) ?? idText(row.employee_no),
+      group_name: row.departments?.name ?? null,
+      employment_label: EMPLOYMENT_LABELS[kind],
+      token,
+      qrDataUrl: await generateQrCardDataUrl(token),
+    },
+    canIssue: false,
+    reason: null,
+  };
+}
+
+/** Mints this employee's first card. A no-op returning the live one if it already exists. */
+export async function issueQrCardForEmployee(
+  employeeId: string,
+): Promise<ActionResult<{ token: string }>> {
+  const user = await getCurrentUser();
+  if (!canManageEvents(user?.roles)) {
+    return { success: false, error: "Not authorized" };
+  }
+
+  const supabase = createAdminClient();
+  const row = await readEmployeeCardRow(supabase, employeeId);
+  if (!row) return { success: false, error: "Employee not found" };
+
+  const kind = employeeSubjectKind(row.employment_type);
+  if (!kind) {
+    return { success: false, error: "This record cannot carry an attendance card" };
+  }
+  if (row.status !== "active") {
+    return { success: false, error: "Cards are issued to active personnel only" };
+  }
+
+  const { data: existing, error: readError } = await supabase
+    .schema("hris")
+    .from("qr_credentials")
+    .select("token")
+    .eq("subject_kind", kind)
+    .eq("subject_id", employeeId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (readError) return { success: false, error: readError.message };
+  if (existing) return { success: true, data: { token: (existing as { token: string }).token } };
+
+  const token = mintToken();
+  const { error } = await supabase
+    .schema("hris")
+    .from("qr_credentials")
+    .insert({
+      token,
+      subject_kind: kind,
+      subject_id: employeeId,
+      created_by: user!.id,
+      updated_by: user!.id,
+    });
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    userId: user!.id,
+    userEmail: user!.email,
+    action: "issue_qr_credential",
+    tableName: "qr_credentials",
+    recordId: employeeId,
+    newValues: { subject_kind: kind },
+  });
+
+  revalidatePath(`/employees/${employeeId}`);
+  revalidatePath("/events/cards");
+  return { success: true, data: { token } };
 }

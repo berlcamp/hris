@@ -47,10 +47,12 @@ import { DocumentsTab } from "@/components/employees/documents-tab";
 import { LeaveCreditsTab } from "@/components/employees/leave-credits-tab";
 import { PlantillaTab } from "@/components/employees/plantilla-tab";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageHrRecords } from "@/lib/auth-helpers";
+import { canManageEvents, canManageHrRecords } from "@/lib/auth-helpers";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { buildEmployeeQrUrl, generateEmployeeQrDataUrl } from "@/lib/employee-qr";
 import { EmployeeQrButton } from "@/components/employees/employee-qr-button";
+import { getEmployeeQrCard } from "@/lib/actions/qr-card-actions";
+import { getSystemSettings } from "@/lib/actions/settings-actions";
 
 export default async function EmployeeProfilePage({
   params,
@@ -71,6 +73,7 @@ export default async function EmployeeProfilePage({
     serviceRecords,
     documents,
     currentUser,
+    settings,
   ] = await Promise.all([
     getEmployeeById(id).catch(() => null),
     getSalaryHistory(id),
@@ -82,6 +85,7 @@ export default async function EmployeeProfilePage({
     getServiceRecords(id),
     getDocuments(id),
     getCurrentUser(),
+    getSystemSettings(),
   ]);
 
   const plantilla =
@@ -109,6 +113,14 @@ export default async function EmployeeProfilePage({
     canManageRecords && employee.id_number
       ? await generateEmployeeQrDataUrl(employee.id_number)
       : null;
+
+  // The attendance card is a separate thing from the public-profile QR above:
+  // it encodes a bearer token, not a URL, so it is gated on the same privilege
+  // that prints the cards in bulk (canManageEvents) rather than on HR records
+  // reach. Read-only — issuing is an explicit button on the tab.
+  const qrCard = canManageEvents(currentUser?.roles)
+    ? await getEmployeeQrCard(id)
+    : null;
 
   const fullName = [
     employee.first_name,
@@ -234,7 +246,11 @@ export default async function EmployeeProfilePage({
         </TabsList>
 
         <TabsContent value="personal">
-          <PersonalInfoTab employee={employee} />
+          <PersonalInfoTab
+            employee={employee}
+            qrCard={qrCard}
+            organizationName={settings.lgu_name}
+          />
         </TabsContent>
 
         <TabsContent value="employment">
