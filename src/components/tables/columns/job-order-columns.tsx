@@ -2,7 +2,7 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ function fmtRate(n: number | null): string {
 }
 
 export function jobOrderColumns(handlers: {
+  onView: (employee: JobOrderEmployee) => void;
   onEdit: (employee: JobOrderEmployee) => void;
   onDelete: (employee: JobOrderEmployee) => void;
 }): ColumnDef<JobOrderEmployee>[] {
@@ -38,7 +39,15 @@ export function jobOrderColumns(handlers: {
         <DataTableColumnHeader column={column} title="Name" />
       ),
       cell: ({ row }) => (
-        <span className="font-medium">{row.getValue("full_name")}</span>
+        // A button, not a link: Job Order personnel have no page of their own,
+        // so the record opens in a dialog over the list.
+        <button
+          type="button"
+          onClick={() => handlers.onView(row.original)}
+          className="text-primary text-left font-medium hover:underline"
+        >
+          {row.getValue("full_name")}
+        </button>
       ),
     },
     {
@@ -167,6 +176,10 @@ export function jobOrderColumns(handlers: {
             <span className="sr-only">Open menu</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
+              <Eye className="h-4 w-4" />
+              View details
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
               <Pencil className="h-4 w-4" />
               Edit

@@ -422,3 +422,209 @@ export async function issueQrCardForEmployee(
   revalidatePath("/events/cards");
   return { success: true, data: { token } };
 }
+
+// ── One Job Order / COS person's card, on their own record ────────────────
+//
+// Same credential, same token space, same rotation rule as the plantilla card
+// above — only the registry the name is read from differs. Job Order and COS
+// personnel live in hris.job_order_employees / hris.cos_employees, so
+// readEmployeeCardRow cannot reach them and employeeSubjectKind() deliberately
+// refuses the legacy hris.employees rows that carry those employment types.
+
+/** The two registries that are neither plantilla nor temporary. */
+type RegistrySubjectKind = Extract<EventSubjectKind, "job_order" | "cos">;
+
+function isRegistryKind(kind: string): kind is RegistrySubjectKind {
+  return kind === "job_order" || kind === "cos";
+}
+
+interface RegistryCardRow {
+  full_name: string;
+  /** COS carries cos_no; Job Order has no number at all — the card falls back to the token tail. */
+  id_number: string | null;
+  /** Area for Job Order, department for COS — the same axis GROUP_AXIS names. */
+  group_name: string | null;
+  active: boolean;
+}
+
+async function readRegistryCardRow(
+  supabase: ReturnType<typeof createAdminClient>,
+  kind: RegistrySubjectKind,
+  subjectId: string,
+): Promise<RegistryCardRow | null> {
+  if (kind === "job_order") {
+    const { data, error } = await supabase
+      .schema("hris")
+      .from("job_order_employees")
+      .select("id, full_name, status, job_order_areas(name)")
+      .eq("id", subjectId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    // Through `unknown`: PostgREST returns the embedded area as an object, but
+    // the generated types spell a one-to-many embed as an array.
+    const row = data as unknown as {
+      full_name: string;
+      status: string;
+      job_order_areas: { name: string } | null;
+    };
+    return {
+      full_name: row.full_name,
+      id_number: null,
+      group_name: row.job_order_areas?.name ?? null,
+      active: row.status === "active",
+    };
+  }
+
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("cos_employees")
+    .select(
+      "id, first_name, middle_name, last_name, suffix, cos_no, status, departments(name)",
+    )
+    .eq("id", subjectId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const row = data as unknown as {
+    first_name: string;
+    middle_name: string | null;
+    last_name: string;
+    suffix: string | null;
+    cos_no: string | number | null;
+    status: string;
+    departments: { name: string } | null;
+  };
+  return {
+    full_name: formatEmployeeDisplayName(row),
+    id_number: idText(row.cos_no),
+    group_name: row.departments?.name ?? null,
+    active: row.status === "active",
+  };
+}
+
+/**
+ * A Job Order or COS person's attendance card as it stands — no minting.
+ *
+ * Read-only for the same reason getEmployeeQrCard is: rendering a page must
+ * never mint a bearer credential. Issuing is the explicit button beside the
+ * empty slot.
+ */
+export async function getRegistryQrCard(
+  kind: EventSubjectKind,
+  subjectId: string,
+): Promise<EmployeeQrCardState> {
+  const user = await getCurrentUser();
+  if (!canManageEvents(user?.roles)) {
+    return {
+      card: null,
+      canIssue: false,
+      reason: "Attendance cards are managed by the Events module.",
+    };
+  }
+  if (!isRegistryKind(kind)) {
+    return { card: null, canIssue: false, reason: "Unknown personnel type." };
+  }
+
+  const supabase = createAdminClient();
+  const row = await readRegistryCardRow(supabase, kind, subjectId);
+  if (!row) return { card: null, canIssue: false, reason: null };
+
+  const { data, error } = await supabase
+    .schema("hris")
+    .from("qr_credentials")
+    .select("token")
+    .eq("subject_kind", kind)
+    .eq("subject_id", subjectId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+
+  const token = (data as { token: string } | null)?.token ?? null;
+  if (!token) {
+    // An inactive record keeps a card it already has — attendance filed against
+    // it stays resolvable — but is not given a new one.
+    return {
+      card: null,
+      canIssue: row.active,
+      reason: row.active ? null : "Cards are issued to active personnel only.",
+    };
+  }
+
+  return {
+    card: {
+      subject_kind: kind,
+      subject_id: subjectId,
+      full_name: row.full_name,
+      id_number: row.id_number,
+      group_name: row.group_name,
+      employment_label: EMPLOYMENT_LABELS[kind],
+      token,
+      qrDataUrl: await generateQrCardDataUrl(token),
+    },
+    canIssue: false,
+    reason: null,
+  };
+}
+
+/** Mints this Job Order / COS person's first card. A no-op returning the live one if it exists. */
+export async function issueQrCardForRegistrySubject(
+  kind: EventSubjectKind,
+  subjectId: string,
+): Promise<ActionResult<{ token: string }>> {
+  const user = await getCurrentUser();
+  if (!canManageEvents(user?.roles)) {
+    return { success: false, error: "Not authorized" };
+  }
+  if (!isRegistryKind(kind)) {
+    return { success: false, error: "Unknown personnel type" };
+  }
+
+  const supabase = createAdminClient();
+  const row = await readRegistryCardRow(supabase, kind, subjectId);
+  if (!row) return { success: false, error: "Record not found" };
+  if (!row.active) {
+    return { success: false, error: "Cards are issued to active personnel only" };
+  }
+
+  const { data: existing, error: readError } = await supabase
+    .schema("hris")
+    .from("qr_credentials")
+    .select("token")
+    .eq("subject_kind", kind)
+    .eq("subject_id", subjectId)
+    .is("revoked_at", null)
+    .maybeSingle();
+  if (readError) return { success: false, error: readError.message };
+  if (existing) {
+    return { success: true, data: { token: (existing as { token: string }).token } };
+  }
+
+  const token = mintToken();
+  const { error } = await supabase
+    .schema("hris")
+    .from("qr_credentials")
+    .insert({
+      token,
+      subject_kind: kind,
+      subject_id: subjectId,
+      created_by: user!.id,
+      updated_by: user!.id,
+    });
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    userId: user!.id,
+    userEmail: user!.email,
+    action: "issue_qr_credential",
+    tableName: "qr_credentials",
+    recordId: subjectId,
+    newValues: { subject_kind: kind },
+  });
+
+  revalidatePath(kind === "cos" ? `/cos/employees/${subjectId}` : "/job-orders");
+  revalidatePath("/events/cards");
+  return { success: true, data: { token } };
+}

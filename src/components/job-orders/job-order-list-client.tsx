@@ -27,6 +27,7 @@ import { DataTable } from "@/components/tables/data-table";
 import { ExportExcelButton } from "@/components/tables/export-excel-button";
 import { jobOrderColumns } from "@/components/tables/columns/job-order-columns";
 import { JobOrderForm } from "@/components/job-orders/job-order-form";
+import { JobOrderDetailDialog } from "@/components/job-orders/job-order-detail-dialog";
 import { deleteJobOrderEmployee } from "@/lib/actions/job-order-actions";
 import { formatJoAddress } from "@/lib/job-order-helpers";
 import type { XlsxColumn } from "@/lib/xlsx";
@@ -75,14 +76,21 @@ interface JobOrderListClientProps {
   areas: JobOrderArea[];
   /** Super admins get the raw record `id` in the sheet; nobody else needs it. */
   isSuperAdmin?: boolean;
+  /** LGU name printed on the attendance card shown in the details dialog. */
+  organizationName: string;
+  /** False for accounts that may not see a card token; the details dialog then omits the card. */
+  canManageCards: boolean;
 }
 
 export function JobOrderListClient({
   initialEmployees,
   areas,
   isSuperAdmin = false,
+  organizationName,
+  canManageCards,
 }: JobOrderListClientProps) {
   const router = useRouter();
+  const [viewing, setViewing] = useState<JobOrderEmployee | null>(null);
   const [editing, setEditing] = useState<JobOrderEmployee | null>(null);
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<JobOrderEmployee | null>(
@@ -120,7 +128,13 @@ export function JobOrderListClient({
   };
 
   const columns = jobOrderColumns({
-    onEdit: setEditing,
+    onView: setViewing,
+    onEdit: (employee) => {
+      // Editing from inside the details dialog: close it first so the two
+      // dialogs never stack.
+      setViewing(null);
+      setEditing(employee);
+    },
     onDelete: setDeleteTarget,
   });
 
@@ -173,6 +187,20 @@ export function JobOrderListClient({
             </Button>
           </>
         )}
+      />
+
+      <JobOrderDetailDialog
+        employee={viewing}
+        open={viewing !== null}
+        onOpenChange={(o) => {
+          if (!o) setViewing(null);
+        }}
+        onEdit={(employee) => {
+          setViewing(null);
+          setEditing(employee);
+        }}
+        organizationName={organizationName}
+        canManageCards={canManageCards}
       />
 
       <Dialog

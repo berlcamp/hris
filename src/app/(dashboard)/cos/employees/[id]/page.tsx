@@ -13,9 +13,12 @@ import {
 import { CosEmployeeDeleteDialog } from "@/components/cos/cos-employee-delete-dialog";
 import { CosContractTimeline } from "@/components/cos/cos-contract-timeline";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageCos, hasRole } from "@/lib/auth-helpers";
+import { canManageCos, canManageEvents, hasRole } from "@/lib/auth-helpers";
 import { getCosEmployee } from "@/lib/actions/cos-employee-actions";
 import { getContractsForEmployee } from "@/lib/actions/cos-contract-actions";
+import { getRegistryQrCard } from "@/lib/actions/qr-card-actions";
+import { getSystemSettings } from "@/lib/actions/settings-actions";
+import { QrCardPanel } from "@/components/events/qr-card-panel";
 import {
   COS_EMPLOYEE_STATUS_LABELS,
   COS_EMPLOYEE_STATUS_VARIANT,
@@ -53,11 +56,19 @@ export default async function CosEmployeeProfilePage({
   if (!user) redirect("/login");
   if (!canManageCos(user.roles)) redirect("/dashboard");
 
-  const [employee, contracts] = await Promise.all([
+  const [employee, contracts, settings] = await Promise.all([
     getCosEmployee(id),
     getContractsForEmployee(id),
+    getSystemSettings(),
   ]);
   if (!employee) notFound();
+
+  // The attendance card encodes a bearer token, so it is gated on the same
+  // privilege that prints the cards in bulk (canManageEvents) rather than on
+  // COS reach. Read-only — issuing is the explicit button on the panel.
+  const qrCard = canManageEvents(user.roles)
+    ? await getRegistryQrCard("cos", id)
+    : null;
 
   const name = formatCosEmployeeName(employee);
 
@@ -147,6 +158,13 @@ export default async function CosEmployeeProfilePage({
             </div>
           </CardContent>
         </Card>
+        {qrCard && (
+          <QrCardPanel
+            owner={{ kind: "cos", id: employee.id }}
+            state={qrCard}
+            organizationName={settings.lgu_name}
+          />
+        )}
       </div>
 
       <Card>

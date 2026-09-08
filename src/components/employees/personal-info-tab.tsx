@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/card";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import type { EmployeeQrCardState } from "@/lib/actions/qr-card-actions";
-import { EmployeeQrCardPanel } from "@/components/employees/employee-qr-card";
+import { QrCardPanel } from "@/components/events/qr-card-panel";
 
 function InfoRow({ label, value }: { label: string; value: string | null }) {
   return (
@@ -69,8 +69,8 @@ export function PersonalInfoTab({
       </Card>
 
       {qrCard && (
-        <EmployeeQrCardPanel
-          employeeId={employee.id}
+        <QrCardPanel
+          owner={{ kind: "employee", id: employee.id }}
           state={qrCard}
           organizationName={organizationName}
         />

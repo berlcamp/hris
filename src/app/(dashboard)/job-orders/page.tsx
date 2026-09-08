@@ -1,17 +1,19 @@
 import { redirect } from "next/navigation";
 import { getServerUser } from "@/lib/auth";
-import { canManageJobOrders, hasRole } from "@/lib/auth-helpers";
+import { canManageEvents, canManageJobOrders, hasRole } from "@/lib/auth-helpers";
 import { getJobOrderEmployees } from "@/lib/actions/job-order-actions";
 import { getJobOrderAreas } from "@/lib/actions/job-order-area-actions";
+import { getSystemSettings } from "@/lib/actions/settings-actions";
 import { JobOrderListClient } from "@/components/job-orders/job-order-list-client";
 
 export default async function JobOrdersPage() {
   const user = await getServerUser();
   if (!canManageJobOrders(user?.roles)) redirect("/dashboard");
 
-  const [employees, areas] = await Promise.all([
+  const [employees, areas, settings] = await Promise.all([
     getJobOrderEmployees({ status: "all" }),
     getJobOrderAreas({ includeInactive: true }),
+    getSystemSettings(),
   ]);
 
   return (
@@ -29,6 +31,8 @@ export default async function JobOrdersPage() {
         initialEmployees={employees}
         areas={areas}
         isSuperAdmin={hasRole(user?.roles, "super_admin")}
+        organizationName={settings.lgu_name}
+        canManageCards={canManageEvents(user?.roles)}
       />
     </div>
   );
