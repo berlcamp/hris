@@ -627,3 +627,64 @@ export async function recordManualAttendance(
     },
   };
 }
+
+/**
+ * Removes one attendance record — the scan that should never have counted.
+ *
+ * HR-only (canManageEvents), never the door: the officer at the venue records
+ * presence, and letting the same account also erase it would put both sides of
+ * the ledger in one pair of hands. The Attendance Checker's mistake is HR's to
+ * undo, from the report where the record is visible in context.
+ *
+ * A hard delete, not a soft one: event_attendance carries no deleted_at, and a
+ * flag would have to be threaded through the unique day index, the turnout
+ * counts and the CSV exports for a row nobody wants counted anywhere. The row
+ * is copied into the audit log first, so what was removed — and by whom — stays
+ * on the record.
+ *
+ * Allowed on a CLOSED event too. Closing means the report is final, not that a
+ * wrong record has to stay in it; the deletion is audited exactly the same way.
+ *
+ * One caveat worth knowing: deleting a scan that is still sitting in an offline
+ * device's queue does not stop it coming back, because the replay guard is the
+ * client_scan_id unique index and the delete takes that row with it. Delete
+ * after the phones have synced, or the record may reappear.
+ */
+export async function deleteEventAttendance(
+  attendanceId: string,
+): Promise<ActionResult> {
+  const user = await getCurrentUser();
+  if (!canManageEvents(user?.roles)) {
+    return { success: false, error: "Not authorized" };
+  }
+
+  const supabase = createAdminClient();
+  const { data: row, error: readError } = await supabase
+    .schema("hris")
+    .from("event_attendance")
+    .select("*")
+    .eq("id", attendanceId)
+    .maybeSingle();
+  if (readError) return { success: false, error: readError.message };
+  if (!row) return { success: false, error: "Attendance record not found." };
+  const record = row as unknown as EventAttendanceRecord;
+
+  const { error } = await supabase
+    .schema("hris")
+    .from("event_attendance")
+    .delete()
+    .eq("id", attendanceId);
+  if (error) return { success: false, error: error.message };
+
+  await logAudit({
+    userId: user!.id,
+    userEmail: user!.email,
+    action: "delete_event_attendance",
+    tableName: "event_attendance",
+    recordId: attendanceId,
+    oldValues: record as unknown as Record<string, unknown>,
+  });
+
+  revalidatePath(`/events/${record.event_id}`);
+  return { success: true };
+}

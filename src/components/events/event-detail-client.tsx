@@ -29,10 +29,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 import { ExportCsvButton } from "@/components/tables/export-csv-button";
 import { EventFormDialog } from "@/components/events/event-form-dialog";
 import { EventRosterBuilder } from "@/components/events/event-roster-builder";
-import { deleteEvent, setEventStatus } from "@/lib/actions/event-actions";
+import {
+  deleteEvent,
+  deleteEventAttendance,
+  setEventStatus,
+} from "@/lib/actions/event-actions";
+import { EMPLOYMENT_LABELS } from "@/lib/event-repo";
 import type {
   EventAttendanceRecord,
   EventRecord,
@@ -67,6 +73,11 @@ export function EventDetailClient({
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [logSearch, setLogSearch] = useState("");
+  /** The record the delete dialog is asking about. null = dialog closed. */
+  const [pendingDelete, setPendingDelete] = useState<EventAttendanceRecord | null>(
+    null,
+  );
 
   /** Every day the event runs, so an empty day still shows as a column. */
   const days = useMemo(() => {
@@ -205,6 +216,30 @@ export function EventDetailClient({
     [attendance],
   );
 
+  /**
+   * The individual records, newest first, narrowed by the search box.
+   *
+   * Newest first because the record HR came here to remove is almost always the
+   * one just taken — a double scan, a card handed to the wrong person, a test
+   * scan while setting the phone up. Capped for rendering; the search box is
+   * how you reach the rest, and "Download names" still carries every row.
+   */
+  const filteredLog = useMemo(() => {
+    const needle = logSearch.trim().toLowerCase();
+    const rows = needle
+      ? attendance.filter(
+          (a) =>
+            a.full_name.toLowerCase().includes(needle) ||
+            (a.csc_team ?? "").toLowerCase().includes(needle) ||
+            a.attendance_date.includes(needle),
+        )
+      : attendance;
+    return [...rows].sort((a, b) => b.scanned_at.localeCompare(a.scanned_at));
+  }, [attendance, logSearch]);
+
+  const LOG_LIMIT = 200;
+  const visibleLog = filteredLog.slice(0, LOG_LIMIT);
+
   const summaryCsvRows = useMemo(
     () =>
       teamSummary.map((t) => ({
@@ -224,6 +259,21 @@ export function EventDetailClient({
       return;
     }
     toast.success(`Event ${status}`);
+    router.refresh();
+  };
+
+  const handleDeleteAttendance = async () => {
+    if (!pendingDelete) return;
+    const record = pendingDelete;
+    setBusy(true);
+    const result = await deleteEventAttendance(record.id);
+    setBusy(false);
+    setPendingDelete(null);
+    if (!result.success) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(`Removed ${record.full_name} from ${fmtDate(record.attendance_date)}`);
     router.refresh();
   };
 
@@ -575,10 +625,153 @@ export function EventDetailClient({
             the personnel records as they stand now, so correcting a wrong
             assignment moves these numbers with it.
           </p>
+
+          {/* The individual records, so a wrong one can be taken out. Only HR
+              reaches this page at all — the door app has no way here — and the
+              server checks the same thing again before it deletes anything. */}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-medium">Records</h2>
+                <p className="text-muted-foreground text-xs">
+                  Every record as it was taken. Removing one takes that person
+                  out of the day&apos;s count; it is written to the audit log
+                  and cannot be undone from here.
+                </p>
+              </div>
+              <Input
+                value={logSearch}
+                onChange={(e) => setLogSearch(e.target.value)}
+                placeholder="Search name, team or date…"
+                className="w-full sm:w-64"
+              />
+            </div>
+
+            <div className="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>CSC Team</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Recorded</TableHead>
+                    <TableHead className="w-10" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visibleLog.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="h-24 text-center">
+                        {attendance.length === 0
+                          ? "Nothing recorded yet."
+                          : "No record matches that search."}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    visibleLog.map((a) => (
+                      <TableRow key={a.id}>
+                        <TableCell className="whitespace-nowrap">
+                          {fmtDate(a.attendance_date)}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            {a.full_name}
+                            {a.is_walk_in && (
+                              <Badge variant="secondary" className="font-normal">
+                                walk-in
+                              </Badge>
+                            )}
+                            {a.method === "manual" && (
+                              <Badge variant="secondary" className="font-normal">
+                                manual
+                              </Badge>
+                            )}
+                            {a.synced_late && (
+                              <Badge variant="secondary" className="font-normal">
+                                amendment
+                              </Badge>
+                            )}
+                          </span>
+                        </TableCell>
+                        <TableCell
+                          className={
+                            a.csc_team ? "" : "text-muted-foreground"
+                          }
+                        >
+                          {a.csc_team ?? UNASSIGNED}
+                        </TableCell>
+                        <TableCell>{EMPLOYMENT_LABELS[a.subject_kind]}</TableCell>
+                        <TableCell className="text-muted-foreground whitespace-nowrap">
+                          {format(new Date(a.scanned_at), "MMM d, h:mm a")}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-destructive"
+                            aria-label={`Delete ${a.full_name}'s record`}
+                            disabled={busy}
+                            onClick={() => setPendingDelete(a)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+
+            {filteredLog.length > visibleLog.length && (
+              <p className="text-muted-foreground text-xs">
+                Showing the {LOG_LIMIT} most recent of {filteredLog.length}{" "}
+                records. Search to narrow the list.
+              </p>
+            )}
+          </div>
         </TabsContent>
       </Tabs>
 
       <EventFormDialog open={editOpen} onOpenChange={setEditOpen} event={event} />
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this attendance record?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete && (
+                <>
+                  {pendingDelete.full_name} will no longer be counted present on{" "}
+                  {fmtDate(pendingDelete.attendance_date)}. The removal is
+                  written to the audit log and cannot be undone here — record it
+                  again by hand from the scanner if it was taken out in error.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(e) => {
+                // The dialog closes itself on action; keep it open until the
+                // server answers so a failure can be reported against the row.
+                e.preventDefault();
+                void handleDeleteAttendance();
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
