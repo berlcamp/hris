@@ -536,6 +536,7 @@ export function CorrectionRequestForm({
         setUploading(true);
         try {
           const ticket = await createProofUploadTicket(employeeId, file.name);
+          if ("error" in ticket) throw new Error(ticket.error);
           const { error: uploadError } = await createClient()
             .storage.from(PROOF_BUCKET)
             .uploadToSignedUrl(ticket.path, ticket.token, file, {
@@ -556,7 +557,11 @@ export function CorrectionRequestForm({
         }
       }
 
-      const { id, outcome } = await createCorrectionRequest(
+      // The action RETURNS its refusals rather than throwing them: Next strips
+      // the message off anything a Server Action throws in a production build,
+      // so a thrown "this employee already has a request for those dates"
+      // reached the filer as an opaque platform error and nothing else.
+      const result = await createCorrectionRequest(
         {
           employee_id: employeeId,
           date_from: dateFrom,
@@ -566,6 +571,12 @@ export function CorrectionRequestForm({
         },
         proofRef,
       );
+      if ("error" in result) {
+        toast.error(result.error);
+        setSubmitting(false);
+        return;
+      }
+      const { id, outcome } = result;
       if (!directApply) {
         toast.success("Correction request submitted for HR review.");
       } else if (outcome === "applied") {

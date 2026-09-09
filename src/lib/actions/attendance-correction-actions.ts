@@ -36,6 +36,34 @@ import type { CorrectionReason } from "@/lib/constants";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Why the save path RETURNS its refusals instead of throwing them.
+//
+// Next redacts every error a Server Action throws in a production build: the
+// browser receives "An error occurred in the Server Components render. The
+// specific message is omitted..." and nothing else. So a throw here — even one
+// carrying a sentence written for the filer, like "this employee already has a
+// correction request covering some of those dates" — reaches the user as an
+// opaque platform error, and the only way to learn what actually happened is to
+// read the server log for the digest. Returning the message keeps it intact.
+export interface CorrectionActionError {
+  error: string;
+}
+
+/** The message off an Error, a PostgrestError, or anything else thrown. */
+function messageOf(e: unknown): string {
+  if (e && typeof e === "object" && "message" in e) {
+    return String((e as { message: unknown }).message);
+  }
+  return "Unexpected error";
+}
+
+// Server-side breadcrumb for the cases no message can explain by itself. The
+// returned string tells the filer what happened; this puts the original error
+// (constraint name, PostgREST code, stack) in the host's log next to it.
+function logFailure(where: string, e: unknown): void {
+  console.error(`[attendance-corrections] ${where}:`, e);
+}
+
 /** Columns compared by the apply-time drift check. Keep in sync with migration 067. */
 function snapshotOf(log: Record<string, unknown>) {
   return {
@@ -120,10 +148,15 @@ export async function getCorrectableEmployees(): Promise<CorrectableEmployee[]> 
   }));
 }
 
+/** Whether `employeeId` is within the caller's correction reach. */
+async function hasReach(employeeId: string): Promise<boolean> {
+  const allowed = await getCorrectableEmployees();
+  return allowed.some((e) => e.id === employeeId);
+}
+
 /** Throws unless `employeeId` is within the caller's correction reach. */
 async function assertReach(employeeId: string) {
-  const allowed = await getCorrectableEmployees();
-  if (!allowed.some((e) => e.id === employeeId)) {
+  if (!(await hasReach(employeeId))) {
     throw new Error("Unauthorized");
   }
 }
@@ -136,12 +169,22 @@ async function assertReach(employeeId: string) {
 // timezone (and could be set by hand), and the whole point of the rule is that
 // it is the same for everybody.
 function assertCorrectionWindow(role: RoleInput, dates: string[]) {
-  if (canDirectApplyAttendanceCorrection(role)) return;
+  const failure = correctionWindowFailure(role, dates);
+  if (failure) throw new Error(failure);
+}
+
+/** The same rule, as a message to return rather than an exception to throw. */
+function correctionWindowFailure(
+  role: RoleInput,
+  dates: string[],
+): string | null {
+  if (canDirectApplyAttendanceCorrection(role)) return null;
   const window = correctionWindow(manilaToday());
   for (const date of dates) {
     const error = correctionWindowError(date, window);
-    if (error) throw new Error(error);
+    if (error) return error;
   }
+  return null;
 }
 
 /** The open window for the CURRENT user, or null when they have no limit. */
@@ -320,12 +363,14 @@ export interface CorrectionProofRef {
 export async function createProofUploadTicket(
   employeeId: string,
   filename: string,
-): Promise<ProofUploadTicket> {
+): Promise<ProofUploadTicket | CorrectionActionError> {
   const user = await getCurrentUser();
   if (!user || !canFileAttendanceCorrection(user)) {
-    throw new Error("Unauthorized");
+    return { error: "You are not allowed to file a correction." };
   }
-  await assertReach(employeeId);
+  if (!(await hasReach(employeeId))) {
+    return { error: "That employee is outside the records you may correct." };
+  }
 
   const requestId = crypto.randomUUID();
   const path = proofObjectPath(employeeId, requestId, filename);
@@ -334,9 +379,10 @@ export async function createProofUploadTicket(
     .from(PROOF_BUCKET)
     .createSignedUploadUrl(path);
   if (error || !data) {
-    throw new Error(
-      `Could not start the upload: ${error?.message ?? "no upload URL was issued"}`,
-    );
+    logFailure("createProofUploadTicket", error);
+    return {
+      error: `Could not start the upload: ${error?.message ?? "no upload URL was issued"}`,
+    };
   }
   return { requestId, path, token: data.token };
 }
@@ -344,25 +390,40 @@ export async function createProofUploadTicket(
 export async function createCorrectionRequest(
   input: CorrectionRequestInput,
   proof: CorrectionProofRef | null,
-) {
+): Promise<
+  | { id: string; directApply: boolean; outcome: "applied" | "needs_rebase" | null }
+  | CorrectionActionError
+> {
   const user = await getCurrentUser();
   if (!user || !canFileAttendanceCorrection(user)) {
-    throw new Error("Unauthorized");
+    return { error: "You are not allowed to file a correction." };
   }
   // Whether this filing applies on submit or waits for a reviewer is decided
   // HERE, from the caller's role — never from anything the client sends.
   const directApply = canDirectApplyAttendanceCorrection(user.roles);
-  const parsed = correctionRequestSchema.parse(input);
-  await assertReach(parsed.employee_id);
+  const parsedResult = correctionRequestSchema.safeParse(input);
+  if (!parsedResult.success) {
+    logFailure("createCorrectionRequest/validation", parsedResult.error);
+    return {
+      error:
+        parsedResult.error.issues[0]?.message ??
+        "Some of those days are not filled in correctly.",
+    };
+  }
+  const parsed = parsedResult.data;
+  if (!(await hasReach(parsed.employee_id))) {
+    return { error: "That employee is outside the records you may correct." };
+  }
   // The authoritative window check. Every duty_date is tested, not just the
   // declared range: the schema already requires items to fall inside
   // date_from..date_to, but this action must not depend on that refinement
   // staying in place to keep a department out of a closed payroll month.
-  assertCorrectionWindow(user.roles, [
+  const windowFailure = correctionWindowFailure(user.roles, [
     parsed.date_from,
     parsed.date_to,
     ...parsed.items.map((i) => i.duty_date),
   ]);
+  if (windowFailure) return { error: windowFailure };
 
   // Proof is mandatory for a department filing and optional for direct-apply:
   // the document is what lets HR trust an assertion it cannot verify, and a
@@ -370,7 +431,7 @@ export async function createCorrectionRequest(
   // Migration 068's acr_proof_unless_direct enforces the same rule in the
   // schema, so this cannot be bypassed by calling the action directly.
   if (!proof && !directApply) {
-    throw new Error("A supporting document is required");
+    return { error: "A supporting document is required" };
   }
 
   const supabase = createAdminClient();
@@ -384,6 +445,12 @@ export async function createCorrectionRequest(
   // of the row it already created.
   const requestId = proof?.requestId ?? crypto.randomUUID();
   const path = proof?.path ?? null;
+  // Every refusal from here on leaves the uploaded document behind unless it is
+  // cleaned up: the browser put it in the bucket before this action ran, and
+  // nothing else will ever reference it.
+  const discardProof = async () => {
+    if (path) await supabase.storage.from(PROOF_BUCKET).remove([path]);
+  };
   let proofSize: number | null = null;
   let proofMime: string | null = null;
   if (proof && path) {
@@ -391,7 +458,9 @@ export async function createCorrectionRequest(
       !UUID_RE.test(proof.requestId) ||
       !path.startsWith(`${parsed.employee_id}/${proof.requestId}/`)
     ) {
-      throw new Error("That supporting document does not belong to this request");
+      return {
+        error: "That supporting document does not belong to this request",
+      };
     }
     // list() rather than info(): the latter is a newer Storage endpoint, and a
     // verification step that can 404 on an older project would recreate exactly
@@ -403,16 +472,17 @@ export async function createCorrectionRequest(
       .list(path.slice(0, slash), { limit: 100, search: objectName });
     const object = (objects ?? []).find((o) => o.name === objectName);
     if (!object) {
-      throw new Error(
-        "The supporting document did not finish uploading. Attach it again.",
-      );
+      return {
+        error:
+          "The supporting document did not finish uploading. Attach it again.",
+      };
     }
     proofSize = (object.metadata?.size as number | undefined) ?? null;
     proofMime = (object.metadata?.mimetype as string | undefined) ?? null;
     const rejection = proofRejection(proofSize, proofMime);
     if (rejection) {
-      await supabase.storage.from(PROOF_BUCKET).remove([path]);
-      throw new Error(rejection);
+      await discardProof();
+      return { error: rejection };
     }
   }
 
@@ -441,10 +511,17 @@ export async function createCorrectionRequest(
           .from("attendance_logs")
           .select("id, time_in_am, time_out_am, time_in_pm, time_out_pm, schedule_id, source")
           .in("id", logIds);
-  if (logErr) throw logErr;
+  if (logErr) {
+    logFailure("createCorrectionRequest/snapshot", logErr);
+    await discardProof();
+    return { error: `Could not read those days: ${logErr.message}` };
+  }
   const byId = new Map((logs ?? []).map((l) => [l.id, l]));
   if (byId.size !== logIds.length) {
-    throw new Error("Some of those days no longer have an attendance record");
+    await discardProof();
+    return {
+      error: "Some of those days no longer have an attendance record",
+    };
   }
 
   // A CREATE item is only valid while the date really has no row. Re-check here
@@ -461,12 +538,48 @@ export async function createCorrectionRequest(
       .select("date")
       .eq("employee_id", parsed.employee_id)
       .in("date", createDates);
-    if (clashErr) throw clashErr;
-    if ((clashes ?? []).length > 0) {
-      throw new Error(
-        "Attendance was recorded for one of those days while you were filling this in. Reload and try again.",
-      );
+    if (clashErr) {
+      logFailure("createCorrectionRequest/create-clash", clashErr);
+      await discardProof();
+      return { error: `Could not read those days: ${clashErr.message}` };
     }
+    if ((clashes ?? []).length > 0) {
+      await discardProof();
+      return {
+        error:
+          "Attendance was recorded for one of those days while you were filling this in. Reload and try again.",
+      };
+    }
+  }
+
+  // A live request already claims some of these dates. The EXCLUDE constraint
+  // acr_no_overlapping_pending refuses the insert below either way, but that
+  // reads as a raw constraint violation; look it up first so the filer is told
+  // WHICH request is in the way and who filed it. Direct-apply is not exempt:
+  // the row is briefly 'pending' before it applies, so it takes the same lock —
+  // and a department's pending request over the same days is exactly the thing
+  // HR should decide on rather than quietly write past.
+  const { data: blocking } = await supabase
+    .schema("hris")
+    .from("attendance_correction_requests")
+    .select("date_from, date_to, status, requested_by_email")
+    .eq("employee_id", parsed.employee_id)
+    .in("status", ["pending", "needs_rebase"])
+    .lte("date_from", parsed.date_to)
+    .gte("date_to", parsed.date_from)
+    .limit(1)
+    .maybeSingle();
+  if (blocking) {
+    await discardProof();
+    const filer = blocking.requested_by_email
+      ? ` by ${blocking.requested_by_email}`
+      : "";
+    return {
+      error:
+        `This employee already has a correction request awaiting review for ` +
+        `${blocking.date_from} to ${blocking.date_to}, filed${filer}. ` +
+        `Approve, reject or withdraw it first — those dates are held until it is decided.`,
+    };
   }
 
   const { error: reqError } = await supabase
@@ -488,14 +601,18 @@ export async function createCorrectionRequest(
       requested_by_email: user.email,
     });
   if (reqError) {
-    if (path) await supabase.storage.from(PROOF_BUCKET).remove([path]);
-    // The EXCLUDE constraint is the likely cause; say so in plain language.
+    logFailure("createCorrectionRequest/insert", reqError);
+    await discardProof();
+    // The EXCLUDE constraint is the likely cause; say so in plain language. The
+    // lookup above catches this in almost every case — this is the race where a
+    // request landed between that read and this insert.
     if (reqError.message.includes("acr_no_overlapping_pending")) {
-      throw new Error(
-        "This employee already has a correction request covering some of those dates",
-      );
+      return {
+        error:
+          "This employee already has a correction request covering some of those dates",
+      };
     }
-    throw reqError;
+    return { error: `Could not file the request: ${reqError.message}` };
   }
 
   const { error: itemError } = await supabase
@@ -532,14 +649,15 @@ export async function createCorrectionRequest(
     // block every future request for this employee's range with no way for
     // the caller to find and cancel it — the id is never returned on this
     // path. Compensate by deleting the request (items cascade, though none
-    // were committed) and the uploaded proof before rethrowing.
+    // were committed) and the uploaded proof before reporting.
+    logFailure("createCorrectionRequest/items", itemError);
     await supabase
       .schema("hris")
       .from("attendance_correction_requests")
       .delete()
       .eq("id", requestId);
-    if (path) await supabase.storage.from(PROOF_BUCKET).remove([path]);
-    throw itemError;
+    await discardProof();
+    return { error: `Could not file those days: ${itemError.message}` };
   }
 
   // Direct-apply: commit the days now, through the same code an approving
@@ -553,13 +671,22 @@ export async function createCorrectionRequest(
   // with the days silently unwritten.
   let outcome: "applied" | "needs_rebase" | null = null;
   if (directApply) {
-    outcome = await applyCorrectionItems(
-      supabase,
-      requestId,
-      parsed.employee_id,
-      { id: user.id, email: user.email },
-      parsed.reason,
-    );
+    try {
+      outcome = await applyCorrectionItems(
+        supabase,
+        requestId,
+        parsed.employee_id,
+        { id: user.id, email: user.email },
+        parsed.reason,
+      );
+    } catch (e) {
+      logFailure("createCorrectionRequest/apply", e);
+      return {
+        error:
+          `The request was filed but writing those days failed: ${messageOf(e)}. ` +
+          `It is waiting in Attendance Corrections — open it and approve it to finish, or withdraw it.`,
+      };
+    }
   }
 
   await logAudit({
