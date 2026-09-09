@@ -336,3 +336,35 @@ test("an unmeasurable layout keeps its natural height rather than guessing", () 
   }
   assert.match(html, /Copies furnished:/);
 });
+
+test("the printed list is grouped by area assigned, then by name", () => {
+  const html = renderJobOrderSpecialOrder({
+    soNo: "X",
+    subject: "S",
+    soDate: "2025-05-29",
+    periodCovered: "JUNE 2025",
+    rows: [
+      { full_name: "ZAMORA, PABLO", area_assigned: "CITY HEALTH OFFICE" },
+      { full_name: "REYES, MARIA", area_assigned: "OFFICE OF THE CITY MAYOR" },
+      { full_name: "ABAD, JUAN", area_assigned: null },
+      { full_name: "BAUTISTA, ANA", area_assigned: "CITY HEALTH OFFICE" },
+      { full_name: "CRUZ, PEDRO", area_assigned: "OFFICE OF THE CITY MAYOR" },
+    ],
+  });
+
+  const names = [...html.matchAll(/<td class="name">([^<]*)<\/td>/g)].map(
+    (m) => m[1],
+  );
+  assert.deepEqual(names, [
+    // CITY HEALTH OFFICE, alphabetically
+    "BAUTISTA, ANA",
+    "ZAMORA, PABLO",
+    // OFFICE OF THE CITY MAYOR, alphabetically
+    "CRUZ, PEDRO",
+    "REYES, MARIA",
+    // no area — last, never ahead of a named one
+    "ABAD, JUAN",
+  ]);
+  // The numbering follows the printed order, not the input order.
+  assert.match(html, /<td class="no">1<\/td>\s*<td class="name">BAUTISTA, ANA<\/td>/);
+});

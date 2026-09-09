@@ -481,10 +481,32 @@ function planTailHeightPt(
   return height > tailHeight ? height : null;
 }
 
+/**
+ * The printed order groups its personnel by area assigned, alphabetically
+ * within each area — the order the office reads the list in, regardless of how
+ * the members were entered or came back from the query. Rows with no area sit
+ * at the end rather than ahead of "Agriculture".
+ */
+function sortForPrint(
+  rows: JobOrderSpecialOrderPrintRow[],
+): JobOrderSpecialOrderPrintRow[] {
+  return [...rows].sort((a, b) => {
+    const areaA = a.area_assigned?.trim() ?? "";
+    const areaB = b.area_assigned?.trim() ?? "";
+    if (areaA !== areaB) {
+      if (areaA === "") return 1;
+      if (areaB === "") return -1;
+      return areaA.localeCompare(areaB);
+    }
+    return a.full_name.localeCompare(b.full_name);
+  });
+}
+
 export function renderJobOrderSpecialOrder(
   params: GenerateJobOrderSpecialOrderPrintParams,
 ): string {
-  const { soNo, subject, soDate, periodCovered, rows } = params;
+  const { soNo, subject, soDate, periodCovered } = params;
+  const rows = sortForPrint(params.rows);
 
   // Split the list so the last few rows can be kept with the signature block.
   const isSplit = rows.length >= MIN_ROWS_TO_SPLIT;
