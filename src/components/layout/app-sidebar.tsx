@@ -39,6 +39,7 @@ import {
   ClipboardCheck,
   FileClock,
   Mail,
+  FileCheck,
   PartyPopper,
   QrCode,
   UsersRound,
@@ -172,8 +173,8 @@ const cosRoles: UserRole[] = ["super_admin", "hr_admin", "cos_manager"];
 // src/lib/auth-helpers.ts. A cos_manager uses templates but cannot rewrite the
 // legal boilerplate.
 const cosTemplateRoles: UserRole[] = ["super_admin", "hr_admin"];
-// Roles that can manage the Job Orders module: JO employees and Area
-// Assignments today; payrolls, memos and special orders join in later specs.
+// Roles that can manage the Job Orders module: JO employees, Area
+// Assignments, payrolls, memoranda and special orders.
 // Mirrors canManageJobOrders in src/lib/auth-helpers.ts.
 const jobOrderRoles: UserRole[] = ["super_admin", "hr_admin", "jo_manager"];
 // Attendance corrections. The union of every side of the workflow —
@@ -335,6 +336,7 @@ const navGroups: NavGroup[] = [
       { title: "Area Assignments", href: "/job-orders/areas", icon: MapPin, roles: jobOrderRoles },
       { title: "Payroll", href: "/job-orders/payroll", icon: Hammer, roles: jobOrderRoles },
       { title: "Memorandum", href: "/job-orders/memos", icon: Mail, roles: jobOrderRoles },
+      { title: "Special Orders", href: "/job-orders/special-orders", icon: FileCheck, roles: jobOrderRoles },
     ],
   },
   {
@@ -496,13 +498,14 @@ export function AppSidebar() {
                       pathname.startsWith(`${item.href}/`)) ||
                     (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits")))) ||
                     (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits")))) ||
-                    // "/job-orders/areas", "/job-orders/payroll" and
-                    // "/job-orders/memos" are sibling sections, not detail
-                    // pages under "/job-orders" — without this they would also
-                    // highlight "Job Order Employees" while viewing "Area
-                    // Assignments", "Payroll" or "Memorandum", the same class
-                    // of bug fixed above for /leaves and /cto.
-                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas") && !pathname.startsWith("/job-orders/payroll") && !pathname.startsWith("/job-orders/memos"))));
+                    // "/job-orders/areas", "/job-orders/payroll",
+                    // "/job-orders/memos" and "/job-orders/special-orders" are
+                    // sibling sections, not detail pages under "/job-orders" —
+                    // without this they would also highlight "Job Order
+                    // Employees" while viewing "Area Assignments", "Payroll",
+                    // "Memorandum" or "Special Orders", the same class of bug
+                    // fixed above for /leaves and /cto.
+                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas") && !pathname.startsWith("/job-orders/payroll") && !pathname.startsWith("/job-orders/memos") && !pathname.startsWith("/job-orders/special-orders"))));
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton

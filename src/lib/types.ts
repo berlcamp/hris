@@ -616,6 +616,43 @@ export interface JobOrderMemoPickerOption {
   daily_rate: number | null;
 }
 
+/**
+ * A Job Order SPECIAL ORDER — the "SPECIAL ORDER NO. …" directing named
+ * personnel to render additional time services. One template only, unlike the
+ * memorandum's two, so there is no type discriminator here.
+ */
+export interface JobOrderSpecialOrder {
+  id: string;
+  /** Printed verbatim as "SPECIAL ORDER NO. <so_no>". */
+  so_no: string | null;
+  subject: string;
+  so_date: string;
+  /** Effectivity phrase interpolated into the body sentence, verbatim. */
+  period_covered: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Computed in the action, not stored. */
+  member_count: number;
+}
+
+export interface JobOrderSpecialOrderMember {
+  id: string;
+  special_order_id: string;
+  job_order_employee_id: string | null;
+  full_name: string;
+  /** The JO's area name at snapshot time — prints as AREA ASSIGNED. */
+  area_assigned: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One selectable Job Order employee in a Special Order's member picker. */
+export interface JobOrderSpecialOrderPickerOption {
+  id: string;
+  full_name: string;
+  area_name: string | null;
+}
+
 // ============================================================
 // RSP (Recruitment, Selection, Placement)
 // Status/nature unions live in src/lib/rsp-constants.ts
