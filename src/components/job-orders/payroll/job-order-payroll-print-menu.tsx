@@ -35,10 +35,11 @@ interface JobOrderPayrollPrintMenuProps {
  * "With ATM" swaps the trailing column group between the Landbank account
  * number and the Community Tax details. Neither changes which members print.
  *
- * "Include SSS" also reaches the Summary, whose amounts are net. It does not
- * reach the OBR, which is obligated at gross either way — see
- * generateJoPayrollObrPrint. Both toggles are on by default, so the common
- * case is open → Print Payroll.
+ * "Include SSS" also reaches the Summary, whose amounts are net and whose
+ * second sheet totals the SS / EC shares per payroll number — with the toggle
+ * off that sheet is not printed at all. It does not reach the OBR, which is
+ * obligated at gross either way — see generateJoPayrollObrPrint. Both toggles
+ * are on by default, so the common case is open → Print Payroll.
  *
  * Printing opens the browser's native print dialog directly (see
  * generateJobOrderPayroll.ts's module comment) — there is no download/blob step

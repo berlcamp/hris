@@ -34,7 +34,10 @@ import {
   DAILY_WAGES_ROWS_PER_PAGE,
   paginateDailyWages,
 } from "@/lib/job-order-payroll-helpers";
-import type { JobOrderPayrollPrintRow } from "@/lib/job-order-payroll-helpers";
+import type {
+  JobOrderPayrollPrintRow,
+  JoPayrollPage,
+} from "@/lib/job-order-payroll-helpers";
 import { generatePayrollOBRPrint } from "@/lib/pdf/generatePayroll";
 
 // Hard-coded LGU Ozamiz City signatory block — matches the printed Daily Wages
@@ -604,10 +607,20 @@ export function generateJoPayrollPrint(
 // "Amount paid on payroll" repeats the amount and "Amount unpaid on rolls" is
 // left blank: nothing in this module tracks partial disbursement, so the
 // office fills that column in by hand when a payee does not collect.
+//
+// A second sheet follows with the same lines totalled by SSS share instead:
+// SS (the employee share) and ES (the employer's EC share), which is what the
+// first sheet's net amounts were reduced by. It is only printed when
+// `showSss` is on — with the deductions switched off the Daily Wages form
+// carries none and the whole sheet would be a column of zeros contradicting
+// it.
 
 /** Blank rows are padded out to this many body rows so the ruled form keeps a
  * constant height regardless of how many rates a payroll happens to have. */
 const SUMMARY_BODY_ROWS = 25;
+
+/** Same padding for the SSS sheet, which the office rules shorter. */
+const SSS_SUMMARY_BODY_ROWS = 13;
 
 const SUMMARY_STYLES = `
   @page { size: legal portrait; margin: 0.5in; }
@@ -623,8 +636,24 @@ const SUMMARY_STYLES = `
   tr.total td { font-weight: bold; }
   .certified { font-style: italic; }
   .ledger-block td { height: 1.6in; vertical-align: top; }
+  /* One .summary-page per sheet. The break is forced so the SSS totals always
+     start a fresh page instead of riding up under the first table when it
+     happens to be short. */
+  .summary-page { break-after: page; page-break-after: always; }
+  .summary-page:last-child { break-after: auto; page-break-after: auto; }
   @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
 `;
+
+/** The title/agency/period block both summary sheets open with. */
+function renderSummaryHeader(periodHeader: string): string {
+  return `
+  <div class="report-title">SUMMARY OF PAYROLLS</div>
+  <div class="report-sub">JOB ORDER SERVICES</div>
+  <div class="meta-row">
+    <div>AGENCY: ${escapeHtml(DAILY_WAGES_SIGNATORIES.officeName.toUpperCase())}</div>
+    <div>${periodHeader}</div>
+  </div>`;
+}
 
 export function generateJoPayrollSummaryPrint({
   rows,
@@ -660,12 +689,8 @@ export function generateJoPayrollSummaryPrint({
 <head><meta charset="UTF-8"><title>Summary of Payrolls</title>
 <style>${SUMMARY_STYLES}</style></head>
 <body>
-  <div class="report-title">SUMMARY OF PAYROLLS</div>
-  <div class="report-sub">JOB ORDER SERVICES</div>
-  <div class="meta-row">
-    <div>AGENCY: ${escapeHtml(DAILY_WAGES_SIGNATORIES.officeName.toUpperCase())}</div>
-    <div>${periodHeader}</div>
-  </div>
+  <div class="summary-page">
+  ${renderSummaryHeader(periodHeader)}
   <table class="summary">
     <colgroup>
       <col style="width:22%">
@@ -710,10 +735,72 @@ export function generateJoPayrollSummaryPrint({
       </tr>
     </tbody>
   </table>
+  </div>
+  ${showSss ? renderSssSummaryPage(pages, periodHeader) : ""}
 </body></html>`;
 
   printHTMLContent(html);
 }
+
+/**
+ * The SSS sheet: the same numbered payroll lines, each carrying that page's
+ * SS and EC shares rather than what it paid out. Totalled from the members so
+ * the two columns add up to the `totalSss` the first sheet already subtracted.
+ */
+function renderSssSummaryPage(
+  pages: JoPayrollPage<JobOrderPayrollPrintRow>[],
+  periodHeader: string,
+): string {
+  let totalSs = 0;
+  let totalEc = 0;
+
+  const bodyRows = pages
+    .map((page, i) => {
+      const ss = page.members.reduce((sum, m) => sum + (m.sss_ss ?? 0), 0);
+      const ec = page.members.reduce((sum, m) => sum + (m.sss_ec ?? 0), 0);
+      totalSs += ss;
+      totalEc += ec;
+      return `
+        <tr>
+          <td class="text-center">${i + 1}</td>
+          <td class="text-center">${fmt(ss)}</td>
+          <td class="text-center">${fmt(ec)}</td>
+        </tr>`;
+    })
+    .join("");
+
+  const fillerCount = Math.max(0, SSS_SUMMARY_BODY_ROWS - pages.length - 1);
+  const fillerRows = `<tr><td></td><td></td><td></td></tr>`.repeat(fillerCount);
+
+  return `
+  <div class="summary-page">
+  ${renderSummaryHeader(periodHeader)}
+  <table class="summary">
+    <colgroup>
+      <col style="width:55%">
+      <col style="width:25%">
+      <col style="width:20%">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>PAYROLL NUMBER</th>
+        <th>SS</th>
+        <th>ES</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${bodyRows}
+      <tr class="total">
+        <td class="text-center">TOTAL</td>
+        <td class="text-center">${fmt(totalSs)}</td>
+        <td class="text-center">${fmt(totalEc)}</td>
+      </tr>
+      ${fillerRows}
+    </tbody>
+  </table>
+  </div>`;
+}
+
 
 // ---------------------------------------------------------------------------
 // Obligation Request (OBR)
