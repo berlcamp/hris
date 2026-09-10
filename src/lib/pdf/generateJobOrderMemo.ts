@@ -168,7 +168,9 @@ function buildStyles(): string {
     }
     .xrule .dashes { flex: 1; border-top: 1px dashed #000; }
     .body-text { text-align: justify; text-indent: 0.5in; margin-bottom: 12px; }
-    .closing { text-align: justify; margin-top: 12px; }
+    /* Every paragraph of the memorandum is indented the same half inch, the
+       closing paragraphs under the table of names included. */
+    .closing { text-align: justify; text-indent: 0.5in; margin-top: 12px; }
     .closing u { text-underline-offset: 2px; }
     table.members {
       width: 100%;
@@ -481,7 +483,12 @@ function tailExtraPt(memoType: JobOrderMemoType): {
   let tight = false;
   if (memoType === "retain") {
     for (const paragraph of RETAIN_CLOSING_PARAGRAPHS) {
-      const wrap = wrapLines(stripTags(paragraph), CONTENT_WIDTH_PT, 12);
+      const wrap = wrapLines(
+        stripTags(paragraph),
+        CONTENT_WIDTH_PT,
+        12,
+        fromIn(0.5),
+      );
       tight = tight || wrap.tight;
       closing += fromPx(12) + lineBox(12) * wrap.lines;
     }
