@@ -176,7 +176,9 @@ function buildStyles(): string {
     }
     .xrule .dashes { flex: 1; border-top: 1px dashed #000; }
     .body-text { text-align: justify; text-indent: 0.5in; margin-bottom: 12px; }
-    .closing { text-align: justify; margin-top: 16px; }
+    /* Every paragraph of the order is indented the same half inch, the
+       closing line under the table included. */
+    .closing { text-align: justify; text-indent: 0.5in; margin-top: 16px; }
     table.members {
       width: 100%;
       border-collapse: collapse;
@@ -425,7 +427,7 @@ function headHeightPt(
 
 /** Everything in .tail that is not a member row. */
 function tailExtraPt(): { height: number; tight: boolean } {
-  const closingWrap = wrapLines(CLOSING_LINE, CONTENT_WIDTH_PT, 12);
+  const closingWrap = wrapLines(CLOSING_LINE, CONTENT_WIDTH_PT, 12, fromIn(0.5));
   const closing = fromPx(16) + lineBox(12) * closingWrap.lines;
   const signature = fromIn(0.95) + lineBox(13) + lineBox(12);
   const copies =
