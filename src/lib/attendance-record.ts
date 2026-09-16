@@ -25,6 +25,42 @@ export interface AttendanceTimeFields {
   reason_out_pm?: string | null;
 }
 
+// The day-level reason a punchless day states about itself.
+//
+// The correction form has no day-level reason field — a whole-day LEAVE is
+// entered as `leave` on each of the four slots — so without this the row went
+// to the database with `no_time_reason = null` and only four slot reasons. The
+// DTR's full-holiday branch (dtr-builder.ts) keys off `no_time_reason` to know
+// somebody made a statement about THIS employee's day, so a day corrected to
+// LEAVE that happened to fall on a declared holiday printed HOLIDAY and threw
+// the slot reasons away. Same for TRAVEL, OB, FIELD WORK and the rest; `off`
+// escaped it only because clear_as_off sets no_time_reason explicitly.
+//
+// Only a day with NO punches states itself through a reason. Once the employee
+// has punched, the times are the substance of the row and a slot reason
+// explains one missing punch, not the whole day.
+//
+// First non-null wins, which is exactly the rule the correction form's own
+// preview shows the requester. The two used to be independent re-derivations of
+// the same idea; this is the one copy.
+export function dayReasonFor(fields: AttendanceTimeFields): string | null {
+  if (
+    fields.time_in_am ||
+    fields.time_out_am ||
+    fields.time_in_pm ||
+    fields.time_out_pm
+  ) {
+    return null;
+  }
+  return (
+    fields.reason_in_am ??
+    fields.reason_out_am ??
+    fields.reason_in_pm ??
+    fields.reason_out_pm ??
+    null
+  );
+}
+
 function toTimestamp(date: string, time: string | null): string | null {
   if (!time) return null;
   return `${date}T${time}:00`;
@@ -103,9 +139,15 @@ export function buildAttendanceRecord(
   const nextDay = (t: string | null): boolean =>
     !!t && timeOnNextDayForNightShift(t, sched);
 
+  // An explicitly passed day-level reason wins — clear_as_off says OFF about
+  // the whole day and means it. Otherwise a punchless day derives one from its
+  // slot reasons, so the statement reaches the DTR as a statement.
+  const noTimeReason = fields.no_time_reason ?? dayReasonFor(fields);
+
   const flags = computeAttendanceFlags(
     {
       ...fields,
+      no_time_reason: noTimeReason,
       time_in_am_next_day: nextDay(fields.time_in_am),
       time_in_pm_next_day: nextDay(fields.time_in_pm),
       time_out_pm_next_day: nextDay(fields.time_out_pm),
@@ -114,7 +156,6 @@ export function buildAttendanceRecord(
     sched,
   );
 
-  const noTimeReason = fields.no_time_reason ?? null;
   // A reason is kept even when the slot also has a punched time (e.g. a HOLIDAY
   // the employee still logged in on). The DTR prints the reason for that slot
   // instead of the time, and the time stays on record.

@@ -292,3 +292,91 @@ test("a reason on the AM-in slot waives that day's tardiness", () => {
   assert.equal(rec.late_minutes, 0, "an excused slot is not charged");
   assert.equal(rec.is_late, false);
 });
+
+// --- The day-level reason a punchless day states about itself -----------------
+//
+// The correction form has no day-level field: a whole-day LEAVE arrives as
+// `leave` on the four slot dropdowns. Before dayReasonFor the row went in with
+// no_time_reason NULL, and the DTR's full-day-holiday branch — which keys off
+// exactly that column to know a human said something about THIS employee's day
+// — printed HOLIDAY over a day corrected to LEAVE and threw the slot reasons
+// away. These pin the derivation so that cannot come back.
+
+test("a punchless day corrected to LEAVE records LEAVE as the day's reason", () => {
+  const rec = buildAttendanceRecord(
+    EMP,
+    D,
+    {
+      time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+      reason_in_am: "leave", reason_out_am: "leave",
+      reason_in_pm: "leave", reason_out_pm: "leave",
+    },
+    REGULAR,
+  );
+  assert.equal(rec.no_time_reason, "leave");
+  assert.equal(rec.is_absent, false, "a stated day is not an absence");
+  assert.equal(rec.late_minutes, 0);
+  assert.equal(rec.undertime_minutes, 0);
+});
+
+test("the day-level reason is the first slot reason given", () => {
+  const rec = buildAttendanceRecord(
+    EMP,
+    D,
+    {
+      time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+      reason_in_am: null, reason_out_am: null,
+      reason_in_pm: "travel", reason_out_pm: "travel",
+    },
+    REGULAR,
+  );
+  assert.equal(rec.no_time_reason, "travel");
+});
+
+test("an explicit day-level reason is not overwritten by the slots", () => {
+  // clear_as_off sets no_time_reason itself and means it.
+  const rec = buildAttendanceRecord(
+    EMP,
+    D,
+    {
+      time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+      no_time_reason: "off",
+      reason_in_am: "off", reason_out_am: "off",
+      reason_in_pm: "off", reason_out_pm: "off",
+    },
+    REGULAR,
+  );
+  assert.equal(rec.no_time_reason, "off");
+});
+
+test("a day that has punches derives no day-level reason", () => {
+  // A slot reason beside real punches explains ONE missing punch. Promoting it
+  // to a statement about the whole day would excuse both sessions and blank
+  // the times on the DTR.
+  const rec = buildAttendanceRecord(
+    EMP,
+    D,
+    {
+      time_in_am: "08:00", time_out_am: "12:00",
+      time_in_pm: "13:00", time_out_pm: null,
+      reason_out_pm: "official_business",
+    },
+    REGULAR,
+  );
+  assert.equal(rec.no_time_reason, null);
+  assert.equal(rec.time_out_pm_reason, "official_business");
+});
+
+test("a punchless day with no reason at all stays an absence", () => {
+  const rec = buildAttendanceRecord(
+    EMP,
+    D,
+    {
+      time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+      ...noReasons,
+    },
+    REGULAR,
+  );
+  assert.equal(rec.no_time_reason, null);
+  assert.equal(rec.is_absent, true);
+});

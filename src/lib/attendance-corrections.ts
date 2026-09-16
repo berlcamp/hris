@@ -254,7 +254,10 @@ export function buildCorrectionRecord(
           reason_in_pm: "off",
           reason_out_pm: "off",
         }
-      : {
+      : // No day-level reason is passed here on purpose: the form has only the
+        // four slot dropdowns, so buildAttendanceRecord derives no_time_reason
+        // from them (dayReasonFor) when the day ends up with no punches at all.
+        {
           time_in_am: item.time_in_am,
           time_out_am: item.time_out_am,
           time_in_pm: item.time_in_pm,

@@ -67,7 +67,7 @@ import {
   DEFAULT_SCHEDULE,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
-import { buildAttendanceRecord } from "@/lib/attendance-record";
+import { buildAttendanceRecord, dayReasonFor } from "@/lib/attendance-record";
 import {
   correctionWindowError,
   describeCorrectionWindow,
@@ -368,37 +368,38 @@ export function CorrectionRequestForm({
   // day before measuring them.
   const previewFor = (date: string, d: DayDraft) => {
     if (d.disposition === "clear_as_off") return "OFF";
+    const fields = {
+      time_in_am: nullIfBlank(d.time_in_am),
+      time_out_am: nullIfBlank(d.time_out_am),
+      time_in_pm: nullIfBlank(d.time_in_pm),
+      time_out_pm: nullIfBlank(d.time_out_pm),
+      reason_in_am: asReason(d.reason_in_am),
+      reason_out_am: asReason(d.reason_out_am),
+      reason_in_pm: asReason(d.reason_in_pm),
+      reason_out_pm: asReason(d.reason_out_pm),
+    };
     // A day with no punches at all states itself through its reason — SATURDAY,
     // OFFICIAL BUSINESS, LEAVE. Running it through the late/undertime wording
     // would print "on time" for a rest day, since a reason suppresses both.
-    const times = [d.time_in_am, d.time_out_am, d.time_in_pm, d.time_out_pm];
-    if (!times.some((t) => nullIfBlank(t))) {
-      const reason = [
-        d.reason_in_am,
-        d.reason_out_am,
-        d.reason_in_pm,
-        d.reason_out_pm,
-      ]
-        .map(asReason)
-        .find((r): r is CorrectionReason => !!r);
-      return reason ? NO_TIME_REASON_LABELS[reason] : "absent";
+    //
+    // dayReasonFor is the same function buildAttendanceRecord uses to fill
+    // no_time_reason, so this preview names the label the DTR will actually
+    // print. They were two separate re-derivations and the written row had no
+    // day-level reason at all, which is how a day corrected to LEAVE on a
+    // declared holiday printed HOLIDAY.
+    const dayReason = dayReasonFor(fields);
+    const hasNoPunch =
+      !fields.time_in_am &&
+      !fields.time_out_am &&
+      !fields.time_in_pm &&
+      !fields.time_out_pm;
+    if (hasNoPunch) {
+      return dayReason
+        ? NO_TIME_REASON_LABELS[dayReason as CorrectionReason]
+        : "absent";
     }
     const sched = scheduleFor(d.scheduleId);
-    const record = buildAttendanceRecord(
-      "preview",
-      date,
-      {
-        time_in_am: nullIfBlank(d.time_in_am),
-        time_out_am: nullIfBlank(d.time_out_am),
-        time_in_pm: nullIfBlank(d.time_in_pm),
-        time_out_pm: nullIfBlank(d.time_out_pm),
-        reason_in_am: asReason(d.reason_in_am),
-        reason_out_am: asReason(d.reason_out_am),
-        reason_in_pm: asReason(d.reason_in_pm),
-        reason_out_pm: asReason(d.reason_out_pm),
-      },
-      sched,
-    );
+    const record = buildAttendanceRecord("preview", date, fields, sched);
     if (record.is_absent) return "absent";
     const parts: string[] = [];
     if (record.late_minutes > 0) parts.push(`late ${record.late_minutes}m`);

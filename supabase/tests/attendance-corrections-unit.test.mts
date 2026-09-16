@@ -10,6 +10,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { dtrSpanFor } from "../../src/lib/dtr-span-label.ts";
 import {
   CORRECTION_REASONS,
   NO_TIME_REASONS,
@@ -688,4 +689,86 @@ test("a cleared day carries the narrative too", () => {
 test("no narrative leaves remarks null rather than an empty string", () => {
   const rec = buildCorrectionRecord(EMP2, item({ time_in_am: "08:00" }));
   assert.equal(rec.remarks, null);
+});
+
+// --- A corrected day on a declared holiday prints what was corrected -----------
+//
+// The reported bug, end to end: a Department Admin corrects a day to LEAVE, the
+// request is approved, and the printed DTR says HOLIDAY.
+//
+// The form has only the four slot dropdowns, so LEAVE arrived as four slot
+// reasons and nothing else. dtr-builder.ts short-circuits a full-day holiday
+// with no punches UNLESS the row carries a day-level no_time_reason — the
+// marker that a human said something about THIS employee's day — and that
+// column was never written, so the calendar's default overruled the correction
+// and the slot reasons were dropped on the floor with it.
+//
+// This walks the real chain: buildCorrectionRecord -> the row's no_time_reason
+// -> the builder's short-circuit condition -> dtrSpanFor.
+test("a day corrected to LEAVE prints LEAVE even on a declared holiday", () => {
+  const rec = buildCorrectionRecord(EMP2, item({
+    reason_in_am: "leave", reason_out_am: "leave",
+    reason_in_pm: "leave", reason_out_pm: "leave",
+  }));
+
+  assert.equal(rec.no_time_reason, "leave", "the day states itself");
+
+  // dtr-builder.ts: `holidayType === "full" && !hasPunch && !log?.no_time_reason`
+  const hasPunch = !!(
+    rec.time_in_am || rec.time_out_am || rec.time_in_pm || rec.time_out_pm
+  );
+  assert.equal(hasPunch, false);
+  assert.equal(
+    !hasPunch && !rec.no_time_reason,
+    false,
+    "the holiday short-circuit must not swallow a stated day",
+  );
+
+  const span = dtrSpanFor(
+    {
+      day_of_week: "Monday",
+      holiday: "full",
+      leave_type: null,
+      is_absent: rec.is_absent,
+      no_time_reason_label:
+        NO_TIME_REASON_LABELS[
+          rec.no_time_reason as keyof typeof NO_TIME_REASON_LABELS
+        ],
+    },
+    true,
+  );
+  assert.deepEqual(span, { label: "LEAVE", kind: "reason" });
+});
+
+test("a day cleared as OFF still beats a declared holiday", () => {
+  const rec = buildCorrectionRecord(EMP2, item({ disposition: "clear_as_off" }));
+  const span = dtrSpanFor(
+    {
+      day_of_week: "Monday",
+      holiday: "full",
+      leave_type: null,
+      is_absent: rec.is_absent,
+      no_time_reason_label:
+        NO_TIME_REASON_LABELS[
+          rec.no_time_reason as keyof typeof NO_TIME_REASON_LABELS
+        ],
+    },
+    true,
+  );
+  assert.deepEqual(span, { label: "OFF", kind: "reason" });
+});
+
+test("an untouched holiday still prints HOLIDAY", () => {
+  // No correction, no row: the calendar is the only thing that knows.
+  const span = dtrSpanFor(
+    {
+      day_of_week: "Monday",
+      holiday: "full",
+      leave_type: null,
+      is_absent: false,
+      no_time_reason_label: null,
+    },
+    true,
+  );
+  assert.deepEqual(span, { label: "HOLIDAY", kind: "holiday" });
 });
