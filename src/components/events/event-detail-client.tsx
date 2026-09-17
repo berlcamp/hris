@@ -60,6 +60,7 @@ export function EventDetailClient({
   areas,
   orphanedLegacyCount,
   canDelete,
+  canOverride,
 }: {
   event: EventRecord;
   roster: EventRosterEntry[];
@@ -68,6 +69,12 @@ export function EventDetailClient({
   areas: { id: string; name: string }[];
   orphanedLegacyCount: number;
   canDelete: boolean;
+  /**
+   * May this account amend a closed event from the Attendance Checker app —
+   * super_admin only. Here it decides one thing: whether the scanner is still
+   * reachable once the event is closed.
+   */
+  canOverride: boolean;
 }) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
@@ -314,7 +321,10 @@ export function EventDetailClient({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {event.status === "open" && (
+          {/* Closed keeps the scanner for a super admin, who may still record
+              a missing attendee against one of the event's days and remove a
+              record that should not have counted. */}
+          {(event.status === "open" || (event.status === "closed" && canOverride)) && (
             <Link href={`/scan/${event.id}`}>
               <Button variant="outline" size="sm">
                 <ScanLine className="h-4 w-4" />

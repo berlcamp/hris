@@ -79,3 +79,25 @@ export function eventDayPosition(
     total: Math.floor((end - start) / dayMs) + 1,
   };
 }
+
+/**
+ * Every day the event runs, as Manila YYYY-MM-DD strings — "Aug 12", "Aug 13",
+ * "Aug 14" for a three-day training.
+ *
+ * Stepped through UTC midnights rather than local ones so a phone in any zone
+ * produces the same list: the dates are plain DATE columns with no zone of
+ * their own, and a local-midnight cursor lands on the previous day for anyone
+ * west of Greenwich.
+ */
+export function eventDays(startDate: string, endDate: string): string[] {
+  const dayMs = 86_400_000;
+  const start = Date.parse(`${startDate}T00:00:00Z`);
+  const end = Date.parse(`${endDate}T00:00:00Z`);
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return [startDate];
+
+  const out: string[] = [];
+  for (let t = start; t <= end; t += dayMs) {
+    out.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return out;
+}

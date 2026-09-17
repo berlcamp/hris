@@ -5,6 +5,7 @@ import {
   CloudOff,
   Download,
   Loader2,
+  Lock,
   LogOut,
   RefreshCw,
   ScanLine,
@@ -117,6 +118,11 @@ export function CheckerHomeClient() {
   }, []);
 
   const pendingTotal = [...queued.values()].reduce((a, b) => a + b, 0);
+  // A super admin's list carries the closed events too, so they can amend one
+  // from the venue (getScannableEvents). Counted apart: the headline number is
+  // what is running, never a total padded with finished trainings.
+  const openCount = events.filter((e) => e.status === "open").length;
+  const closedCount = events.length - openCount;
 
   return (
     <div className="checker-ground min-h-svh pb-[calc(env(safe-area-inset-bottom)+2rem)]">
@@ -127,10 +133,12 @@ export function CheckerHomeClient() {
               Attendance Checker
             </p>
             <h1 className="mt-1.5 text-[1.75rem] leading-none font-bold tracking-tight">
-              {loading ? "Loading…" : `${events.length} open event${events.length === 1 ? "" : "s"}`}
+              {loading ? "Loading…" : `${openCount} open event${openCount === 1 ? "" : "s"}`}
             </h1>
             <p className="text-muted-foreground mt-2 text-sm">
               Tap an event to start scanning cards.
+              {closedCount > 0 &&
+                ` ${closedCount} closed event${closedCount === 1 ? "" : "s"} below can still be amended.`}
             </p>
           </div>
           <form action={signOut}>
@@ -255,7 +263,8 @@ function EventCard({
   index: number;
 }) {
   const hue = accentForEvent(event.id);
-  const running = isRunningToday(event, today);
+  const closed = event.status === "closed";
+  const running = !closed && isRunningToday(event, today);
   const position = running ? eventDayPosition(event, today) : null;
 
   return (
@@ -310,6 +319,15 @@ function EventCard({
       {running && (
         <span className="text-primary-foreground bg-primary absolute top-0 right-0 rounded-bl-xl px-2.5 py-1 font-mono text-[0.6rem] tracking-[0.18em] uppercase">
           Today
+        </span>
+      )}
+      {/* Only a super admin is ever handed one of these — everybody else's list
+          stops at the open events. Marked so an amendment is never mistaken for
+          a door that is still running. */}
+      {closed && (
+        <span className="text-muted-foreground bg-muted absolute top-0 right-0 flex items-center gap-1 rounded-bl-xl px-2.5 py-1 font-mono text-[0.6rem] tracking-[0.18em] uppercase">
+          <Lock className="h-3 w-3" />
+          Closed
         </span>
       )}
     </a>

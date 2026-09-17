@@ -624,6 +624,21 @@ export function canScanEvents(role: RoleInput): boolean {
 }
 
 /**
+ * May this account work past the door's own limits from the Attendance Checker
+ * app: open an event that has been CLOSED, record someone against a day that
+ * has already passed, and remove a record that should never have counted.
+ *
+ * super_admin only, and deliberately narrower than canManageEvents. An HR Admin
+ * keeps every one of these powers on the desktop — the report is where a closed
+ * event is amended, with the roster, the CSV and the audit trail in view. This
+ * is the same authority carried to a phone, where none of that context is, so
+ * it stays with the one account that answers for the system.
+ */
+export function canOverrideEventAttendance(role: RoleInput): boolean {
+  return hasRole(role, "super_admin");
+}
+
+/**
  * May this account open the Events module at all — never the roster editor, the
  * report, or the card printing screen, which are gated on canManageEvents.
  *

@@ -1,7 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 
 import { getServerUser } from "@/lib/auth";
-import { canManageEvents, hasRole } from "@/lib/auth-helpers";
+import {
+  canManageEvents,
+  canOverrideEventAttendance,
+  hasRole,
+} from "@/lib/auth-helpers";
 import {
   getEvent,
   getEventAttendance,
@@ -40,6 +44,7 @@ export default async function EventDetailPage({
       areas={groups.areas}
       orphanedLegacyCount={groups.orphanedLegacyCount}
       canDelete={hasRole(user?.roles, "super_admin")}
+      canOverride={canOverrideEventAttendance(user?.roles)}
     />
   );
 }

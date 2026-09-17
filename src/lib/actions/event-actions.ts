@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageEvents, canScanEvents, hasRole } from "@/lib/auth-helpers";
+import {
+  canManageEvents,
+  canOverrideEventAttendance,
+  canScanEvents,
+  hasRole,
+} from "@/lib/auth-helpers";
+import { manilaToday } from "@/lib/format-date";
 import { logAudit } from "@/lib/audit";
 import {
   EVENT_PAGE_SIZE,
@@ -564,6 +570,22 @@ export async function recordManualAttendance(
     return {
       success: false,
       error: `${parsed.data.attendance_date} is not one of this event's days.`,
+    };
+  }
+
+  // Filing against a day other than today is an amendment to a report, not a
+  // door recording it as it happens — so it stays with the super admin, who is
+  // also the only account the app offers a day picker to. The officer at the
+  // venue records the day they are standing in, which is the only day they can
+  // vouch for.
+  if (
+    parsed.data.attendance_date !== manilaToday() &&
+    !canOverrideEventAttendance(user?.roles)
+  ) {
+    return {
+      success: false,
+      error:
+        "Only a super admin can record attendance for a day other than today.",
     };
   }
 

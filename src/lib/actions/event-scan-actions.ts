@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageEvents, canScanEvents } from "@/lib/auth-helpers";
+import {
+  canManageEvents,
+  canOverrideEventAttendance,
+  canScanEvents,
+} from "@/lib/auth-helpers";
 import { manilaDateOf, manilaToday } from "@/lib/format-date";
 import {
   EMPLOYMENT_LABELS,
@@ -19,6 +23,13 @@ import type {
   PriorParticipation,
   ScannableEvent,
 } from "@/lib/types";
+
+/**
+ * How many closed events a super admin's app lists alongside the open ones.
+ * Enough to cover anything still being corrected, short enough that the card
+ * for today's event is never buried.
+ */
+const CLOSED_EVENT_LIMIT = 25;
 
 /** Per-scan outcome, returned so the device can clear its queue precisely. */
 export type ScanOutcome =
@@ -46,13 +57,18 @@ export interface ScanResult {
 }
 
 /**
- * The open events the checker's mobile app lists as cards.
+ * The events the checker's mobile app lists as cards.
  *
- * Only `open` events, for every role that can scan — including the HR admins,
- * who can cover a door without swapping accounts. A draft event has a roster
- * still being assembled and a closed one has a final report, so neither can be
- * scanned into from the app; the server would reject a draft scan anyway
- * (submitEventScans), and this keeps the door from ever seeing the card.
+ * `open` events for every role that can scan — including the HR admins, who can
+ * cover a door without swapping accounts. A draft event has a roster still
+ * being assembled, so it is never listed: the server would reject a draft scan
+ * anyway (submitEventScans), and this keeps the door from ever seeing the card.
+ *
+ * A super admin ALSO gets the closed events, most recent first and capped at
+ * CLOSED_EVENT_LIMIT. Closing an event means its report is final, not that a
+ * record wrongly missing from it has to stay missing — and the person who has
+ * to put that right is often standing at the venue with a phone rather than
+ * sitting at the desktop. Everyone else still sees only what is open.
  *
  * THROWS for an unauthorized caller rather than returning []. An empty array is
  * a real answer — "HR has closed every event" — and the home screen acts on it
@@ -67,19 +83,39 @@ export async function getScannableEvents(): Promise<ScannableEvent[]> {
   if (!canScanEvents(user?.roles)) throw new Error("Not authorized");
 
   const supabase = createAdminClient();
+  const SELECT = "id, title, description, venue, start_date, end_date, status";
+  type Row = Omit<
+    ScannableEvent,
+    "roster_count" | "attendance_today" | "counted_for"
+  >;
+
   const { data, error } = await supabase
     .schema("hris")
     .from("events")
-    .select("id, title, description, venue, start_date, end_date, status")
+    .select(SELECT)
     .eq("status", "open")
     .is("deleted_at", null)
     .order("start_date", { ascending: true });
   if (error) throw new Error(error.message);
+  const events = (data ?? []) as unknown as Row[];
 
-  const events = (data ?? []) as unknown as Omit<
-    ScannableEvent,
-    "roster_count" | "attendance_today" | "counted_for"
-  >[];
+  // The closed ones, for the account that may amend them. Appended AFTER the
+  // open events and capped: an LGU accumulates closed events forever, and an
+  // officer opening the app at a door must not have to scroll past two years of
+  // finished trainings to reach the one running in front of them.
+  if (canOverrideEventAttendance(user?.roles)) {
+    const { data: closed, error: cErr } = await supabase
+      .schema("hris")
+      .from("events")
+      .select(SELECT)
+      .eq("status", "closed")
+      .is("deleted_at", null)
+      .order("start_date", { ascending: false })
+      .limit(CLOSED_EVENT_LIMIT);
+    if (cErr) throw new Error(cErr.message);
+    events.push(...((closed ?? []) as unknown as Row[]));
+  }
+
   if (events.length === 0) return [];
 
   const ids = events.map((e) => e.id);
@@ -596,4 +632,71 @@ export async function getEventTurnout(eventId: string): Promise<EventTurnout | n
     today_total: distinct(attendance.filter((a) => a.attendance_date === today)),
     event_total: distinct(attendance),
   };
+}
+
+/**
+ * Whether THIS account may work past the door's own limits — record against a
+ * day that has passed, open a closed event, remove a record.
+ *
+ * Asked over the wire rather than rendered into the page, because nothing
+ * user-specific may reach the (scanner) HTML: the service worker caches those
+ * pages on a phone that is shared between officers, and a cached "you are the
+ * super admin" would follow the next person who opened the app.
+ *
+ * For the same reason the answer is never written to IndexedDB. It is fetched
+ * on each boot and defaults to `false` when there is no signal — which costs
+ * nothing, since every power it unlocks needs the server anyway.
+ */
+export async function getScanOverride(): Promise<boolean> {
+  const user = await getCurrentUser();
+  return canOverrideEventAttendance(user?.roles);
+}
+
+/** One recorded person, as the app's amendment sheet lists them. */
+export interface EventDayAttendee {
+  id: string;
+  full_name: string;
+  method: "scan" | "manual";
+  is_walk_in: boolean;
+  synced_late: boolean;
+  scanned_at: string;
+}
+
+/**
+ * Who is recorded at this event on one day — the list the super admin picks
+ * from to remove a record that should not have counted.
+ *
+ * Scoped to a single day rather than the whole event: a three-day training is
+ * three screens of names on a phone, and the wrong record somebody is trying to
+ * undo belongs to a day they can name. Newest first, because the mistake being
+ * corrected is very often the one just made.
+ *
+ * Gated on canOverrideEventAttendance — the desktop report (getEventAttendance)
+ * is where an HR Admin reads the same thing with the roster beside it.
+ */
+export async function getEventDayAttendance(
+  eventId: string,
+  attendanceDate: string,
+): Promise<EventDayAttendee[]> {
+  const user = await getCurrentUser();
+  if (!canOverrideEventAttendance(user?.roles)) return [];
+
+  const supabase = createAdminClient();
+  const out: EventDayAttendee[] = [];
+  const CHUNK = 1000;
+  for (let from = 0; ; from += CHUNK) {
+    const { data, error } = await supabase
+      .schema("hris")
+      .from("event_attendance")
+      .select("id, full_name, method, is_walk_in, synced_late, scanned_at")
+      .eq("event_id", eventId)
+      .eq("attendance_date", attendanceDate)
+      .order("scanned_at", { ascending: false })
+      .range(from, from + CHUNK - 1);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as unknown as EventDayAttendee[];
+    out.push(...rows);
+    if (rows.length < CHUNK) break;
+  }
+  return out;
 }

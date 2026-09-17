@@ -7,13 +7,16 @@ import {
   CameraOff,
   ChartColumn,
   CheckCircle2,
+  ClipboardList,
   CloudOff,
   Flashlight,
   Loader2,
+  Lock,
   RefreshCw,
   ScanLine,
   Search,
   ShieldAlert,
+  Trash2,
   TriangleAlert,
   UserPlus,
   X,
@@ -36,14 +39,24 @@ import {
   type QueuedScan,
 } from "@/lib/event-scan-queue";
 import {
+  getEventDayAttendance,
   getEventScanPayload,
   getEventTurnout,
+  getScanOverride,
   submitEventScans,
+  type EventDayAttendee,
   type EventTurnout,
 } from "@/lib/actions/event-scan-actions";
-import { recordManualAttendance } from "@/lib/actions/event-actions";
-import { accentForEvent } from "@/lib/event-accent";
-import { formatManilaLongDate, manilaDateOf } from "@/lib/format-date";
+import {
+  deleteEventAttendance,
+  recordManualAttendance,
+} from "@/lib/actions/event-actions";
+import { accentForEvent, eventDays } from "@/lib/event-accent";
+import {
+  formatManilaLongDate,
+  formatManilaShortDate,
+  manilaDateOf,
+} from "@/lib/format-date";
 import { primeScanFeedback, playScanFeedback } from "@/lib/scan-feedback";
 import { registerScannerWorker } from "@/lib/scanner-pwa";
 import type {
@@ -156,6 +169,23 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   /**
+   * Whether this account may work past the door's own limits: record against a
+   * day that has already passed, and remove a record. Asked over the wire on
+   * boot rather than rendered into the page — nothing user-specific may reach
+   * the HTML the service worker caches on a shared phone — and left false when
+   * there is no signal, which costs nothing: both powers need the server.
+   */
+  const [canOverride, setCanOverride] = useState(false);
+  /** Which of the event's days a manual entry is filed under. */
+  const [manualDate, setManualDate] = useState<string | null>(null);
+  const [recordsOpen, setRecordsOpen] = useState(false);
+  const [recordsDate, setRecordsDate] = useState<string | null>(null);
+  const [records, setRecords] = useState<EventDayAttendee[] | null>(null);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [removedNote, setRemovedNote] = useState<string | null>(null);
+  /**
    * The "one event only" popup. A banner alone is not enough here: it is the
    * one outcome where the officer has to DO something — send the person to HR,
    * or wave them through knowingly — and the banner is read after the fact, if
@@ -210,6 +240,19 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
   // ── Boot: register the worker, then hydrate from the network or the cache ──
   useEffect(() => {
     void registerScannerWorker();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getScanOverride()
+      .then((allowed) => {
+        if (!cancelled) setCanOverride(allowed);
+      })
+      // Offline or a lapsed session: stay on the ordinary door powers.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -443,6 +486,26 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
     void startCamera();
   }, [loading, bootError, startCamera]);
 
+  /**
+   * Every day the event runs. The list a super admin picks from when filing a
+   * record after the fact, and the only dates the server will accept
+   * (recordManualAttendance).
+   */
+  const days = useMemo(
+    () => (event ? eventDays(event.start_date, event.end_date) : []),
+    [event],
+  );
+
+  /**
+   * The day a sheet should open on: today when the event is running, otherwise
+   * its last day — the one an amendment is nearly always about.
+   */
+  const defaultDay = useCallback((): string | null => {
+    if (days.length === 0) return null;
+    const today = manilaDateOf(new Date());
+    return days.includes(today) ? today : days[days.length - 1];
+  }, [days]);
+
   const manualMatches = useMemo(() => {
     const q = manualQuery.trim().toLowerCase();
     if (q.length < 2) return [];
@@ -453,10 +516,18 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
 
   const handleManual = useCallback(
     async (entry: EventScanRosterEntry) => {
-      const offDay = offEventDayDetail(event, manilaDateOf(new Date()));
-      if (offDay) {
-        say("reject", "Not an event day", offDay);
-        return;
+      const today = manilaDateOf(new Date());
+      // The door records the day it is standing in. A super admin picks the
+      // day, which is what lets an event that has already finished be amended;
+      // the server enforces the same split (recordManualAttendance).
+      const date = canOverride ? (manualDate ?? defaultDay() ?? today) : today;
+
+      if (!canOverride) {
+        const offDay = offEventDayDetail(event, today);
+        if (offDay) {
+          say("reject", "Not an event day", offDay);
+          return;
+        }
       }
       if (!navigator.onLine) {
         say(
@@ -471,19 +542,32 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
         event_id: eventId,
         subject_kind: entry.subject_kind,
         subject_id: entry.subject_id,
-        attendance_date: manilaDateOf(new Date()),
+        attendance_date: date,
       });
       setManualSaving(false);
       if (result.success) {
+        const backdated = date !== today;
         const prior =
           result.data?.prior_participation ?? entry.prior_participation ?? null;
         if (prior) {
           warnPrior(entry.full_name, prior);
         } else {
-          say("ok", entry.full_name, "Recorded manually — no card scanned.");
+          say(
+            "ok",
+            entry.full_name,
+            backdated
+              ? `Recorded for ${formatManilaLongDate(date)} — no card scanned.`
+              : "Recorded manually — no card scanned.",
+          );
         }
         setHistory((h) =>
-          [{ name: `${entry.full_name} (manual)`, at: new Date().toISOString() }, ...h].slice(0, 50),
+          [
+            {
+              name: `${entry.full_name} (manual${backdated ? `, ${date}` : ""})`,
+              at: new Date().toISOString(),
+            },
+            ...h,
+          ].slice(0, 50),
         );
         setManualQuery("");
         setManualOpen(false);
@@ -491,8 +575,13 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
         say("reject", "Not recorded", result.error);
       }
     },
-    [event, eventId, say, warnPrior],
+    [canOverride, defaultDay, event, eventId, manualDate, say, warnPrior],
   );
+
+  const openManual = useCallback(() => {
+    setManualDate((current) => current ?? defaultDay());
+    setManualOpen(true);
+  }, [defaultDay]);
 
   /**
    * Turnout by CSC team, counted on the server.
@@ -529,6 +618,67 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
     setSummaryOpen(true);
     void loadSummary();
   }, [loadSummary]);
+
+  /**
+   * Who is recorded on one day — the list a super admin removes a record from.
+   *
+   * Read from the server every time rather than cached: a record removed here
+   * is gone for everyone, and a stale list is how the same name gets deleted
+   * twice or a colleague's correction gets undone. The queue is flushed first
+   * for the same reason the summary flushes it — a name still sitting on this
+   * phone is not yet a record anybody can remove.
+   */
+  const loadRecords = useCallback(
+    async (date: string) => {
+      if (!navigator.onLine) {
+        setRecords(null);
+        setRecordsError(
+          "Offline — the recorded list lives on the server. It loads when the connection is back.",
+        );
+        return;
+      }
+      setRecordsLoading(true);
+      setRecordsError(null);
+      try {
+        if ((await getQueue(eventId)).length > 0) await sync();
+        setRecords(await getEventDayAttendance(eventId, date));
+      } catch {
+        setRecordsError("Could not load the recorded list. Try again.");
+      } finally {
+        setRecordsLoading(false);
+      }
+    },
+    [eventId, sync],
+  );
+
+  const openRecords = useCallback(() => {
+    const date = recordsDate ?? defaultDay();
+    setRecordsDate(date);
+    setRecordsOpen(true);
+    setRemovedNote(null);
+    if (date) void loadRecords(date);
+  }, [defaultDay, loadRecords, recordsDate]);
+
+  const changeRecordsDate = useCallback(
+    (date: string) => {
+      setRecordsDate(date);
+      setRemovedNote(null);
+      void loadRecords(date);
+    },
+    [loadRecords],
+  );
+
+  const removeRecord = useCallback(async (row: EventDayAttendee) => {
+    setRemovingId(row.id);
+    const result = await deleteEventAttendance(row.id);
+    setRemovingId(null);
+    if (result.success) {
+      setRecords((rows) => (rows ?? []).filter((r) => r.id !== row.id));
+      setRemovedNote(`${row.full_name} removed.`);
+    } else {
+      setRecordsError(result.error);
+    }
+  }, []);
 
   /** Non-null when today is not one of the event's days — see offEventDayDetail. */
   const dayNotice = useMemo(
@@ -644,13 +794,31 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
         )}
       </header>
 
+      {/* ── This event is closed ── */}
+      {event?.status === "closed" && (
+        <div className="border-border/70 bg-card/80 relative z-10 mx-3 mt-2 flex items-start gap-2.5 rounded-2xl border px-3.5 py-2.5 backdrop-blur-sm">
+          <Lock className="text-muted-foreground mt-0.5 h-4 w-4 shrink-0" />
+          <p className="text-muted-foreground text-[0.72rem] leading-snug">
+            <span className="text-foreground font-semibold">This event is closed.</span>{" "}
+            Anything recorded here is flagged in the report as an amendment.
+          </p>
+        </div>
+      )}
+
       {/* ── Wrong day ── */}
       {dayNotice && (
         <div className="relative z-10 mx-3 mt-2 flex items-start gap-2.5 rounded-2xl border border-[oklch(0.66_0.20_22/0.5)] bg-[oklch(0.66_0.20_22/0.18)] px-3.5 py-2.5 backdrop-blur-sm">
           <CalendarX2 className="mt-0.5 h-4 w-4 shrink-0 text-[oklch(0.80_0.17_22)]" />
           <p className="text-[0.72rem] leading-snug text-[oklch(0.86_0.10_22)]">
-            <span className="font-semibold">Nothing can be recorded today.</span>{" "}
+            {/* A card still cannot be SCANNED in on a day the event did not run
+                — the queued scan carries the phone's clock, and the server
+                files it by that. A super admin records the person by name
+                against the right day instead. */}
+            <span className="font-semibold">
+              {canOverride ? "Cards cannot be scanned in today." : "Nothing can be recorded today."}
+            </span>{" "}
             {dayNotice}
+            {canOverride && " Use No card to record someone against one of the event's days."}
           </p>
         </div>
       )}
@@ -738,8 +906,11 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
 
       {/* ── Action bar ── */}
       <footer className="relative z-10 flex items-center gap-2 px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        {/* Shrinks rather than pushing a control off the edge: a super admin's
+            bar carries one more button than the door's, and 360px is the
+            narrowest phone this has to work on. */}
         <span
-          className={`flex h-12 items-center gap-2 rounded-full border px-4 font-mono text-xs ${
+          className={`flex h-12 min-w-0 shrink items-center gap-2 overflow-hidden rounded-full border px-4 font-mono text-xs whitespace-nowrap ${
             online
               ? "border-[oklch(0.75_0.17_152/0.4)] bg-[oklch(0.75_0.17_152/0.12)] text-[oklch(0.85_0.14_152)]"
               : "border-[oklch(0.80_0.15_80/0.4)] bg-[oklch(0.80_0.15_80/0.12)] text-[oklch(0.87_0.13_80)]"
@@ -770,11 +941,23 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
           </Button>
         )}
 
+        {canOverride && (
+          <Button
+            variant="outline"
+            size="lg"
+            aria-label="Recorded attendance for a day"
+            onClick={openRecords}
+            className="bg-card/70 ml-auto h-12 w-12 shrink-0 rounded-full p-0 backdrop-blur-sm"
+          >
+            <ClipboardList className="h-5 w-5" />
+          </Button>
+        )}
+
         <Button
           size="lg"
           variant="secondary"
-          onClick={() => setManualOpen(true)}
-          className="ml-auto h-12 rounded-full px-5 text-sm"
+          onClick={openManual}
+          className={`h-12 rounded-full px-5 text-sm ${canOverride ? "" : "ml-auto"}`}
         >
           <UserPlus className="h-5 w-5" />
           No card
@@ -809,9 +992,32 @@ export function EventScannerClient({ eventId }: { eventId: string }) {
           matches={manualMatches}
           saving={manualSaving}
           online={online}
-          offDay={dayNotice}
+          // A super admin picks the day, so the wrong-day refusal is not theirs.
+          offDay={canOverride ? null : dayNotice}
+          days={canOverride ? days : []}
+          date={canOverride ? (manualDate ?? defaultDay()) : manilaDateOf(new Date())}
+          onDateChange={setManualDate}
           onPick={(entry) => void handleManual(entry)}
           onClose={() => setManualOpen(false)}
+        />
+      )}
+
+      {recordsOpen && (
+        <RecordsSheet
+          days={days}
+          date={recordsDate}
+          rows={records}
+          loading={recordsLoading}
+          error={recordsError}
+          removingId={removingId}
+          removedNote={removedNote}
+          unsent={queue.length}
+          onDateChange={changeRecordsDate}
+          onRefresh={() => {
+            if (recordsDate) void loadRecords(recordsDate);
+          }}
+          onRemove={(row) => void removeRecord(row)}
+          onClose={() => setRecordsOpen(false)}
         />
       )}
     </div>
@@ -914,6 +1120,9 @@ function ManualSheet({
   saving,
   online,
   offDay,
+  days,
+  date,
+  onDateChange,
   onPick,
   onClose,
 }: {
@@ -924,6 +1133,11 @@ function ManualSheet({
   online: boolean;
   /** Set when today is not one of the event's days; nothing can be recorded. */
   offDay: string | null;
+  /** The event's days, offered as a choice. Empty for an ordinary checker. */
+  days: string[];
+  /** The day the entry is filed under. */
+  date: string | null;
+  onDateChange: (date: string) => void;
   onPick: (entry: EventScanRosterEntry) => void;
   onClose: () => void;
 }) {
@@ -946,6 +1160,10 @@ function ManualSheet({
           <X className="h-5 w-5" />
         </Button>
       </div>
+
+      {days.length > 0 && date && (
+        <DayPicker days={days} value={date} onChange={onDateChange} />
+      )}
 
       <div className="px-4 pb-3">
         <div className="relative">
@@ -1188,6 +1406,291 @@ function SummarySheet({
               correction there moves these numbers.
             </p>
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Which day of the event a sheet is working on.
+ *
+ * Only ever shown to a super admin: the officer at the door works on the day
+ * they are standing in, and offering them a choice would invite a whole
+ * morning to be filed under the wrong one. A one-day event has nothing to
+ * choose, so it gets the sentence rather than a single chip pretending to be a
+ * decision.
+ */
+function DayPicker({
+  days,
+  value,
+  onChange,
+}: {
+  days: string[];
+  value: string;
+  onChange: (date: string) => void;
+}) {
+  const today = manilaDateOf(new Date());
+
+  if (days.length === 1) {
+    return (
+      <p className="text-muted-foreground px-4 pb-3 text-xs">
+        Filed under {formatManilaLongDate(days[0])}
+        {days[0] === today ? " — today." : ", which has passed."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="pb-3">
+      <p className="text-muted-foreground px-4 font-mono text-[0.65rem] tracking-wider uppercase">
+        Day
+      </p>
+      <div className="mt-1.5 flex gap-2 overflow-x-auto px-4 pb-1">
+        {days.map((day) => {
+          const selected = day === value;
+          return (
+            <button
+              key={day}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onChange(day)}
+              className={`h-10 shrink-0 rounded-full border px-4 text-sm whitespace-nowrap ${
+                selected
+                  ? "border-primary bg-primary text-primary-foreground font-medium"
+                  : "border-border/60 bg-card text-muted-foreground"
+              }`}
+            >
+              {formatManilaShortDate(day)}
+              {day === today && (
+                <span className={selected ? "" : "text-foreground"}> · today</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The day's recorded attendance, with a way to take a record back out.
+ *
+ * The super admin's screen, and nobody else's — the officer at the door records
+ * presence, and the same pair of hands holding both sides of the ledger is
+ * exactly what the split in canOverrideEventAttendance is for.
+ *
+ * Read live from the server on every open and after every day change, never
+ * from the device cache: a record removed here is gone for everyone, and acting
+ * on a stale list is how a colleague's correction gets silently undone.
+ *
+ * Removal takes two taps. There is no undo — event_attendance is deleted
+ * outright, with the row copied into the audit log first — and a single
+ * mis-tap on a phone held one-handed at a venue is far too easy.
+ */
+function RecordsSheet({
+  days,
+  date,
+  rows,
+  loading,
+  error,
+  removingId,
+  removedNote,
+  unsent,
+  onDateChange,
+  onRefresh,
+  onRemove,
+  onClose,
+}: {
+  days: string[];
+  date: string | null;
+  rows: EventDayAttendee[] | null;
+  loading: boolean;
+  error: string | null;
+  /** The row a delete is in flight for. */
+  removingId: string | null;
+  removedNote: string | null;
+  unsent: number;
+  onDateChange: (date: string) => void;
+  onRefresh: () => void;
+  onRemove: (row: EventDayAttendee) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  /** The row whose delete button has been tapped once. */
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  const matches = (rows ?? []).filter((r) =>
+    r.full_name.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+
+  return (
+    <div className="bg-background/95 fixed inset-0 z-50 flex flex-col backdrop-blur-md">
+      <div className="flex items-center gap-2 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold">Recorded attendance</p>
+          <p className="text-muted-foreground truncate text-xs">
+            {rows === null
+              ? "Remove a record that should not have counted."
+              : `${rows.length} recorded${date ? ` on ${formatManilaLongDate(date)}` : ""}`}
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Reload the recorded list"
+          onClick={onRefresh}
+          disabled={loading}
+          className="h-11 w-11 rounded-full"
+        >
+          {loading ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-5 w-5" />
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Close"
+          onClick={onClose}
+          className="h-11 w-11 rounded-full"
+        >
+          <X className="h-5 w-5" />
+        </Button>
+      </div>
+
+      {date && <DayPicker days={days} value={date} onChange={onDateChange} />}
+
+      <div className="px-4 pb-3">
+        <div className="relative">
+          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search the recorded names"
+            autoComplete="off"
+            className="h-13 rounded-2xl pl-10 text-base"
+          />
+        </div>
+        {removedNote && (
+          <p className="mt-2 text-[0.7rem] text-[oklch(0.85_0.14_152)]">{removedNote}</p>
+        )}
+        {unsent > 0 && (
+          <p className="mt-2 text-[0.7rem] text-[oklch(0.87_0.13_80)]">
+            {unsent} scan{unsent === 1 ? "" : "s"} on this phone have not been sent
+            yet, so they are not in this list.
+          </p>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+        {error && (
+          <div className="border-border/60 bg-card rounded-2xl border p-4">
+            <p className="text-sm">{error}</p>
+            <Button
+              variant="outline"
+              onClick={onRefresh}
+              disabled={loading}
+              className="mt-3 rounded-full"
+            >
+              Try again
+            </Button>
+          </div>
+        )}
+
+        {!error && rows === null && loading && (
+          <div className="flex flex-col items-center gap-3 py-16">
+            <Loader2 className="text-primary h-6 w-6 animate-spin" />
+            <p className="text-muted-foreground font-mono text-xs tracking-[0.2em] uppercase">
+              Loading
+            </p>
+          </div>
+        )}
+
+        {rows !== null && matches.length === 0 && (
+          <p className="text-muted-foreground py-10 text-center text-sm">
+            {rows.length === 0
+              ? "Nobody is recorded on this day."
+              : "No recorded name matches that."}
+          </p>
+        )}
+
+        <div className="space-y-1.5">
+          {matches.map((row) => {
+            const confirming = confirmId === row.id;
+            const busy = removingId === row.id;
+            return (
+              <div
+                key={row.id}
+                className="border-border/60 bg-card flex items-center gap-3 rounded-2xl border p-3.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{row.full_name}</p>
+                  <p className="text-muted-foreground truncate font-mono text-[0.65rem] tracking-wider uppercase">
+                    {[
+                      row.method === "manual" ? "No card" : "Scanned",
+                      row.is_walk_in ? "Walk-in" : null,
+                      row.synced_late ? "Amendment" : null,
+                      new Date(row.scanned_at).toLocaleTimeString([], {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      }),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+
+                {confirming ? (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button
+                      variant="ghost"
+                      onClick={() => setConfirmId(null)}
+                      disabled={busy}
+                      className="h-11 rounded-full px-3 text-sm"
+                    >
+                      Keep
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        setConfirmId(null);
+                        onRemove(row);
+                      }}
+                      disabled={busy}
+                      className="h-11 rounded-full px-4 text-sm"
+                    >
+                      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Remove ${row.full_name}`}
+                    onClick={() => setConfirmId(row.id)}
+                    disabled={busy}
+                    className="h-11 w-11 shrink-0 rounded-full text-[oklch(0.80_0.17_22)]"
+                  >
+                    {busy ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-5 w-5" />
+                    )}
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {rows !== null && rows.length > 0 && (
+          <p className="text-muted-foreground mt-4 text-[0.7rem] leading-relaxed">
+            Removing a record cannot be undone — it is written to the audit log
+            with your name on it. A scan still queued on another phone comes back
+            when that phone syncs, so let the doors finish syncing first.
+          </p>
         )}
       </div>
     </div>
