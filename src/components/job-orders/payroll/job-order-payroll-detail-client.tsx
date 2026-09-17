@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -121,41 +122,52 @@ export function JobOrderPayrollDetailClient({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {fmtDate(payroll.period_start)} – {fmtDate(payroll.period_end)}
-            </h1>
-            {payroll.is_reconstructed && (
-              <Badge
-                variant="outline"
-                title="Imported from the legacy system and priced at the employee's rate at import time — a reconstruction, not the original record."
-              >
-                Reconstructed
-              </Badge>
-            )}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {payroll.description ?? "No description"}
-            {payroll.areas ? ` · ${payroll.areas}` : ""}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-            <span>
-              <span className="text-muted-foreground">Members</span>{" "}
-              <strong>{payroll.member_count}</strong>
-            </span>
-            <span>
-              <span className="text-muted-foreground">Gross</span>{" "}
-              <strong>{fmtMoney(payroll.total_gross)}</strong>
-            </span>
-            <span>
-              <span className="text-muted-foreground">SSS</span>{" "}
-              <strong>{fmtMoney(payroll.total_sss)}</strong>
-            </span>
-            <span>
-              <span className="text-muted-foreground">Net</span>{" "}
-              <strong>{fmtMoney(payroll.total_net)}</strong>
-            </span>
+        {/* Back to the payroll list. A plain Link, not router.back(): this page
+            is reached from the list, from a print, and from the deep link the
+            office pastes into chat, and only the first of those has a history
+            entry worth returning to. */}
+        <div className="flex items-start gap-3">
+          <Link href="/job-orders/payroll" aria-label="Back to payrolls">
+            <Button variant="ghost" size="icon-sm">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {fmtDate(payroll.period_start)} – {fmtDate(payroll.period_end)}
+              </h1>
+              {payroll.is_reconstructed && (
+                <Badge
+                  variant="outline"
+                  title="Imported from the legacy system and priced at the employee's rate at import time — a reconstruction, not the original record."
+                >
+                  Reconstructed
+                </Badge>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {payroll.description ?? "No description"}
+              {payroll.areas ? ` · ${payroll.areas}` : ""}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+              <span>
+                <span className="text-muted-foreground">Members</span>{" "}
+                <strong>{payroll.member_count}</strong>
+              </span>
+              <span>
+                <span className="text-muted-foreground">Gross</span>{" "}
+                <strong>{fmtMoney(payroll.total_gross)}</strong>
+              </span>
+              <span>
+                <span className="text-muted-foreground">SSS</span>{" "}
+                <strong>{fmtMoney(payroll.total_sss)}</strong>
+              </span>
+              <span>
+                <span className="text-muted-foreground">Net</span>{" "}
+                <strong>{fmtMoney(payroll.total_net)}</strong>
+              </span>
+            </div>
           </div>
         </div>
 
