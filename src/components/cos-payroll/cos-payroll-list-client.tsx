@@ -187,7 +187,7 @@ export function CosPayrollListClient({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Briefcase className="h-6 w-6" />
@@ -342,7 +342,7 @@ export function CosPayrollListClient({
       </Card>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-muted-foreground">
             Page {initialPage} of {totalPages} · {initialTotalCount} total
           </p>

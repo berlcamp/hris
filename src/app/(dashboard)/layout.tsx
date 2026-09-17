@@ -34,7 +34,11 @@ export default async function DashboardLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
+      {/* min-w-0: without it the inset is a flex item sized to its widest
+          content, so one wide table drags the whole shell — page header,
+          heading, action buttons — sideways with it. Clamped here, a wide
+          table scrolls inside its own box and everything else stays put. */}
+      <SidebarInset className="min-w-0">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/80 backdrop-blur-sm px-6">
           <SidebarTrigger className="-ml-2" />
           <div className="mx-2 h-4 w-px bg-border" />
@@ -52,7 +56,7 @@ export default async function DashboardLayout({
             <Image src="/logo4.png" alt="Logo 4" width={40} height={40} className="h-10 w-auto" />
           </div>
         </header>
-        <main className="flex-1 p-6">{children}</main>
+        <main className="min-w-0 flex-1 p-6">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   );

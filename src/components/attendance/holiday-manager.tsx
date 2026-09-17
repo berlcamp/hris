@@ -126,7 +126,7 @@ export function HolidayManager({ initialHolidays }: HolidayManagerProps) {
     <>
       <Card>
         <CardContent className="pt-6 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted-foreground">
               {initialHolidays.length} holiday
               {initialHolidays.length === 1 ? "" : "s"} defined.

@@ -78,7 +78,7 @@ export function JobOrderPayrollMembersTable({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Members</h2>
         {editable && (
           <Button size="sm" onClick={() => setAddOpen(true)}>
@@ -99,7 +99,6 @@ export function JobOrderPayrollMembersTable({
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Area</TableHead>
-                <TableHead>Sub-area</TableHead>
                 <TableHead>LandBank ATM</TableHead>
                 <TableHead className="w-20">Days</TableHead>
                 <TableHead className="w-24">Overtime Hours</TableHead>
@@ -248,11 +247,21 @@ function MemberRow({ member, editable, onRemove, onSaved }: MemberRowProps) {
           </p>
         )}
       </TableCell>
+      {/* Area and sub-area share one cell, stacked, and both truncate: two
+          full-width columns of free text were most of what pushed this table
+          into a horizontal scroll. The full value stays reachable on hover. */}
       <TableCell className="text-muted-foreground">
-        {member.area_name ?? "—"}
-      </TableCell>
-      <TableCell className="text-muted-foreground">
-        {member.sub_area ?? "—"}
+        <div
+          className="max-w-[12rem] truncate"
+          title={member.area_name ?? undefined}
+        >
+          {member.area_name ?? "—"}
+        </div>
+        {member.sub_area && (
+          <div className="max-w-[12rem] truncate text-xs" title={member.sub_area}>
+            {member.sub_area}
+          </div>
+        )}
       </TableCell>
       {/* The snapshot's account number, not the roster's: this is exactly what
           the ATM payroll prints, so a blank here is the warning that the row

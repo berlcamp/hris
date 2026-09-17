@@ -41,7 +41,7 @@ export function DataTableSkeleton({ columns = 6, rows = 8 }: DataTableSkeletonPr
       </div>
 
       {/* Pagination skeleton */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Skeleton className="h-4 w-32" />
         <div className="flex gap-2">
           <Skeleton className="h-8 w-8" />

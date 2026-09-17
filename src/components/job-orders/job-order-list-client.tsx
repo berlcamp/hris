@@ -149,6 +149,10 @@ export function JobOrderListClient({
       <DataTable
         columns={columns}
         data={initialEmployees}
+        // The ATM column is defined but never shown: its badge rides in the
+        // status cell, while the column itself stays behind so the toolbar's
+        // ATM filter has something to filter and facet on.
+        initialColumnVisibility={{ has_atm: false }}
         searchableColumns={[{ id: "full_name", title: "name" }]}
         filterableColumns={[
           {

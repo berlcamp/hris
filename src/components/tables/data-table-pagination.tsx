@@ -31,7 +31,7 @@ export function DataTablePagination<TData>({
   const filteredCount = totalCount ?? table.getFilteredRowModel().rows.length;
 
   return (
-    <div className="flex items-center justify-between px-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 px-2">
       <div className="flex-1 text-sm text-muted-foreground">
         {selectedCount > 0 && (
           <span>
@@ -42,7 +42,7 @@ export function DataTablePagination<TData>({
           <span>{filteredCount} row(s) total.</span>
         )}
       </div>
-      <div className="flex items-center space-x-6 lg:space-x-8">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 lg:gap-x-8">
         <div className="flex items-center space-x-2">
           <p className="text-sm font-medium">Rows per page</p>
           <Select

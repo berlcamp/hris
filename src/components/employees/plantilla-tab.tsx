@@ -169,7 +169,7 @@ export function PlantillaTab({ plantilla: initial, employeeId, canEdit }: Planti
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm text-muted-foreground">
             Official CSC plantilla record. Salary history is the primary NOSI basis; these appointment dates are used only when no qualifying salary history exists.

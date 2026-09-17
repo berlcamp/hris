@@ -168,7 +168,7 @@ export default async function CosEmployeeProfilePage({
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle>Contract History</CardTitle>
           {employee.status === "active" ? (
             <Link href={`/cos/contracts/new?employee=${employee.id}`}>
