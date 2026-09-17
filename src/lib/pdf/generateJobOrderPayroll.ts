@@ -295,9 +295,15 @@ const DAILY_WAGES_STYLES = `
   .signature-cell { position: relative; padding-left: 14px !important; }
   .sig-num { position: absolute; left: 2px; top: 2px; font-size: 7pt; }
   tr.subtotal td { font-weight: bold; }
-  /* margin-top:auto is what pushes the block to the foot of the sheet -- see
-     the .payroll-page flex column below. */
-  table.footer-table { width: 100%; border-collapse: collapse; margin-top: auto; }
+  /* The signatory block hangs off the bottom of the roster, not off the foot
+     of the sheet: it reads as the last band of the same table. -1px pulls its
+     top border onto the roster's bottom border so the seam is one rule and not
+     two stacked ones -- border-collapse does not reach across two tables.
+     margin-top:auto used to sit here and float the block down to the paper's
+     edge, which on a short roster left the band of white the office kept
+     asking about. A full roster still lands on the bottom edge, because
+     table.payroll.stretch grows the roster itself to fill the sheet. */
+  table.footer-table { width: 100%; border-collapse: collapse; margin-top: -1px; }
   table.footer-table td { border: 1px solid #000; vertical-align: top; padding: 4px 6px; height: 1.6in; width: 25%; }
   .foot-label { font-weight: bold; font-size: 9pt; }
   .foot-text { font-size: 9pt; margin-top: 4px; text-indent: 18px; }
@@ -309,10 +315,11 @@ const DAILY_WAGES_STYLES = `
      to the browser because the Summary of Payrolls numbers its lines after
      these pages -- see DAILY_WAGES_ROWS_PER_PAGE. The :last-child rule keeps
      the final break from emitting a trailing blank sheet.
-     The sheet is a full-height flex column so a page carrying fewer than
-     DAILY_WAGES_ROWS_PER_PAGE names still fills the paper: the table stays at
-     the top and the signatory footer is pushed to the bottom edge by its
-     margin-top:auto instead of floating up under a short roster.
+     The sheet is a full-height flex column so a page carrying a full roster
+     can fill the paper: the table stays at the top and table.payroll.stretch
+     hands it the leftover height. The signatory footer always sits directly
+     under the roster, so a short page leaves its white at the bottom of the
+     sheet rather than between the SUB TOTAL and the signatures.
      min-height, not height: legal landscape less the 0.3in @page margins is
      8.5 - 0.6 = 7.9in, and min-height lets a row that wraps (a long name in
      the no-ATM layout) grow the box rather than spill out of a fixed one. */
