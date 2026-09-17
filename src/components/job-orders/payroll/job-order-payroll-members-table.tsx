@@ -102,7 +102,7 @@ export function JobOrderPayrollMembersTable({
                 <TableHead>Sub-area</TableHead>
                 <TableHead>LandBank ATM</TableHead>
                 <TableHead className="w-20">Days</TableHead>
-                <TableHead className="w-20">Hours</TableHead>
+                <TableHead className="w-24">Overtime Hours</TableHead>
                 <TableHead className="w-24">Rate</TableHead>
                 <TableHead className="text-right">Gross</TableHead>
                 <TableHead className="text-right">SSS</TableHead>
@@ -227,6 +227,7 @@ function MemberRow({ member, editable, onRemove, onSaved }: MemberRowProps) {
         toast.error(result.error);
         return;
       }
+      toast.success(`${member.full_name} saved.`);
       onSaved();
     } catch {
       toast.error("Something went wrong saving this row. Please try again.");
