@@ -27,6 +27,7 @@ import {
 } from "@/lib/actions/leave-actions";
 import type { AuthUserData } from "@/lib/actions/auth-actions";
 import { hasRole, isDeptHead } from "@/lib/auth-helpers";
+import { ocmFilingBlocks } from "@/lib/ocm-filing";
 
 interface LeaveApprovalActionsProps {
   leaveId: string;
@@ -41,7 +42,9 @@ interface LeaveApprovalActionsProps {
    *  already excludes this leave's `days_with_pay`). */
   creditBalance?: number;
   leaveTypeCode?: string | null;
-  /** When non-null, approval/reject buttons are only shown to this specific user (e.g. OCM Admin-created leaves). */
+  /** When non-null, the leave was filed by an OCM Admin and is owned by this
+   *  user: department-scoped accounts get no approval/reject buttons. HR Admin,
+   *  Super Admin and the other OCM Admins are exempt. */
   restrictToUserId?: string | null;
 }
 
@@ -79,9 +82,10 @@ export function LeaveApprovalActions({
     setLoading(false);
   };
 
-  // If the leave was created by an OCM Admin, only that specific OCM Admin
-  // user may see and act on the approval buttons.
-  const isRestrictedApproval = !!restrictToUserId && user.id !== restrictToUserId;
+  // A leave filed by an OCM Admin is owned by that OCM Admin against the
+  // department side of the workflow — see src/lib/ocm-filing.ts, which is the
+  // same predicate the server action enforces.
+  const isRestrictedApproval = ocmFilingBlocks(restrictToUserId, user);
 
   // HR Admin / Super Admin can cancel an already-approved leave, with a
   // mandatory written reason. Credits are refunded automatically because the

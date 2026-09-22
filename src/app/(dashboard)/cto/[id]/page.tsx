@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 import { getCtoApplicationById, getCtoBalance } from "@/lib/actions/cto-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
+import { ocmFilingOwnerId } from "@/lib/ocm-filing";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { CtoApprovalActions } from "@/components/cto/cto-approval-actions";
 import { CtoPdfButton } from "@/components/cto/cto-pdf-button";
@@ -89,11 +90,7 @@ export default async function CtoDetailPage({
             deptApprovedAt={cto.dept_approved_at}
             canCancel={canCancel}
             user={user}
-            restrictToUserId={
-              cto.created_by_profile?.role === "ocm_admin"
-                ? (cto.created_by ?? null)
-                : null
-            }
+            restrictToUserId={ocmFilingOwnerId(cto)}
           />
         </div>
       </div>

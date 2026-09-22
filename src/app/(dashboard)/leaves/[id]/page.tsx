@@ -25,6 +25,7 @@ import {
 } from "@/lib/actions/leave-actions";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { isDeptScoped } from "@/lib/auth-helpers";
+import { ocmFilingOwnerId } from "@/lib/ocm-filing";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { LeaveApprovalActions } from "@/components/leaves/leave-approval-actions";
 import { LeavePdfButton } from "@/components/leaves/leave-pdf-button";
@@ -151,11 +152,7 @@ export default async function LeaveDetailPage({
             daysWithPay={Number(leave.days_with_pay ?? 0)}
             creditBalance={credit ? Number(credit.balance) : 0}
             leaveTypeCode={leave.leave_types?.code ?? null}
-            restrictToUserId={
-              leave.created_by_profile?.role === "ocm_admin"
-                ? (leave.created_by ?? null)
-                : null
-            }
+            restrictToUserId={ocmFilingOwnerId(leave)}
           />
         </div>
       </div>

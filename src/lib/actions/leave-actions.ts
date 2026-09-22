@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { hasAnyRole, hasRole, isCompositeDeptAdminHead, isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
+import type { RoleInput } from "@/lib/auth-helpers";
+import {
+  ocmFilingBlocks,
+  ocmFilingOwnerId,
+  type OcmFiledRecord,
+} from "@/lib/ocm-filing";
 import { logAudit } from "@/lib/audit";
 import {
   addLedgerEntry,
@@ -11,29 +17,15 @@ import {
 } from "@/lib/leave-credits-helpers";
 import { formatEmployeeDisplayName } from "@/lib/employee-name-match";
 
-// A leave application filed by an OCM Admin is "owned" by that OCM Admin: no
-// other user may approve, reject, or cancel it. This mirrors the detail page's
-// `restrictToUserId` UI gate so the rule is also enforced server-side. We
-// compare against the creator's current role on `user_profiles`.
-function normalizeCreatorRole(
-  rel: { role: string } | { role: string }[] | null | undefined
-): string | null {
-  if (!rel) return null;
-  return Array.isArray(rel) ? rel[0]?.role ?? null : rel.role ?? null;
-}
-
+// The OCM-owner rule lives in src/lib/ocm-filing.ts, shared with the CTO module
+// and with both approval UIs, and is unit-tested there. This wrapper only puts
+// the leave module's wording on it.
 function ocmAdminRestrictionError(
-  app: {
-    created_by?: string | null;
-    created_by_profile?: { role: string } | { role: string }[] | null;
-  },
-  user: { id: string }
+  app: OcmFiledRecord,
+  user: { id: string; roles: RoleInput }
 ): string | null {
-  const creatorRole = normalizeCreatorRole(app.created_by_profile);
-  if (creatorRole === "ocm_admin" && app.created_by && app.created_by !== user.id) {
-    return "This leave was filed by an OCM Admin and can only be approved or cancelled by that OCM Admin.";
-  }
-  return null;
+  if (!ocmFilingBlocks(ocmFilingOwnerId(app), user)) return null;
+  return "This leave was filed by an OCM Admin and can only be acted on by an OCM Admin, HR Admin or Super Admin.";
 }
 
 export interface LeaveTypeRow {
@@ -796,13 +788,19 @@ export async function cancelApprovedLeaveApplication(id: string, reason: string)
   if (app.status !== "approved")
     return { error: "Only approved applications can be cancelled here" };
 
-  // OCM Admin-filed leaves can only be cancelled by that OCM Admin. For all
-  // other leaves, cancellation stays restricted to HR Admin / Super Admin.
-  const cancelRestriction = ocmAdminRestrictionError(app, user);
-  if (cancelRestriction) return { error: cancelRestriction };
-  const isOcmOwned = normalizeCreatorRole(app.created_by_profile) === "ocm_admin";
-  if (!isOcmOwned && !hasAnyRole(user.roles, "super_admin", "hr_admin"))
-    return { error: "Only HR Admin or Super Admin can cancel an approved leave" };
+  // Cancelling an APPROVED leave stays with HR Admin / Super Admin, plus the
+  // OCM Admin who filed it. Widening approval to every OCM Admin (see
+  // ocmAdminRestrictionError) deliberately does not widen this one: taking an
+  // approved leave back refunds credits, so it keeps the narrower list it has
+  // always had.
+  const ocmOwnerId = ocmFilingOwnerId(app);
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin") && ocmOwnerId !== user.id) {
+    return {
+      error: ocmOwnerId
+        ? "This leave was filed by an OCM Admin and can only be cancelled by that OCM Admin, HR Admin or Super Admin."
+        : "Only HR Admin or Super Admin can cancel an approved leave",
+    };
+  }
 
   const cancelledAt = new Date().toISOString();
   const { error } = await supabase
