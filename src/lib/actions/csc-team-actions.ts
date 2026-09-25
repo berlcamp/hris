@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { hasRole } from "@/lib/auth-helpers";
+import { hasAnyRole } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import { loadCscTeams, loadEventCandidates } from "@/lib/event-repo";
 import {
@@ -16,10 +16,10 @@ import type { EventCandidate, EventSubjectKind } from "@/lib/types";
 
 // ── CSC anniversary teams ─────────────────────────────────────────────────
 //
-// Super Admin only, end to end. The teams decide who marches with whom at the
-// anniversary and nothing else — no payroll, no leave, no DTR reads them — so
-// there is no reason for any other role to hold the pen, and every export here
-// re-checks the role rather than trusting the page that called it.
+// Super Admin and HR Admin, end to end. The teams decide who marches with whom
+// at the anniversary and nothing else — no payroll, no leave, no DTR reads them
+// — so no other role needs to hold the pen, and every export here re-checks the
+// role rather than trusting the page that called it.
 //
 // The roster is drawn from all three personnel registries at once
 // (loadEventCandidates), because the teams are drawn from the whole active
@@ -62,7 +62,7 @@ const ID_CHUNK = 200;
  */
 export async function getCscTeamRoster(): Promise<CscTeamRoster> {
   const user = await getCurrentUser();
-  if (!hasRole(user?.roles, "super_admin")) return { members: [], teams: [] };
+  if (!hasAnyRole(user?.roles, "super_admin", "hr_admin")) return { members: [], teams: [] };
 
   const supabase = createAdminClient();
   const candidates = await loadEventCandidates(supabase, { kinds: ALL_KINDS });
@@ -92,7 +92,7 @@ export async function assignCscTeam(
   team: string | null,
 ): Promise<ActionResult<{ updated: number }>> {
   const user = await getCurrentUser();
-  if (!hasRole(user?.roles, "super_admin")) {
+  if (!hasAnyRole(user?.roles, "super_admin", "hr_admin")) {
     return { success: false, error: "Not authorized" };
   }
   if (refs.length === 0) {
@@ -155,7 +155,7 @@ export async function renameCscTeam(
   to: string,
 ): Promise<ActionResult<{ updated: number }>> {
   const user = await getCurrentUser();
-  if (!hasRole(user?.roles, "super_admin")) {
+  if (!hasAnyRole(user?.roles, "super_admin", "hr_admin")) {
     return { success: false, error: "Not authorized" };
   }
 

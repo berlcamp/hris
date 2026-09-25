@@ -1,15 +1,15 @@
 import { redirect } from "next/navigation";
 
 import { getServerUser } from "@/lib/auth";
-import { hasRole } from "@/lib/auth-helpers";
+import { hasAnyRole } from "@/lib/auth-helpers";
 import { getCscTeamRoster } from "@/lib/actions/csc-team-actions";
 import { CscTeamManager } from "@/components/admin/csc-team-manager";
 
 export default async function CscTeamsPage() {
   const user = await getServerUser();
   if (!user) redirect("/login");
-  // Super Admin only — the same check every action in csc-team-actions makes.
-  if (!hasRole(user.roles, "super_admin")) redirect("/dashboard");
+  // Super Admin and HR Admin — the same check every action in csc-team-actions makes.
+  if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
   const { members, teams } = await getCscTeamRoster();
 

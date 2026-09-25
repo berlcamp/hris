@@ -358,9 +358,9 @@ const navGroups: NavGroup[] = [
   {
     label: "Administration",
     // DTR Manager sees Work Schedules, Holidays and Departments within this
-    // group; OCM Admin only sees Departments; every other item stays
-    // super_admin-only.
-    roles: ["super_admin", "dtr_manager", "ocm_admin"],
+    // group; OCM Admin only sees Departments; HR Admin only sees CSC Team
+    // Members; every other item stays super_admin-only.
+    roles: ["super_admin", "hr_admin", "dtr_manager", "ocm_admin"],
     items: [
       { title: "User Management", href: "/admin/users", icon: UserPlus, roles: ["super_admin"] },
       { title: "Departments", href: "/admin/departments", icon: Network, roles: ["super_admin", "ocm_admin", "dtr_manager"] },
@@ -396,7 +396,7 @@ const navGroups: NavGroup[] = [
         title: "CSC Team Members",
         href: "/admin/csc-teams",
         icon: UsersRound,
-        roles: ["super_admin"],
+        roles: ["super_admin", "hr_admin"],
       },
       { title: "Audit Trail", href: "/admin/audit-log", icon: Shield, roles: ["super_admin"] },
       { title: "Settings", href: "/admin/settings", icon: Settings, roles: ["super_admin"] },
