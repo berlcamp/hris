@@ -111,6 +111,9 @@ export async function getJobOrderPayrolls(
     .from("job_order_payrolls")
     .select(PAYROLL_SELECT, { count: "exact" })
     .is("deleted_at", null)
+    // Latest payroll date first; undated payrolls sink below the dated ones,
+    // and the period breaks ties so paging stays stable.
+    .order("payroll_date", { ascending: false, nullsFirst: false })
     .order("period_start", { ascending: false })
     .order("period_end", { ascending: false });
 
