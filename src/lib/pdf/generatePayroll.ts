@@ -1355,6 +1355,8 @@ export type GenerateRemittanceListAmortizationPrintParams =
       rows: RemittanceListSssRow[];
       periodStart: string;
       periodEnd: string;
+      /** Who the list covers, after "LIST OF". Defaults to the regular plantilla. */
+      employeeGroup?: string;
     }
   | {
       kind: "eempc";
@@ -1497,7 +1499,12 @@ export function generateRemittanceListAmortizationPrint(
   }
 
   if (params.kind === "sss") {
-    const { rows, periodStart, periodEnd } = params;
+    const {
+      rows,
+      periodStart,
+      periodEnd,
+      employeeGroup = "LGU OZAMIZ-REGULAR EMPLOYEES",
+    } = params;
     if (rows.length === 0) return;
 
     const totalSs = rows.reduce((sum, r) => sum + (r.ss ?? 0), 0);
@@ -1515,7 +1522,7 @@ export function generateRemittanceListAmortizationPrint(
         <div class="sss-line">OZAMIZ CITY</div>
         <div class="sss-spacer"></div>
         <div class="sss-line">OFFICE OF THE CITY MAYOR</div>
-        <div class="sss-line">LIST OF LGU OZAMIZ-REGULAR EMPLOYEES WITH SIGNED AUTHORITY TO DEDUCT</div>
+        <div class="sss-line">LIST OF ${employeeGroup} WITH SIGNED AUTHORITY TO DEDUCT</div>
         <div class="sss-line">SSS CONTRIBUTION FROM MONTHLY SALARY</div>
         <div class="sss-period">${periodLine}</div>
       </div>`;
