@@ -2,7 +2,8 @@
  * Plain (non-`"use server"`) authorization guards for Job Order payrolls.
  *
  * Two checks stand between a payroll and a write: `decideWriteGate` (does this
- * payroll still exist?) and `canDeletePayroll` (may this role remove one?).
+ * payroll still exist, and is it unlocked?) and `canDeletePayroll` (may this
+ * role remove one?).
  * RLS on `job_order_payrolls`/`job_order_payroll_members` is `FOR ALL USING
  * (role IN ('super_admin','hr_admin','jo_manager'))` — it does NOT distinguish
  * super_admin from the other two roles. These TypeScript checks are the only
@@ -10,12 +11,14 @@
  * unit test with zero Supabase/Next runtime, no `"use server"` boundary, no
  * mocking a fluent `.schema().from().select()...` chain.
  *
- * The finalize/reopen lifecycle was removed — every payroll is editable, so
- * this gate no longer looks at `status` at all (the column and its CHECK
- * remain in the database, unused by the app). `decideWriteGate` is split out
- * from `assertWritable` so the branching — missing row / soft-deleted — can be
- * tested directly against a plain object. A stub that mimics the Supabase
- * query builder would mostly be testing the stub.
+ * Locking reuses the old finalize lifecycle's `status` column: `finalized`
+ * means locked, `draft` means open. Unlike the old lifecycle there is no DRAFT
+ * watermark and anyone with payroll write access can lock or unlock — the lock
+ * guards against accidental edits, it is not an approval step.
+ * `decideWriteGate` is split out from `assertWritable` so the branching —
+ * missing row / soft-deleted / locked — can be tested directly against a plain
+ * object. A stub that mimics the Supabase query builder would mostly be
+ * testing the stub.
  */
 
 import type { UserRole } from "@/lib/types";
@@ -23,7 +26,16 @@ import type { UserRole } from "@/lib/types";
 import type { createAdminClient } from "@/lib/supabase/admin";
 
 export interface WriteGateRow {
+  status: string;
   deleted_at: string | null;
+}
+
+export const PAYROLL_LOCKED_ERROR =
+  "This payroll is locked. Unlock it before making changes.";
+
+/** `status` is the lock flag — see the module doc. */
+export function isPayrollLocked(row: { status: string }): boolean {
+  return row.status === "finalized";
 }
 
 /**
@@ -32,12 +44,13 @@ export interface WriteGateRow {
  */
 export function decideWriteGate(row: WriteGateRow | null): string | null {
   if (!row || row.deleted_at) return "Payroll not found";
+  if (isPayrollLocked(row)) return PAYROLL_LOCKED_ERROR;
   return null;
 }
 
 /**
- * Shared write guard. Returns an error string when the payroll is missing or
- * soft-deleted, otherwise null.
+ * Shared write guard. Returns an error string when the payroll is missing,
+ * soft-deleted or locked, otherwise null.
  */
 export async function assertWritable(
   supabase: ReturnType<typeof createAdminClient>,
@@ -46,7 +59,7 @@ export async function assertWritable(
   const { data, error } = await supabase
     .schema("hris")
     .from("job_order_payrolls")
-    .select("id, deleted_at")
+    .select("id, status, deleted_at")
     .eq("id", payrollId)
     .maybeSingle();
   if (error) return error.message;

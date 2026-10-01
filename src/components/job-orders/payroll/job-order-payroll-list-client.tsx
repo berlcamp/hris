@@ -33,7 +33,11 @@ import {
   JobOrderPayrollDuplicateDialog,
   type JobOrderPayrollDuplicateSource,
 } from "./job-order-payroll-duplicate-dialog";
-import { deleteJobOrderPayroll } from "@/lib/actions/job-order-payroll-actions";
+import {
+  deleteJobOrderPayroll,
+  setJobOrderPayrollLocked,
+} from "@/lib/actions/job-order-payroll-actions";
+import { isPayrollLocked } from "@/lib/job-order-payroll-guards";
 import { JOB_ORDER_PAYROLL_PAGE_SIZE } from "@/lib/job-order-payroll-queries";
 import { cn } from "@/lib/utils";
 import type { JobOrderAreaOption, JobOrderPayroll } from "@/lib/types";
@@ -99,6 +103,7 @@ export function JobOrderPayrollListClient({
   );
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [lockingId, setLockingId] = useState<string | null>(null);
 
   const deleteUnlocked = deleteConfirmText === DELETE_CONFIRM_PHRASE;
 
@@ -154,12 +159,35 @@ export function JobOrderPayrollListClient({
     }
   };
 
+  // One click, no confirmation: unlocking is as easy as locking, and either is
+  // undone by clicking again.
+  const handleToggleLock = async (p: JobOrderPayroll) => {
+    const lock = !isPayrollLocked(p);
+    setLockingId(p.id);
+    try {
+      const result = await setJobOrderPayrollLocked(p.id, lock);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(lock ? "Payroll locked." : "Payroll unlocked.");
+      router.refresh();
+    } catch {
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setLockingId(null);
+    }
+  };
+
   const columns = jobOrderPayrollColumns({
     onView: (p) => router.push(`/job-orders/payroll/${p.id}`),
     onDuplicate: (p) => setDuplicateSource(p),
     onDelete: (p) => setDeleteTarget(p),
+    onToggleLock: handleToggleLock,
+    lockingId,
     canDelete,
     canDuplicate: canEdit,
+    canLock: canEdit,
   });
 
   // No getSortedRowModel: this list is server-paginated, so sorting the 20 rows

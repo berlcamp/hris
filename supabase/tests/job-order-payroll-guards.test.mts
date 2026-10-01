@@ -1,9 +1,8 @@
 // Unit tests for the pure Job Order payroll guards
 // (`src/lib/job-order-payroll-guards.ts`).
 //
-// The finalize/reopen lifecycle was removed — every payroll is editable — so
-// the remaining invariants are: a missing or soft-deleted payroll rejects
-// writes, and delete is restricted to super_admin. Neither is enforced by the
+// The invariants: a missing, soft-deleted or locked (status "finalized")
+// payroll rejects writes, and delete is restricted to super_admin. Neither is enforced by the
 // DB's RLS (`FOR ALL USING (role IN ('super_admin','hr_admin','jo_manager'))`,
 // which does not distinguish super_admin from the other two roles), so these
 // TypeScript-level checks are the only line of defence.
@@ -22,6 +21,8 @@ import test from "node:test";
 import {
   canDeletePayroll,
   decideWriteGate,
+  isPayrollLocked,
+  PAYROLL_LOCKED_ERROR,
 } from "../../src/lib/job-order-payroll-guards.ts";
 
 // ── decideWriteGate ─────────────────────────────────────────────────
@@ -32,13 +33,26 @@ test("decideWriteGate blocks a missing payroll (null row)", () => {
 
 test("decideWriteGate blocks a soft-deleted payroll", () => {
   const blocked = decideWriteGate({
+    status: "draft",
     deleted_at: "2026-01-01T00:00:00.000Z",
   });
   assert.equal(blocked, "Payroll not found");
 });
 
-test("decideWriteGate passes a not-deleted payroll", () => {
-  assert.equal(decideWriteGate({ deleted_at: null }), null);
+test("decideWriteGate passes an unlocked, not-deleted payroll", () => {
+  assert.equal(decideWriteGate({ status: "draft", deleted_at: null }), null);
+});
+
+test("decideWriteGate blocks a locked payroll", () => {
+  assert.equal(
+    decideWriteGate({ status: "finalized", deleted_at: null }),
+    PAYROLL_LOCKED_ERROR,
+  );
+});
+
+test("isPayrollLocked reads status", () => {
+  assert.equal(isPayrollLocked({ status: "finalized" }), true);
+  assert.equal(isPayrollLocked({ status: "draft" }), false);
 });
 
 // ── canDeletePayroll ────────────────────────────────────────────────

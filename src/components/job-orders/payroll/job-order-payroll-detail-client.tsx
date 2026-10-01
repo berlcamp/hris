@@ -5,7 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { ArrowLeft, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Lock,
+  LockOpen,
+  Pencil,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +32,11 @@ import {
 import { JobOrderPayrollMembersTable } from "./job-order-payroll-members-table";
 import { JobOrderPayrollEditDialog } from "./job-order-payroll-edit-dialog";
 import { JobOrderPayrollPrintMenu } from "./job-order-payroll-print-menu";
-import { deleteJobOrderPayroll } from "@/lib/actions/job-order-payroll-actions";
+import {
+  deleteJobOrderPayroll,
+  setJobOrderPayrollLocked,
+} from "@/lib/actions/job-order-payroll-actions";
+import { isPayrollLocked } from "@/lib/job-order-payroll-guards";
 import { refreshJobOrderPayrollMembers } from "@/lib/actions/job-order-payroll-member-actions";
 import type { JobOrderPayroll, JobOrderPayrollMember } from "@/lib/types";
 
@@ -66,8 +78,31 @@ export function JobOrderPayrollDetailClient({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [locking, setLocking] = useState(false);
 
   const deleteUnlocked = deleteConfirmText === DELETE_CONFIRM_PHRASE;
+
+  // A locked payroll still opens and prints; every control that would change
+  // it is withheld until it is unlocked (the server actions refuse it too).
+  const locked = isPayrollLocked(payroll);
+  const editable = canEdit && !locked;
+
+  const handleToggleLock = async () => {
+    setLocking(true);
+    try {
+      const result = await setJobOrderPayrollLocked(payroll.id, !locked);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(locked ? "Payroll unlocked." : "Payroll locked.");
+      router.refresh();
+    } catch {
+      toast.error("Something went wrong. Please try again.");
+    } finally {
+      setLocking(false);
+    }
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -137,6 +172,12 @@ export function JobOrderPayrollDetailClient({
               <h1 className="text-2xl font-semibold tracking-tight">
                 {fmtDate(payroll.period_start)} – {fmtDate(payroll.period_end)}
               </h1>
+              {locked && (
+                <Badge variant="secondary" title="Unlock it before editing.">
+                  <Lock className="h-3 w-3" />
+                  Locked
+                </Badge>
+              )}
               {payroll.is_reconstructed && (
                 <Badge
                   variant="outline"
@@ -176,13 +217,30 @@ export function JobOrderPayrollDetailClient({
             <Button
               variant="outline"
               size="sm"
+              disabled={locking}
+              onClick={handleToggleLock}
+            >
+              {locking ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : locked ? (
+                <LockOpen className="h-4 w-4" />
+              ) : (
+                <Lock className="h-4 w-4" />
+              )}
+              {locked ? "Unlock" : "Lock"}
+            </Button>
+          )}
+          {editable && (
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setEditOpen(true)}
             >
               <Pencil className="h-4 w-4" />
               Edit details
             </Button>
           )}
-          {canEdit && (
+          {editable && (
             <Button
               variant="outline"
               size="sm"
@@ -192,7 +250,7 @@ export function JobOrderPayrollDetailClient({
               Refresh from roster
             </Button>
           )}
-          {isSuperAdmin && (
+          {isSuperAdmin && !locked && (
             <Button
               variant="outline"
               size="sm"
@@ -210,7 +268,7 @@ export function JobOrderPayrollDetailClient({
       <JobOrderPayrollMembersTable
         payrollId={payroll.id}
         members={members}
-        editable={canEdit}
+        editable={editable}
       />
 
       <JobOrderPayrollEditDialog

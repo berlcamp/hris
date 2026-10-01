@@ -15,6 +15,8 @@ import {
 import {
   assertWritable,
   canDeletePayroll,
+  isPayrollLocked,
+  PAYROLL_LOCKED_ERROR,
 } from "@/lib/job-order-payroll-guards";
 import {
   loadJobOrdersForSnapshot,
@@ -518,7 +520,73 @@ export async function duplicateJobOrderPayroll(
   return { data: { id: newId } };
 }
 
-/** super_admin only, soft delete. */
+/**
+ * Lock or unlock a payroll. A locked payroll (`status: "finalized"`) refuses
+ * every write through `assertWritable` — details, members, roster refresh —
+ * and cannot be deleted; printing and duplicating still work. Anyone with
+ * payroll write access may flip it either way: the lock guards against
+ * accidental edits rather than recording an approval.
+ */
+export async function setJobOrderPayrollLocked(
+  id: string,
+  locked: boolean,
+): Promise<{ success?: true; error?: string }> {
+  const user = await getCurrentUser();
+  if (!canManageJobOrderPayroll({ roles: user?.roles, canManageModulePayroll: user?.canManageModulePayroll })) {
+    return { error: "Unauthorized" };
+  }
+
+  const supabase = createAdminClient();
+  const { data: current, error: readErr } = await supabase
+    .schema("hris")
+    .from("job_order_payrolls")
+    .select("id, status")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readErr) return { error: readErr.message };
+  if (!current) return { error: "Payroll not found" };
+  // Already in the requested state (e.g. a stale row in another tab) — nothing
+  // to write and nothing to audit.
+  if (isPayrollLocked(current as { status: string }) === locked) {
+    return { success: true };
+  }
+
+  const { error } = await supabase
+    .schema("hris")
+    .from("job_order_payrolls")
+    .update(
+      locked
+        ? {
+            status: "finalized",
+            finalized_at: new Date().toISOString(),
+            finalized_by: user!.id,
+            updated_by: user!.id,
+          }
+        : {
+            status: "draft",
+            finalized_at: null,
+            finalized_by: null,
+            updated_by: user!.id,
+          },
+    )
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  await logAudit({
+    userId: user!.id,
+    userEmail: user!.email,
+    action: locked ? "lock" : "unlock",
+    tableName: "job_order_payrolls",
+    recordId: id,
+  });
+
+  revalidatePath("/job-orders/payroll");
+  revalidatePath(`/job-orders/payroll/${id}`);
+  return { success: true };
+}
+
+/** super_admin only, soft delete. A locked payroll must be unlocked first. */
 export async function deleteJobOrderPayroll(
   id: string,
 ): Promise<{ success?: true; error?: string }> {
@@ -532,12 +600,15 @@ export async function deleteJobOrderPayroll(
   const { data: existing, error: readErr } = await supabase
     .schema("hris")
     .from("job_order_payrolls")
-    .select("id")
+    .select("id, status")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
   if (readErr) return { error: readErr.message };
   if (!existing) return { error: "Payroll not found" };
+  if (isPayrollLocked(existing as { status: string })) {
+    return { error: PAYROLL_LOCKED_ERROR };
+  }
 
   const { error } = await supabase
     .schema("hris")

@@ -2,7 +2,15 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { format } from "date-fns";
-import { Copy, MoreHorizontal, Eye, Trash2 } from "lucide-react";
+import {
+  Copy,
+  Eye,
+  Loader2,
+  Lock,
+  LockOpen,
+  MoreHorizontal,
+  Trash2,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +20,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { JobOrderPayrollPrintMenu } from "@/components/job-orders/payroll/job-order-payroll-print-menu";
+import { isPayrollLocked } from "@/lib/job-order-payroll-guards";
 import type { JobOrderPayroll } from "@/lib/types";
 
 function fmtDate(d: string | null): string {
@@ -26,9 +36,14 @@ export function jobOrderPayrollColumns(handlers: {
   onView: (p: JobOrderPayroll) => void;
   onDuplicate: (p: JobOrderPayroll) => void;
   onDelete: (p: JobOrderPayroll) => void;
+  onToggleLock: (p: JobOrderPayroll) => void;
+  /** Row whose lock/unlock request is in flight, for its spinner. */
+  lockingId: string | null;
   canDelete: boolean;
   /** Duplicating CREATES a payroll, so it follows payroll write access. */
   canDuplicate: boolean;
+  /** Locking and unlocking follow payroll write access too. */
+  canLock: boolean;
 }): ColumnDef<JobOrderPayroll>[] {
   return [
     {
@@ -77,17 +92,29 @@ export function jobOrderPayrollColumns(handlers: {
       ),
     },
     {
-      id: "reconstructed",
+      id: "badges",
       header: "",
-      cell: ({ row }) =>
-        row.original.is_reconstructed ? (
-          <Badge
-            variant="outline"
-            title="Imported from the legacy system and priced at the employee's rate at import time — a reconstruction, not the original record."
-          >
-            Reconstructed
-          </Badge>
-        ) : null,
+      cell: ({ row }) => (
+        <div className="flex gap-1">
+          {isPayrollLocked(row.original) && (
+            <Badge
+              variant="secondary"
+              title="Locked — unlock it before editing."
+            >
+              <Lock className="h-3 w-3" />
+              Locked
+            </Badge>
+          )}
+          {row.original.is_reconstructed && (
+            <Badge
+              variant="outline"
+              title="Imported from the legacy system and priced at the employee's rate at import time — a reconstruction, not the original record."
+            >
+              Reconstructed
+            </Badge>
+          )}
+        </div>
+      ),
     },
     {
       id: "payroll_date",
@@ -96,36 +123,64 @@ export function jobOrderPayrollColumns(handlers: {
     },
     {
       id: "actions",
-      cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" className="h-8 w-8 p-0" />}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-            <span className="sr-only">Open menu</span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
-              <Eye className="mr-2 h-4 w-4" /> Open
-            </DropdownMenuItem>
-            {handlers.canDuplicate && (
-              <DropdownMenuItem
-                onClick={() => handlers.onDuplicate(row.original)}
+      cell: ({ row }) => {
+        const locked = isPayrollLocked(row.original);
+        const locking = handlers.lockingId === row.original.id;
+        return (
+          <div className="flex items-center justify-end gap-1">
+            {handlers.canLock && (
+              <Button
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                disabled={locking}
+                title={locked ? "Unlock payroll" : "Lock payroll"}
+                onClick={() => handlers.onToggleLock(row.original)}
               >
-                <Copy className="mr-2 h-4 w-4" /> Duplicate
-              </DropdownMenuItem>
+                {locking ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : locked ? (
+                  <Lock className="h-4 w-4" />
+                ) : (
+                  <LockOpen className="text-muted-foreground h-4 w-4" />
+                )}
+                <span className="sr-only">
+                  {locked ? "Unlock payroll" : "Lock payroll"}
+                </span>
+              </Button>
             )}
-            {handlers.canDelete && (
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => handlers.onDelete(row.original)}
+            <JobOrderPayrollPrintMenu payroll={row.original} compact />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" className="h-8 w-8 p-0" />}
               >
-                <Trash2 className="mr-2 h-4 w-4" /> Delete
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">Open menu</span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
+                  <Eye className="mr-2 h-4 w-4" /> Open
+                </DropdownMenuItem>
+                {handlers.canDuplicate && (
+                  <DropdownMenuItem
+                    onClick={() => handlers.onDuplicate(row.original)}
+                  >
+                    <Copy className="mr-2 h-4 w-4" /> Duplicate
+                  </DropdownMenuItem>
+                )}
+                {/* A locked payroll must be unlocked before it can be deleted. */}
+                {handlers.canDelete && !locked && (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => handlers.onDelete(row.original)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
     },
   ];
 }
