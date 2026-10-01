@@ -19,7 +19,11 @@
  * the Next/tsc build. Type-only `@/` imports are fine: they are erased.
  */
 
-import { deriveAreasLabel } from "./job-order-payroll-helpers.ts";
+import {
+  deriveAreasLabel,
+  type JobOrderSssLine,
+} from "./job-order-payroll-helpers.ts";
+import { endOfMonth, startOfMonth } from "./month-range.ts";
 import {
   JO_SELECT_FOR_SNAPSHOT,
   MEMBER_SELECT,
@@ -82,6 +86,59 @@ export async function loadMembers(
   }
 
   return collected.map((r) => shapeMember(r));
+}
+
+/**
+ * Every member row, with its SSS shares, of the payrolls whose period STARTS
+ * in `monthKey` ("YYYY-MM") — the input to the monthly SSS Contribution List.
+ * Soft-deleted payrolls are skipped. Payroll ids go to `.in()` in chunks so a
+ * busy month cannot overflow the request URL, and members are paged by the
+ * same 1000-row cap as `loadMembers`.
+ */
+export async function loadSssLinesForMonth(
+  supabase: PayrollDbClient,
+  monthKey: string,
+): Promise<JobOrderSssLine[]> {
+  const { data: payrolls, error } = await supabase
+    .schema("hris")
+    .from("job_order_payrolls")
+    .select("id")
+    .gte("period_start", startOfMonth(monthKey))
+    .lte("period_start", endOfMonth(monthKey))
+    .is("deleted_at", null);
+  if (error) throw error;
+  const ids = (payrolls ?? []).map((p) => p.id as string);
+
+  const lines: JobOrderSssLine[] = [];
+  const ID_CHUNK = 100;
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const chunk = ids.slice(i, i + ID_CHUNK);
+    let from = 0;
+    for (;;) {
+      const { data, error: memberError } = await supabase
+        .schema("hris")
+        .from("job_order_payroll_members")
+        .select("job_order_employee_id, full_name, sss_no, sss_ss, sss_ec")
+        .in("payroll_id", chunk)
+        .order("id", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      if (memberError) throw memberError;
+
+      const batch = (data ?? []) as Record<string, unknown>[];
+      for (const r of batch) {
+        lines.push({
+          job_order_employee_id: (r.job_order_employee_id as string) ?? null,
+          full_name: r.full_name as string,
+          sss_no: (r.sss_no as string) ?? null,
+          sss_ss: toNumber(r.sss_ss),
+          sss_ec: toNumber(r.sss_ec),
+        });
+      }
+      if (batch.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+  }
+  return lines;
 }
 
 /** Recompute the denormalized `areas` label after any membership change. */

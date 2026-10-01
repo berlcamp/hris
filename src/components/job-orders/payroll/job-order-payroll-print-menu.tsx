@@ -22,7 +22,6 @@ import {
   generateJoPayrollSummaryPrint,
   type GenerateJoPayrollPrintParams,
 } from "@/lib/pdf/generateJobOrderPayroll";
-import { generateRemittanceListAmortizationPrint } from "@/lib/pdf/generatePayroll";
 import type { JobOrderPayroll, JobOrderPayrollMember } from "@/lib/types";
 
 interface JobOrderPayrollPrintMenuProps {
@@ -38,7 +37,7 @@ interface JobOrderPayrollPrintMenuProps {
 }
 
 /**
- * Two toggles and four documents.
+ * Two toggles and three documents.
  *
  * The toggles shape the Daily Wages Payroll form rather than picking between
  * separate documents: "Include SSS" fills the SS / EC deduction columns,
@@ -48,9 +47,9 @@ interface JobOrderPayrollPrintMenuProps {
  * "Include SSS" also reaches the Summary, whose amounts are net and whose
  * second sheet totals the SS / EC shares per payroll number — with the toggle
  * off that sheet is not printed at all. It does not reach the OBR, which is
- * obligated at gross either way — see generateJoPayrollObrPrint — nor the SSS
- * Contribution List, which exists only to show the shares and so always prints
- * them. Both toggles
+ * obligated at gross either way — see generateJoPayrollObrPrint. The SSS
+ * Contribution List is not here: it is monthly, across payrolls, and prints
+ * from the list page's header (JobOrderSssMonthlyPrintDialog). Both toggles
  * are on by default, so the common case is open → Print Payroll.
  *
  * Printing opens the browser's native print dialog directly through a hidden
@@ -103,39 +102,6 @@ export function JobOrderPayrollPrintMenu({
         showSss: includeSss,
       });
     };
-
-  // The regular payroll's SSS remittance form, one line per member who actually
-  // carries a share. Members with neither SS nor EC are left off rather than
-  // printed as zero lines.
-  const printSssContributions = async () => {
-    const members = await loadMembers();
-    if (!members) return;
-    const rows = members
-      .filter((m) => (m.sss_ss ?? 0) + (m.sss_ec ?? 0) > 0)
-      .map((m) => ({
-        employeeName: m.full_name,
-        ssNumber: m.sss_no,
-        seVm: "VM" as const,
-        ss: m.sss_ss,
-        ec: m.sss_ec,
-      }));
-    if (rows.length === 0) {
-      toast.error("No member on this payroll has an SSS contribution");
-      return;
-    }
-    generateRemittanceListAmortizationPrint({
-      kind: "sss",
-      rows,
-      periodStart: payroll.period_start,
-      periodEnd: payroll.period_end,
-      employeeGroup: "LGU OZAMIZ-JOB ORDER WORKERS",
-      preparedBy: {
-        name: "MARICELL P. SALVADOR",
-        position: "Day Care Worker I",
-        office: null,
-      },
-    });
-  };
 
   return (
     <DropdownMenu>
@@ -197,9 +163,6 @@ export function JobOrderPayrollPrintMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onClick={printWith(generateJoPayrollObrPrint)}>
           Print OBR
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={printSssContributions}>
-          Print SSS Contributions
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

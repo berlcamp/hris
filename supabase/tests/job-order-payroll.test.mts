@@ -52,6 +52,7 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import {
+  loadSssLinesForMonth,
   recomputeAreas,
   upsertLegacyChunks,
   type PayrollDbClient,
@@ -582,4 +583,31 @@ test("a forced chunk failure degrades gracefully — the run reports it and cont
     2,
     "the run must continue past the failed chunk and still save the good rows in the next one",
   );
+});
+
+// The monthly SSS Contribution List picks payrolls by the month their period
+// STARTS in. A payroll starting the last day of the previous month, or the
+// first day of the next, must not leak in; a soft-deleted payroll never counts.
+test("loadSssLinesForMonth takes the members of payrolls starting in that month", async () => {
+  const inside1 = await makePayroll({ description: `${TAG}-sss-in1`, period_start: "2031-03-01", period_end: "2031-03-15" });
+  const inside2 = await makePayroll({ description: `${TAG}-sss-in2`, period_start: "2031-03-31", period_end: "2031-04-14" });
+  const before = await makePayroll({ description: `${TAG}-sss-before`, period_start: "2031-02-28", period_end: "2031-03-10" });
+  const after = await makePayroll({ description: `${TAG}-sss-after`, period_start: "2031-04-01", period_end: "2031-04-15" });
+  const deleted = await makePayroll({
+    description: `${TAG}-sss-deleted`,
+    period_start: "2031-03-16",
+    period_end: "2031-03-31",
+    deleted_at: new Date().toISOString(),
+  });
+  for (const p of [inside1, inside2, before, after, deleted]) {
+    await makeMember(p.id, { full_name: `${TAG} SSS ${p.description}`, sss_ss: 100, sss_ec: 10 });
+  }
+
+  const lines = await loadSssLinesForMonth(adminRepo, "2031-03");
+  const names = lines.map((l) => l.full_name).filter((n) => n.startsWith(TAG)).sort();
+  assert.deepEqual(names, [`${TAG} SSS ${TAG}-sss-in1`, `${TAG} SSS ${TAG}-sss-in2`]);
+
+  const one = lines.find((l) => l.full_name === `${TAG} SSS ${TAG}-sss-in1`)!;
+  assert.equal(one.sss_ss, 100, "numeric columns must come back as numbers, not strings");
+  assert.equal(one.sss_ec, 10);
 });

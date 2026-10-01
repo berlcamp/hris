@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { jobOrderPayrollColumns } from "@/components/tables/columns/job-order-payroll-columns";
 import { JobOrderPayrollCreateDialog } from "./job-order-payroll-create-dialog";
+import { JobOrderSssMonthlyPrintDialog } from "./job-order-sss-monthly-print-dialog";
 import {
   JobOrderPayrollDuplicateDialog,
   type JobOrderPayrollDuplicateSource,
@@ -242,16 +243,15 @@ export function JobOrderPayrollListClient({
           </Button>
         )}
 
-        {canEdit && (
-          <Button
-            size="sm"
-            className="ml-auto"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="h-4 w-4" />
-            New payroll
-          </Button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          <JobOrderSssMonthlyPrintDialog />
+          {canEdit && (
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              New payroll
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Every filter/page change is a server round-trip, so without this the

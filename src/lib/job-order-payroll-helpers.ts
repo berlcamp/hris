@@ -397,3 +397,55 @@ export function snapshotDiffersFromMember(
     (key) => (current[key] ?? null) !== (snapshot[key] ?? null),
   );
 }
+
+/** One member row's SSS shares, as the monthly SSS Contribution List reads it. */
+export type JobOrderSssLine = Pick<
+  JobOrderPayrollMember,
+  "job_order_employee_id" | "full_name" | "sss_no" | "sss_ss" | "sss_ec"
+>;
+
+export interface JobOrderSssWorkerTotal {
+  full_name: string;
+  sss_no: string | null;
+  ss: number;
+  ec: number;
+}
+
+/**
+ * Collapses a month's member rows to one line per worker, SS and EC summed —
+ * a worker on both the 1st-half and 2nd-half payroll is deducted twice and
+ * remitted once.
+ *
+ * A worker is their roster link when the row has one. Unlinked rows (manual
+ * adds, or a JO deleted since) fall back to the name, case- and
+ * space-insensitive, so the same unlinked person on two payrolls still lands
+ * on one line. Workers whose shares sum to zero are left off: the list is of
+ * people who actually contributed.
+ */
+export function sumSssByWorker(
+  lines: JobOrderSssLine[],
+): JobOrderSssWorkerTotal[] {
+  const byWorker = new Map<string, JobOrderSssWorkerTotal>();
+  for (const line of lines) {
+    const key =
+      line.job_order_employee_id ??
+      `name:${line.full_name.trim().replace(/\s+/g, " ").toLowerCase()}`;
+    const sssNo = line.sss_no?.trim() || null;
+    const total = byWorker.get(key);
+    if (total) {
+      total.ss += line.sss_ss ?? 0;
+      total.ec += line.sss_ec ?? 0;
+      total.sss_no ??= sssNo;
+    } else {
+      byWorker.set(key, {
+        full_name: line.full_name.trim(),
+        sss_no: sssNo,
+        ss: line.sss_ss ?? 0,
+        ec: line.sss_ec ?? 0,
+      });
+    }
+  }
+  return [...byWorker.values()]
+    .filter((w) => w.ss + w.ec > 0)
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+}

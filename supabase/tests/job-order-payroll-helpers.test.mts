@@ -20,6 +20,7 @@ import {
   DAILY_WAGES_ROWS_PER_PAGE,
   paginateDailyWages,
   snapshotDiffersFromMember,
+  sumSssByWorker,
   summarizeMembers,
   toPayrollMemberSnapshot,
   toPrintRow,
@@ -485,4 +486,71 @@ test("days and overtime hours are not snapshot fields and never count as drift",
     ),
     false,
   );
+});
+
+// ── sumSssByWorker ──────────────────────────────────────────────────
+// The monthly SSS Contribution List: one line per worker, summed across every
+// payroll in the month (a 1st-half and a 2nd-half payroll both deduct).
+
+const sssLine = (
+  overrides: Partial<{
+    job_order_employee_id: string | null;
+    full_name: string;
+    sss_no: string | null;
+    sss_ss: number | null;
+    sss_ec: number | null;
+  }> = {},
+) => ({
+  job_order_employee_id: "jo-1",
+  full_name: "Dela Cruz, Juan P.",
+  sss_no: "34-1234567-8",
+  sss_ss: 180,
+  sss_ec: 10,
+  ...overrides,
+});
+
+test("a worker on two payrolls in the month gets one summed line", () => {
+  assert.deepEqual(sumSssByWorker([sssLine(), sssLine()]), [
+    { full_name: "Dela Cruz, Juan P.", sss_no: "34-1234567-8", ss: 360, ec: 20 },
+  ]);
+});
+
+test("different roster links stay on separate lines even with the same name", () => {
+  const rows = sumSssByWorker([
+    sssLine({ job_order_employee_id: "jo-1" }),
+    sssLine({ job_order_employee_id: "jo-2" }),
+  ]);
+  assert.equal(rows.length, 2);
+});
+
+test("unlinked rows group by name, ignoring case and spacing", () => {
+  const rows = sumSssByWorker([
+    sssLine({ job_order_employee_id: null, full_name: "Santos, Ana" }),
+    sssLine({ job_order_employee_id: null, full_name: "  santos,  ANA " }),
+  ]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].ss, 360);
+});
+
+test("a worker with no SS or EC in the month is left off", () => {
+  assert.deepEqual(
+    sumSssByWorker([sssLine({ sss_ss: null, sss_ec: 0 })]),
+    [],
+  );
+});
+
+test("the SS number is the first non-blank one seen", () => {
+  const rows = sumSssByWorker([
+    sssLine({ sss_no: "  " }),
+    sssLine({ sss_no: "01-0000000-1" }),
+  ]);
+  assert.equal(rows[0].sss_no, "01-0000000-1");
+});
+
+test("lines are ordered by name", () => {
+  const rows = sumSssByWorker([
+    sssLine({ job_order_employee_id: "b", full_name: "Zamora, Ben" }),
+    sssLine({ job_order_employee_id: "a", full_name: "Abad, Lea" }),
+  ]);
+  assert.deepEqual(rows.map((r) => r.full_name), ["Abad, Lea", "Zamora, Ben"]);
 });

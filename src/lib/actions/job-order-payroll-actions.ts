@@ -10,7 +10,9 @@ import {
 import { logAudit } from "@/lib/audit";
 import {
   summarizeMembers,
+  sumSssByWorker,
   toPayrollMemberSnapshot,
+  type JobOrderSssWorkerTotal,
 } from "@/lib/job-order-payroll-helpers";
 import {
   assertWritable,
@@ -21,8 +23,10 @@ import {
 import {
   loadJobOrdersForSnapshot,
   loadMembers,
+  loadSssLinesForMonth,
   recomputeAreas,
 } from "@/lib/job-order-payroll-repo";
+import { isMonthKey } from "@/lib/month-range";
 import {
   jobOrderPayrollCreateSchema,
   jobOrderPayrollMetadataSchema,
@@ -248,6 +252,22 @@ export async function getJobOrderPayrollById(id: string): Promise<{
     },
     members,
   };
+}
+
+/**
+ * The monthly SSS Contribution List: every worker's SS and EC, summed across
+ * the payrolls whose period starts in `monthKey` ("YYYY-MM").
+ */
+export async function getJobOrderSssContributionsForMonth(
+  monthKey: string,
+): Promise<{ rows: JobOrderSssWorkerTotal[]; error: string | null }> {
+  const user = await getCurrentUser();
+  if (!canManageJobOrders(user?.roles)) return { rows: [], error: "Unauthorized" };
+  if (!isMonthKey(monthKey)) return { rows: [], error: "Invalid month" };
+
+  const supabase = createAdminClient();
+  const lines = await loadSssLinesForMonth(supabase, monthKey);
+  return { rows: sumSssByWorker(lines), error: null };
 }
 
 export async function getJobOrderAreasForPicker(): Promise<JobOrderAreaOption[]> {
