@@ -47,6 +47,67 @@ export function jobOrderPayrollColumns(handlers: {
 }): ColumnDef<JobOrderPayroll>[] {
   return [
     {
+      id: "actions",
+      cell: ({ row }) => {
+        const locked = isPayrollLocked(row.original);
+        const locking = handlers.lockingId === row.original.id;
+        return (
+          <div className="flex items-center justify-start gap-1">
+            {handlers.canLock && (
+              <Button
+                variant="ghost"
+                className="h-8 w-8 p-0"
+                disabled={locking}
+                title={locked ? "Unlock payroll" : "Lock payroll"}
+                onClick={() => handlers.onToggleLock(row.original)}
+              >
+                {locking ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : locked ? (
+                  <Lock className="h-4 w-4" />
+                ) : (
+                  <LockOpen className="text-muted-foreground h-4 w-4" />
+                )}
+                <span className="sr-only">
+                  {locked ? "Unlock payroll" : "Lock payroll"}
+                </span>
+              </Button>
+            )}
+            <JobOrderPayrollPrintMenu payroll={row.original} compact />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" className="h-8 w-8 p-0" />}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">Open menu</span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
+                  <Eye className="mr-2 h-4 w-4" /> Open
+                </DropdownMenuItem>
+                {handlers.canDuplicate && (
+                  <DropdownMenuItem
+                    onClick={() => handlers.onDuplicate(row.original)}
+                  >
+                    <Copy className="mr-2 h-4 w-4" /> Duplicate
+                  </DropdownMenuItem>
+                )}
+                {/* A locked payroll must be unlocked before it can be deleted. */}
+                {handlers.canDelete && !locked && (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => handlers.onDelete(row.original)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
+    },
+    {
       // A plain header, not DataTableColumnHeader: this column has no
       // accessorKey, so getCanSort() is false and the sort control that
       // component renders did nothing. The list is server-paginated anyway —
@@ -120,67 +181,6 @@ export function jobOrderPayrollColumns(handlers: {
       id: "payroll_date",
       header: "Payroll date",
       cell: ({ row }) => fmtDate(row.original.payroll_date),
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => {
-        const locked = isPayrollLocked(row.original);
-        const locking = handlers.lockingId === row.original.id;
-        return (
-          <div className="flex items-center justify-end gap-1">
-            {handlers.canLock && (
-              <Button
-                variant="ghost"
-                className="h-8 w-8 p-0"
-                disabled={locking}
-                title={locked ? "Unlock payroll" : "Lock payroll"}
-                onClick={() => handlers.onToggleLock(row.original)}
-              >
-                {locking ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : locked ? (
-                  <Lock className="h-4 w-4" />
-                ) : (
-                  <LockOpen className="text-muted-foreground h-4 w-4" />
-                )}
-                <span className="sr-only">
-                  {locked ? "Unlock payroll" : "Lock payroll"}
-                </span>
-              </Button>
-            )}
-            <JobOrderPayrollPrintMenu payroll={row.original} compact />
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={<Button variant="ghost" className="h-8 w-8 p-0" />}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-                <span className="sr-only">Open menu</span>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
-                  <Eye className="mr-2 h-4 w-4" /> Open
-                </DropdownMenuItem>
-                {handlers.canDuplicate && (
-                  <DropdownMenuItem
-                    onClick={() => handlers.onDuplicate(row.original)}
-                  >
-                    <Copy className="mr-2 h-4 w-4" /> Duplicate
-                  </DropdownMenuItem>
-                )}
-                {/* A locked payroll must be unlocked before it can be deleted. */}
-                {handlers.canDelete && !locked && (
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => handlers.onDelete(row.original)}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        );
-      },
     },
   ];
 }

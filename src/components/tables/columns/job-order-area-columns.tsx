@@ -20,6 +20,30 @@ export function jobOrderAreaColumns(handlers: {
 }): ColumnDef<JobOrderArea>[] {
   return [
     {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
+            <MoreHorizontal className="h-4 w-4" />
+            <span className="sr-only">Open menu</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
+              <Pencil className="h-4 w-4" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => handlers.onDelete(row.original)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+    {
       accessorKey: "name",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Name" />
@@ -78,30 +102,6 @@ export function jobOrderAreaColumns(handlers: {
         <Badge variant="outline" className="text-xs">
           {row.getValue("employee_count")}
         </Badge>
-      ),
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
-            <MoreHorizontal className="h-4 w-4" />
-            <span className="sr-only">Open menu</span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
-              <Pencil className="h-4 w-4" />
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => handlers.onDelete(row.original)}
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       ),
     },
   ];

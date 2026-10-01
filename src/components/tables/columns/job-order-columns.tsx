@@ -33,6 +33,34 @@ export function jobOrderColumns(handlers: {
 }): ColumnDef<JobOrderEmployee>[] {
   return [
     {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
+            <MoreHorizontal className="h-4 w-4" />
+            <span className="sr-only">Open menu</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
+              <Eye className="h-4 w-4" />
+              View details
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
+              <Pencil className="h-4 w-4" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => handlers.onDelete(row.original)}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+    {
       id: "full_name",
       accessorKey: "full_name",
       header: ({ column }) => (
@@ -187,34 +215,6 @@ export function jobOrderColumns(handlers: {
       filterFn: (row, id, value) => {
         return value.includes(row.getValue(id));
       },
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
-            <MoreHorizontal className="h-4 w-4" />
-            <span className="sr-only">Open menu</span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
-              <Eye className="h-4 w-4" />
-              View details
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
-              <Pencil className="h-4 w-4" />
-              Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              variant="destructive"
-              onClick={() => handlers.onDelete(row.original)}
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
     },
   ];
 }

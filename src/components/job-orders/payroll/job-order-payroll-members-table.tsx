@@ -97,6 +97,7 @@ export function JobOrderPayrollMembersTable({
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10" />
                 <TableHead>Name</TableHead>
                 <TableHead>Area</TableHead>
                 <TableHead>LandBank ATM</TableHead>
@@ -106,7 +107,6 @@ export function JobOrderPayrollMembersTable({
                 <TableHead className="text-right">Gross</TableHead>
                 <TableHead className="text-right">SSS</TableHead>
                 <TableHead className="text-right">Net</TableHead>
-                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -240,6 +240,21 @@ function MemberRow({ member, editable, onRemove, onSaved }: MemberRowProps) {
   return (
     <TableRow>
       <TableCell>
+        {editable && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={onRemove}
+          >
+            <Trash2 className="h-4 w-4" />
+            <span className="sr-only">
+              Remove {member.full_name} from this payroll
+            </span>
+          </Button>
+        )}
+      </TableCell>
+      <TableCell>
         <div className="font-medium">{member.full_name}</div>
         {member.job_order_employee_id === null && (
           <p className="text-xs italic text-muted-foreground">
@@ -303,21 +318,6 @@ function MemberRow({ member, editable, onRemove, onSaved }: MemberRowProps) {
       <TableCell className="text-right tabular-nums">{fmtMoney(sss)}</TableCell>
       <TableCell className="text-right font-medium tabular-nums">
         {fmtMoney(net)}
-      </TableCell>
-      <TableCell>
-        {editable && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={onRemove}
-          >
-            <Trash2 className="h-4 w-4" />
-            <span className="sr-only">
-              Remove {member.full_name} from this payroll
-            </span>
-          </Button>
-        )}
       </TableCell>
     </TableRow>
   );

@@ -27,6 +27,44 @@ export function jobOrderMemoColumns(handlers: {
 }): ColumnDef<JobOrderMemo>[] {
   return [
     {
+      id: "actions",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button variant="ghost" className="h-8 w-8 p-0" />}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+            <span className="sr-only">Open menu</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
+              <Eye className="mr-2 h-4 w-4" /> Open
+            </DropdownMenuItem>
+            {handlers.canEdit && (
+              <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
+                <Pencil className="mr-2 h-4 w-4" /> Edit details
+              </DropdownMenuItem>
+            )}
+            {handlers.canEdit && (
+              <DropdownMenuItem
+                onClick={() => handlers.onDuplicate(row.original)}
+              >
+                <Copy className="mr-2 h-4 w-4" /> Duplicate
+              </DropdownMenuItem>
+            )}
+            {handlers.canEdit && (
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => handlers.onDelete(row.original)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Delete
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+    {
       // A plain header, not DataTableColumnHeader: this list is
       // server-paginated, so sorting the rows currently in the browser would
       // reorder a page rather than the result set.
@@ -78,44 +116,6 @@ export function jobOrderMemoColumns(handlers: {
       id: "member_count",
       header: "Employees",
       cell: ({ row }) => row.original.member_count,
-    },
-    {
-      id: "actions",
-      cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" className="h-8 w-8 p-0" />}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-            <span className="sr-only">Open menu</span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
-              <Eye className="mr-2 h-4 w-4" /> Open
-            </DropdownMenuItem>
-            {handlers.canEdit && (
-              <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
-                <Pencil className="mr-2 h-4 w-4" /> Edit details
-              </DropdownMenuItem>
-            )}
-            {handlers.canEdit && (
-              <DropdownMenuItem
-                onClick={() => handlers.onDuplicate(row.original)}
-              >
-                <Copy className="mr-2 h-4 w-4" /> Duplicate
-              </DropdownMenuItem>
-            )}
-            {handlers.canEdit && (
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => handlers.onDelete(row.original)}
-              >
-                <Trash2 className="mr-2 h-4 w-4" /> Delete
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ),
     },
   ];
 }

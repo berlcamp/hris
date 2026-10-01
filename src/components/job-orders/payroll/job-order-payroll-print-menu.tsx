@@ -168,7 +168,10 @@ export function JobOrderPayrollPrintMenu({
           <ChevronDown className="h-4 w-4" />
         </DropdownMenuTrigger>
       )}
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent
+        align={compact ? "start" : "end"}
+        className="w-64"
+      >
         <DropdownMenuGroup>
           <DropdownMenuCheckboxItem
             checked={includeSss}

@@ -95,11 +95,11 @@ export function JobOrderMemoMembersTable({
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10" />
                 <TableHead className="w-12">No.</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Office assignment</TableHead>
                 <TableHead className="w-28">Rate</TableHead>
-                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -214,6 +214,21 @@ function MemberRow({
 
   return (
     <TableRow>
+      <TableCell>
+        {editable && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={onRemove}
+          >
+            <Trash2 className="h-4 w-4" />
+            <span className="sr-only">
+              Remove {member.full_name} from this memo
+            </span>
+          </Button>
+        )}
+      </TableCell>
       <TableCell className="text-muted-foreground">{index + 1}</TableCell>
       <TableCell>
         <div className="font-medium">{member.full_name}</div>
@@ -245,21 +260,6 @@ function MemberRow({
           onBlur={commit}
           aria-label={`Rate for ${member.full_name}`}
         />
-      </TableCell>
-      <TableCell>
-        {editable && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={onRemove}
-          >
-            <Trash2 className="h-4 w-4" />
-            <span className="sr-only">
-              Remove {member.full_name} from this memo
-            </span>
-          </Button>
-        )}
       </TableCell>
     </TableRow>
   );
