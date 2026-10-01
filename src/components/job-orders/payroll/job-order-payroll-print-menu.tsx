@@ -91,6 +91,11 @@ export function JobOrderPayrollPrintMenu({
       periodStart: payroll.period_start,
       periodEnd: payroll.period_end,
       employeeGroup: "LGU OZAMIZ-JOB ORDER WORKERS",
+      preparedBy: {
+        name: "MARICELL P. SALVADOR",
+        position: "Day Care Worker I",
+        office: null,
+      },
     });
   };
 

@@ -1327,6 +1327,14 @@ export interface RemittanceListCourage2Row {
   monthly_amortization: number | null;
 }
 
+/** Who signs "Prepared By:" on a remittance list. A null office prints no
+ * office line. */
+export interface RemittanceSignatory {
+  name: string;
+  position: string;
+  office: string | null;
+}
+
 /** SSS LGU remittance list: No., Name, SS Number, SE/VM, SS, EC, Total. */
 export interface RemittanceListSssRow {
   employeeName: string;
@@ -1357,6 +1365,8 @@ export type GenerateRemittanceListAmortizationPrintParams =
       periodEnd: string;
       /** Who the list covers, after "LIST OF". Defaults to the regular plantilla. */
       employeeGroup?: string;
+      /** Overrides the default remittance "Prepared By:" signatory. */
+      preparedBy?: RemittanceSignatory;
     }
   | {
       kind: "eempc";
@@ -1392,7 +1402,14 @@ export function generateRemittanceListAmortizationPrint(
     </td>
   </tr>`;
 
-  const footerPreparedOnly = (colCount: number) => `
+  const footerPreparedOnly = (
+    colCount: number,
+    preparedBy: RemittanceSignatory = {
+      name: getRemittancePreparedByName(),
+      position: getRemittancePreparedByPosition(),
+      office: getRemittancePreparedByOffice(),
+    },
+  ) => `
   <tfoot>
   <tr>
     <td colspan="${colCount}" style="border: none; padding: 8px 10px 0;">
@@ -1400,9 +1417,9 @@ export function generateRemittanceListAmortizationPrint(
         <div class="remittance-footer-left">
           <div class="remittance-signature-label">Prepared By:</div>
           <div class="remittance-signature-space"></div>
-          <div class="remittance-signature-name">${getRemittancePreparedByName()}</div>
-          <div class="remittance-signature-title">${getRemittancePreparedByPosition()}</div>
-          <div class="remittance-signature-title">${getRemittancePreparedByOffice()}</div>
+          <div class="remittance-signature-name">${preparedBy.name}</div>
+          <div class="remittance-signature-title">${preparedBy.position}</div>
+          ${preparedBy.office ? `<div class="remittance-signature-title">${preparedBy.office}</div>` : ""}
         </div>
       </div>
     </td>
@@ -1415,7 +1432,9 @@ export function generateRemittanceListAmortizationPrint(
     .remittance-title-block { font-size: 13pt; font-weight: bold; line-height: 1.4; text-transform: uppercase; }
     .remittance-footer { margin-top: 8px; padding: 0 20px; }
     .remittance-footer-prepared-only { justify-content: flex-start; }
-    .remittance-footer-left { text-align: left; }
+    /* inline-block shrinks the block to its widest line, so the signature rule
+       spans the name rather than the whole page. */
+    .remittance-footer-prepared-only .remittance-footer-left { display: inline-block; min-width: 220px; text-align: left; }
     .remittance-signature-label { font-size: 9pt; margin-bottom: 4px; }
     .remittance-signature-space { height: 32px; border-bottom: 1px solid #000; margin-bottom: 2px; }
     .remittance-signature-name { font-weight: bold; text-transform: uppercase; font-size: 10pt; }
@@ -1504,6 +1523,7 @@ export function generateRemittanceListAmortizationPrint(
       periodStart,
       periodEnd,
       employeeGroup = "LGU OZAMIZ-REGULAR EMPLOYEES",
+      preparedBy,
     } = params;
     if (rows.length === 0) return;
 
@@ -1601,7 +1621,7 @@ export function generateRemittanceListAmortizationPrint(
     <td class="text-right">${allTot}</td>
   </tr>
   </tbody>
-  ${footerPreparedOnly(7)}
+  ${footerPreparedOnly(7, preparedBy)}
 </table>
 </body>
 </html>
