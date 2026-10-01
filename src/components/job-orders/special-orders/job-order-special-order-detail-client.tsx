@@ -20,10 +20,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { JobOrderSpecialOrderMembersTable } from "./job-order-special-order-members-table";
+import { printJobOrderSpecialOrder } from "./job-order-special-order-print-button";
 import { JobOrderSpecialOrderFormDialog } from "./job-order-special-order-form-dialog";
 import { JobOrderSpecialOrderDuplicateDialog } from "./job-order-special-order-duplicate-dialog";
 import { deleteJobOrderSpecialOrder } from "@/lib/actions/job-order-special-order-actions";
-import { generateJobOrderSpecialOrderPrint } from "@/lib/pdf/generateJobOrderSpecialOrder";
 import type {
   JobOrderSpecialOrder,
   JobOrderSpecialOrderMember,
@@ -79,16 +79,7 @@ export function JobOrderSpecialOrderDetailClient({
   const handlePrint = () => {
     // Printing opens the browser's native print dialog directly (see
     // print-html.ts) — there is no download/blob step, hence no pending state.
-    generateJobOrderSpecialOrderPrint({
-      soNo: specialOrder.so_no,
-      subject: specialOrder.subject,
-      soDate: specialOrder.so_date,
-      periodCovered: specialOrder.period_covered,
-      rows: members.map((m) => ({
-        full_name: m.full_name,
-        area_assigned: m.area_assigned,
-      })),
-    });
+    printJobOrderSpecialOrder(specialOrder, members);
   };
 
   return (

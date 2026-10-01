@@ -21,10 +21,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { JobOrderMemoMembersTable } from "./job-order-memo-members-table";
+import { printJobOrderMemo } from "./job-order-memo-print-button";
 import { JobOrderMemoFormDialog } from "./job-order-memo-form-dialog";
 import { JobOrderMemoDuplicateDialog } from "./job-order-memo-duplicate-dialog";
 import { deleteJobOrderMemo } from "@/lib/actions/job-order-memo-actions";
-import { generateJobOrderMemoPrint } from "@/lib/pdf/generateJobOrderMemo";
 import type { JobOrderMemo, JobOrderMemoMember } from "@/lib/types";
 
 /** Typed verbatim (case-sensitive) before Delete unlocks. */
@@ -75,18 +75,7 @@ export function JobOrderMemoDetailClient({
   const handlePrint = () => {
     // Printing opens the browser's native print dialog directly (see
     // print-html.ts) — there is no download/blob step, hence no pending state.
-    generateJobOrderMemoPrint({
-      memoType: memo.memo_type,
-      memoNo: memo.memo_no,
-      subject: memo.subject,
-      memoDate: memo.memo_date,
-      periodCovered: memo.period_covered,
-      rows: members.map((m) => ({
-        full_name: m.full_name,
-        office_assignment: m.office_assignment,
-        daily_rate: m.daily_rate,
-      })),
-    });
+    printJobOrderMemo(memo, members);
   };
 
   return (

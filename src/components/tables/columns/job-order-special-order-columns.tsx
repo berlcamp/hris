@@ -11,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { JobOrderSpecialOrderPrintButton } from "@/components/job-orders/special-orders/job-order-special-order-print-button";
 import type { JobOrderSpecialOrder } from "@/lib/types";
 
 function fmtDate(d: string | null): string {
@@ -28,39 +29,42 @@ export function jobOrderSpecialOrderColumns(handlers: {
     {
       id: "actions",
       cell: ({ row }) => (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<Button variant="ghost" className="h-8 w-8 p-0" />}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-            <span className="sr-only">Open menu</span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
-              <Eye className="mr-2 h-4 w-4" /> Open
-            </DropdownMenuItem>
-            {handlers.canEdit && (
-              <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
-                <Pencil className="mr-2 h-4 w-4" /> Edit details
+        <div className="flex items-center justify-start gap-1">
+          <JobOrderSpecialOrderPrintButton specialOrder={row.original} />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" className="h-8 w-8 p-0" />}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+              <span className="sr-only">Open menu</span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => handlers.onView(row.original)}>
+                <Eye className="mr-2 h-4 w-4" /> Open
               </DropdownMenuItem>
-            )}
-            {handlers.canEdit && (
-              <DropdownMenuItem
-                onClick={() => handlers.onDuplicate(row.original)}
-              >
-                <Copy className="mr-2 h-4 w-4" /> Duplicate
-              </DropdownMenuItem>
-            )}
-            {handlers.canEdit && (
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => handlers.onDelete(row.original)}
-              >
-                <Trash2 className="mr-2 h-4 w-4" /> Delete
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              {handlers.canEdit && (
+                <DropdownMenuItem onClick={() => handlers.onEdit(row.original)}>
+                  <Pencil className="mr-2 h-4 w-4" /> Edit details
+                </DropdownMenuItem>
+              )}
+              {handlers.canEdit && (
+                <DropdownMenuItem
+                  onClick={() => handlers.onDuplicate(row.original)}
+                >
+                  <Copy className="mr-2 h-4 w-4" /> Duplicate
+                </DropdownMenuItem>
+              )}
+              {handlers.canEdit && (
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => handlers.onDelete(row.original)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       ),
     },
     {
