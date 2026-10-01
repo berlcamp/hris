@@ -78,6 +78,7 @@ async function writeDay(bucket: ReturnType<typeof bucketPunchesForDuty>) {
     .eq("employee_id", HALFDAY)
     .eq("date", D)
     .single();
+  assert.ok(data, "written row not found");
   return data;
 }
 
@@ -186,6 +187,7 @@ test("re-importing with overwrite CLEARS the stale pre-fix AM arrival", async ()
     .eq("employee_id", HALFDAY)
     .eq("date", D)
     .single();
+  assert.ok(row, "upserted row not found");
 
   assert.equal(extractTime(row.time_in_am), null, "stale AM arrival must be cleared");
   assert.equal(extractTime(row.time_in_pm), "12:45");

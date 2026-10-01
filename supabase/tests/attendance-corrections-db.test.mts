@@ -225,7 +225,7 @@ test("a drifted row in a multi-row batch leaves the OTHER rows untouched too", a
   // are still rolled back with it — the actual point of doing Pass 1 and
   // Pass 2 as two separate loops over the whole batch instead of row-by-row.
   const dates = ["2026-11-01", "2026-11-02", "2026-11-03"];
-  const logs = [];
+  const logs: Awaited<ReturnType<typeof seedLog>>[] = [];
   for (const d of dates) logs.push(await seedLog(d, "21:55"));
 
   const requestId = await seedRequest(dates[0], dates[dates.length - 1]);

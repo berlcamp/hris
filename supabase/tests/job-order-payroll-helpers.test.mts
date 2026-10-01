@@ -120,6 +120,7 @@ function jo(overrides: Partial<JobOrderEmployee> = {}): JobOrderEmployee {
     community_tax_place_issued: "Ozamiz City",
     status: "active",
     legacy_id: 1,
+    csc_team: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,
