@@ -78,6 +78,11 @@ export function JobOrderSssMonthlyPrintDialog() {
           position: "Day Care Worker I",
           office: null,
         },
+        notedBy: {
+          name: "RUTHEZA GRACE A. OUANO",
+          position: "City Administrator",
+          office: null,
+        },
       });
       setOpen(false);
     } catch {
