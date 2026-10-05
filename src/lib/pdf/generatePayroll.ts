@@ -1413,8 +1413,8 @@ export function generateRemittanceListAmortizationPrint(
     },
     notedBy?: RemittanceSignatory,
   ) => `
-  <tfoot>
-  <tr>
+  <tbody>
+  <tr class="remittance-signatures">
     <td colspan="${colCount}" style="border: none; padding: 8px 10px 0;">
       <div class="remittance-footer remittance-footer-prepared-only${notedBy ? " remittance-footer-noted" : ""}">
         <div class="remittance-footer-left">
@@ -1438,7 +1438,7 @@ export function generateRemittanceListAmortizationPrint(
       </div>
     </td>
   </tr>
-  </tfoot>`;
+  </tbody>`;
 
   const commonStyles = `
     ${getOBRCommonStyles()}
@@ -1455,7 +1455,9 @@ export function generateRemittanceListAmortizationPrint(
     .remittance-signature-space { height: 32px; border-bottom: 1px solid #000; margin-bottom: 2px; }
     .remittance-signature-name { font-weight: bold; text-transform: uppercase; font-size: 10pt; }
     .remittance-signature-title { font-style: italic; font-size: 9pt; margin-top: 2px; }
-    table tfoot { page-break-inside: avoid; }
+    /* The signatures are the table's last row, not a <tfoot>: a tfoot repeats
+       on every printed page, and they belong on the last page only. */
+    .remittance-signatures { page-break-inside: avoid; break-inside: avoid; }
   `;
 
   if (params.kind === "courage2") {
