@@ -13,6 +13,7 @@ import {
   bucketPunchesForDuty,
   dayLateUndertime,
   dutyDateFor,
+  unrecordedDayCharge,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
 // The DTR page builder and the time/rule helpers it shares with the biometric
@@ -1274,6 +1275,21 @@ export async function getAttendanceReport(
 
     for (const day of calendar) {
       const log = logMap.get(day.date) as Record<string, unknown> | undefined;
+      const holidayType = holidayMap.get(day.date)?.type ?? null;
+      const hasPunch =
+        !!log &&
+        !!(
+          log.time_in_am ||
+          log.time_out_am ||
+          log.time_in_pm ||
+          log.time_out_pm
+        );
+      // Same order as the DTR: a full holiday nobody worked, with no stated
+      // reason, prints HOLIDAY — neither present nor absent, whether or not a
+      // blank row exists for it.
+      if (holidayType === "full" && !hasPunch && !log?.no_time_reason) {
+        continue;
+      }
       if (log) {
         const isAbsent = (log.is_absent as boolean) ?? false;
         // A weekend owes no hours, so a blank row there is a rest day, not an
@@ -1288,9 +1304,7 @@ export async function getAttendanceReport(
           const tOutAm = log.time_out_am as string | null;
           const tInPm = log.time_in_pm as string | null;
           const tOut = log.time_out_pm as string | null;
-          const holidayExcuses = holidayExcusedSessions(
-            holidayMap.get(day.date)?.type ?? null,
-          );
+          const holidayExcuses = holidayExcusedSessions(holidayType);
           // The same one function the DTR scores a day with — this report used
           // to re-derive late/undertime from the two primitives, which is
           // exactly how a report and the document it summarises drift apart.
@@ -1339,8 +1353,19 @@ export async function getAttendanceReport(
         }
       } else if (!day.isWeekend && leaveSet.has(day.date)) {
         daysOnLeave++;
-      } else if (!day.isWeekend) {
-        daysAbsent++;
+      } else {
+        // No row: the DTR's own rule — a weekday is absent, a half-day holiday
+        // owes its other half as 4 hours of undertime, a weekend owes nothing.
+        const { absent, undertimeMinutes: um } = unrecordedDayCharge(
+          day.date,
+          holidayType === "half_am" || holidayType === "half_pm",
+        );
+        if (absent) {
+          daysAbsent++;
+        } else if (um > 0) {
+          undertimeCount++;
+          undertimeMinutes += um;
+        }
       }
     }
 
