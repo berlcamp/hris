@@ -19,6 +19,7 @@ import {
   hasBreak,
   pmLateMinutesFor,
   trimTimeStr,
+  unrecordedDayCharge,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
 import { getHolidayMap } from "@/lib/holiday-helpers";
@@ -688,10 +689,11 @@ export async function buildDtrResults(
         });
         totalOnLeave++;
       } else {
-        // A half-day holiday with no punches is not counted as an absence.
-        const absent = !day.isWeekend && !isHalfHoliday;
-        // An absent day is charged a full 8-hour undertime on the DTR.
-        const absentUndertime = absent ? UNDERTIME_ABSENT_MINUTES : 0;
+        // A weekday with no row is an absence, charged a full 8-hour undertime.
+        // A half-day holiday is not an absence, but the half it does not cover
+        // is still owed and is charged 4 hours — see unrecordedDayCharge.
+        const { absent, undertimeMinutes: unrecordedUndertime } =
+          unrecordedDayCharge(day.date, isHalfHoliday);
         entries.push({
           date: day.date,
           day_of_week: day.dayOfWeek,
@@ -701,8 +703,8 @@ export async function buildDtrResults(
           time_out_pm: null,
           is_late: false,
           late_minutes: 0,
-          is_undertime: absent,
-          undertime_minutes: absentUndertime,
+          is_undertime: unrecordedUndertime > 0,
+          undertime_minutes: unrecordedUndertime,
           is_absent: absent,
           remarks: day.isWeekend
             ? "Weekend"
@@ -715,10 +717,10 @@ export async function buildDtrResults(
           no_time_reason_label: null,
           ...EMPTY_SLOT_REASONS,
         });
-        if (absent) {
-          totalAbsent++;
+        if (absent) totalAbsent++;
+        if (unrecordedUndertime > 0) {
           totalUndertimeCount++;
-          totalUndertimeMinutes += absentUndertime;
+          totalUndertimeMinutes += unrecordedUndertime;
         }
       }
     }

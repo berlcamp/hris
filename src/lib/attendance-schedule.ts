@@ -589,6 +589,23 @@ export function dayLateUndertime(
   return { lateMinutes, undertimeMinutes };
 }
 
+// The charge for a day with NO attendance row and no approved leave — nothing
+// was recorded, so both sessions are unaccounted. A weekday is an absence (the
+// full eight hours). A half-day holiday excuses one session, so the day is not
+// an absence, but the other session is still owed and is charged the same flat
+// half day dayLateUndertime puts on any unaccounted session. A rest day owes
+// nothing. Full holidays never reach here — the DTR prints them first.
+export function unrecordedDayCharge(
+  dutyDate: string,
+  halfDayHoliday: boolean,
+): { absent: boolean; undertimeMinutes: number } {
+  if (isRestDay(dutyDate)) return { absent: false, undertimeMinutes: 0 };
+  if (halfDayHoliday) {
+    return { absent: false, undertimeMinutes: HALF_DAY_UNDERTIME_MINUTES };
+  }
+  return { absent: true, undertimeMinutes: 2 * HALF_DAY_UNDERTIME_MINUTES };
+}
+
 // Late = minutes the actual clock-in (or single in for no-break shifts) was
 // past time_in. Returns 0 when there is no clock-in record.
 export function lateMinutesFor(
