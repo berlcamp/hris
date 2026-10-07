@@ -50,3 +50,45 @@ on conflict (employee_no) do nothing;
 
 update hris.employees set schedule_id = '00000000-0000-0000-0000-0000000000a1'
 where employee_no = 'TEST-003';
+
+-- ------------------------------------------------------------
+-- Local login accounts, one per core role.
+--
+-- Google OAuth cannot reach a Supabase project on 127.0.0.1, so a fresh
+-- local stack signs in through /api/auth/dev-login instead, which uses a
+-- password. Every account here has the password `localdev`; set
+-- DEV_LOGIN_PASSWORD=localdev in .env.development.local to match (see
+-- .env.example). admin@lgu.gov.ph's profile row comes from migration 008.
+-- ------------------------------------------------------------
+
+insert into hris.user_profiles (email, full_name, role, roles, department_id, is_active)
+values
+  ('hr@lgu.gov.ph',       'Local HR Admin',        'hr_admin',        '{hr_admin}',        null, true),
+  ('depthead@lgu.gov.ph', 'Local Department Head', 'department_head', '{department_head}', '00000000-0000-0000-0000-0000000000d1', true),
+  ('employee@lgu.gov.ph', 'Local Employee',        'employee',        '{employee}',        '00000000-0000-0000-0000-0000000000d1', true)
+on conflict (email) do nothing;
+
+-- GoTrue scans the token columns as non-null strings, so they are set to ''
+-- rather than left null; a null there fails sign-in with "converting NULL".
+insert into auth.users
+  (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+   raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+   confirmation_token, recovery_token, email_change_token_new, email_change)
+select
+  '00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
+  p.email, extensions.crypt('localdev', extensions.gen_salt('bf')), now(),
+  '{"provider":"email","providers":["email"]}', jsonb_build_object('full_name', p.full_name),
+  now(), now(), '', '', '', ''
+from hris.user_profiles p
+where p.email in ('admin@lgu.gov.ph', 'hr@lgu.gov.ph', 'depthead@lgu.gov.ph', 'employee@lgu.gov.ph')
+  and not exists (select 1 from auth.users u where u.email = p.email);
+
+insert into auth.identities
+  (id, user_id, provider_id, provider, identity_data, last_sign_in_at, created_at, updated_at)
+select
+  gen_random_uuid(), u.id, u.id::text, 'email',
+  jsonb_build_object('sub', u.id::text, 'email', u.email, 'email_verified', true),
+  now(), now(), now()
+from auth.users u
+where u.email like '%@lgu.gov.ph'
+  and not exists (select 1 from auth.identities i where i.user_id = u.id);
