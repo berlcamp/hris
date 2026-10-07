@@ -11,6 +11,9 @@ You work against a **local Supabase stack running in Docker**, never against the
 hosted project. The hosted database holds real employee records, and none of the
 steps below need it.
 
+> **On Windows?** Follow the step-by-step guide in
+> [`docs/WINDOWS_SETUP.md`](docs/WINDOWS_SETUP.md) instead.
+
 ### Prerequisites
 
 - **Node 22.** Run `nvm use` (the repo has an `.nvmrc`). The tests rely on
@@ -18,7 +21,8 @@ steps below need it.
 - **Docker.**
   - macOS: [Colima](https://github.com/abiosoft/colima) (`brew install colima docker`),
     or Docker Desktop.
-  - Windows: Docker Desktop with the WSL 2 backend. Run the commands from WSL.
+  - Windows: Docker Desktop with the WSL 2 backend (see
+    [`docs/WINDOWS_SETUP.md`](docs/WINDOWS_SETUP.md)).
   - Linux: Docker Engine.
 
   Give Docker at least 4 GiB of memory.
