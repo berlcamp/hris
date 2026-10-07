@@ -13,7 +13,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { parseCsvTextToRows } from "../../src/lib/parse-csv.ts";
@@ -99,21 +99,30 @@ test("quoted field with BOTH a comma and a newline", () => {
   ]);
 });
 
-test("real jos.csv: 577 data records, each with 26 fields", () => {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const csvPath = path.join(here, "..", "old_jo_data", "jos.csv");
-  const text = readFileSync(csvPath, "utf8");
-  const rows = parseCsvTextToRows(text);
+const josCsvPath = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "old_jo_data",
+  "jos.csv",
+);
 
-  const [header, ...dataRows] = rows;
-  assert.equal(header.length, 26, "header should have 26 columns");
-  assert.equal(dataRows.length, 577, "expected exactly 577 data records");
+// jos.csv is gitignored PII, so it only exists on machines that have the legacy export.
+test(
+  "real jos.csv: 577 data records, each with 26 fields",
+  { skip: !existsSync(josCsvPath) && "supabase/old_jo_data/jos.csv not present locally" },
+  () => {
+    const rows = parseCsvTextToRows(readFileSync(josCsvPath, "utf8"));
 
-  for (let i = 0; i < dataRows.length; i++) {
-    assert.equal(
-      dataRows[i].length,
-      26,
-      `record ${i + 1} (id ${dataRows[i][0]}) should have 26 fields, got ${dataRows[i].length}`,
-    );
-  }
-});
+    const [header, ...dataRows] = rows;
+    assert.equal(header.length, 26, "header should have 26 columns");
+    assert.equal(dataRows.length, 577, "expected exactly 577 data records");
+
+    for (let i = 0; i < dataRows.length; i++) {
+      assert.equal(
+        dataRows[i].length,
+        26,
+        `record ${i + 1} (id ${dataRows[i][0]}) should have 26 fields, got ${dataRows[i].length}`,
+      );
+    }
+  },
+);
