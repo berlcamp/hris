@@ -20,7 +20,7 @@ import {
   DAILY_WAGES_ROWS_PER_PAGE,
   paginateDailyWages,
   snapshotDiffersFromMember,
-  sumSssByWorker,
+  sssByWorker,
   summarizeMembers,
   toPayrollMemberSnapshot,
   toPrintRow,
@@ -488,9 +488,10 @@ test("days and overtime hours are not snapshot fields and never count as drift",
   );
 });
 
-// ── sumSssByWorker ──────────────────────────────────────────────────
-// The monthly SSS Contribution List: one line per worker, summed across every
-// payroll in the month (a 1st-half and a 2nd-half payroll both deduct).
+// ── sssByWorker ──────────────────────────────────────────────────
+// The monthly SSS Contribution List: one line per worker, carrying the SS / EC
+// as it stands on the payroll — the 1st-half and 2nd-half payrolls each hold
+// the monthly contribution, so they are not added together.
 
 const sssLine = (
   overrides: Partial<{
@@ -509,14 +510,23 @@ const sssLine = (
   ...overrides,
 });
 
-test("a worker on two payrolls in the month gets one summed line", () => {
-  assert.deepEqual(sumSssByWorker([sssLine(), sssLine()]), [
-    { full_name: "Dela Cruz, Juan P.", sss_no: "34-1234567-8", ss: 360, ec: 20 },
+test("a worker on the 1st- and 2nd-half payrolls shows the payroll's contribution, not double", () => {
+  assert.deepEqual(sssByWorker([sssLine({ sss_ss: 750 }), sssLine({ sss_ss: 750 })]), [
+    { full_name: "Dela Cruz, Juan P.", sss_no: "34-1234567-8", ss: 750, ec: 10 },
   ]);
 });
 
+test("when the month's payrolls disagree, the larger share wins", () => {
+  const rows = sssByWorker([
+    sssLine({ sss_ss: 0, sss_ec: 10 }),
+    sssLine({ sss_ss: 750, sss_ec: null }),
+  ]);
+  assert.equal(rows[0].ss, 750);
+  assert.equal(rows[0].ec, 10);
+});
+
 test("different roster links stay on separate lines even with the same name", () => {
-  const rows = sumSssByWorker([
+  const rows = sssByWorker([
     sssLine({ job_order_employee_id: "jo-1" }),
     sssLine({ job_order_employee_id: "jo-2" }),
   ]);
@@ -524,23 +534,23 @@ test("different roster links stay on separate lines even with the same name", ()
 });
 
 test("unlinked rows group by name, ignoring case and spacing", () => {
-  const rows = sumSssByWorker([
+  const rows = sssByWorker([
     sssLine({ job_order_employee_id: null, full_name: "Santos, Ana" }),
     sssLine({ job_order_employee_id: null, full_name: "  santos,  ANA " }),
   ]);
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].ss, 360);
+  assert.equal(rows[0].ss, 180);
 });
 
 test("a worker with no SS or EC in the month is left off", () => {
   assert.deepEqual(
-    sumSssByWorker([sssLine({ sss_ss: null, sss_ec: 0 })]),
+    sssByWorker([sssLine({ sss_ss: null, sss_ec: 0 })]),
     [],
   );
 });
 
 test("the SS number is the first non-blank one seen", () => {
-  const rows = sumSssByWorker([
+  const rows = sssByWorker([
     sssLine({ sss_no: "  " }),
     sssLine({ sss_no: "01-0000000-1" }),
   ]);
@@ -548,7 +558,7 @@ test("the SS number is the first non-blank one seen", () => {
 });
 
 test("lines are ordered by name", () => {
-  const rows = sumSssByWorker([
+  const rows = sssByWorker([
     sssLine({ job_order_employee_id: "b", full_name: "Zamora, Ben" }),
     sssLine({ job_order_employee_id: "a", full_name: "Abad, Lea" }),
   ]);

@@ -10,7 +10,7 @@ import {
 import { logAudit } from "@/lib/audit";
 import {
   summarizeMembers,
-  sumSssByWorker,
+  sssByWorker,
   toPayrollMemberSnapshot,
   type JobOrderSssWorkerTotal,
 } from "@/lib/job-order-payroll-helpers";
@@ -255,8 +255,8 @@ export async function getJobOrderPayrollById(id: string): Promise<{
 }
 
 /**
- * The monthly SSS Contribution List: every worker's SS and EC, summed across
- * the payrolls whose period starts in `monthKey` ("YYYY-MM").
+ * The monthly SSS Contribution List: every worker's SS and EC as carried on
+ * the payrolls whose period starts in `monthKey` ("YYYY-MM") — see sssByWorker.
  */
 export async function getJobOrderSssContributionsForMonth(
   monthKey: string,
@@ -267,7 +267,7 @@ export async function getJobOrderSssContributionsForMonth(
 
   const supabase = createAdminClient();
   const lines = await loadSssLinesForMonth(supabase, monthKey);
-  return { rows: sumSssByWorker(lines), error: null };
+  return { rows: sssByWorker(lines), error: null };
 }
 
 export async function getJobOrderAreasForPicker(): Promise<JobOrderAreaOption[]> {

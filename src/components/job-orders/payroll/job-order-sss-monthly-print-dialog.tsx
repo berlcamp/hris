@@ -33,7 +33,8 @@ function currentMonthKey(): string {
 /**
  * The monthly SSS Contribution List, from the payroll list's header. A payroll
  * belongs to the month its period starts in, and each worker gets one line
- * with SS and EC summed across that month's payrolls — see sumSssByWorker.
+ * with SS and EC as they stand on that month's payrolls (not summed across the
+ * 1st and 2nd half) — see sssByWorker.
  *
  * Printing goes through a hidden iframe (see print-html.ts), so it still works
  * after the await — there is no popup for a blocker to stop.
@@ -104,7 +105,8 @@ export function JobOrderSssMonthlyPrintDialog() {
             <DialogTitle>Print SSS Contributions</DialogTitle>
             <DialogDescription>
               Lists every job order worker&apos;s SS and EC from the payrolls
-              whose period starts in the chosen month, one line per worker.
+              whose period starts in the chosen month, one line per worker,
+              at the amount on the payroll.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

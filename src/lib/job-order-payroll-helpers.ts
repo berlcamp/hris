@@ -412,17 +412,21 @@ export interface JobOrderSssWorkerTotal {
 }
 
 /**
- * Collapses a month's member rows to one line per worker, SS and EC summed —
- * a worker on both the 1st-half and 2nd-half payroll is deducted twice and
- * remitted once.
+ * Collapses a month's member rows to one line per worker, carrying the SS and
+ * EC exactly as they stand on the payroll — NOT summed. Each member row holds
+ * the worker's monthly contribution (the roster's SS / EC, snapshotted onto
+ * every payroll), so a worker on both the 1st-half and 2nd-half payroll shows
+ * the same 750 twice; adding them printed 1500 for a 750 contribution. When
+ * the month's payrolls disagree (a per-payroll correction), the larger share
+ * wins, so a payroll edited down to zero never hides the contribution.
  *
  * A worker is their roster link when the row has one. Unlinked rows (manual
  * adds, or a JO deleted since) fall back to the name, case- and
  * space-insensitive, so the same unlinked person on two payrolls still lands
- * on one line. Workers whose shares sum to zero are left off: the list is of
+ * on one line. Workers whose shares are zero are left off: the list is of
  * people who actually contributed.
  */
-export function sumSssByWorker(
+export function sssByWorker(
   lines: JobOrderSssLine[],
 ): JobOrderSssWorkerTotal[] {
   const byWorker = new Map<string, JobOrderSssWorkerTotal>();
@@ -433,8 +437,8 @@ export function sumSssByWorker(
     const sssNo = line.sss_no?.trim() || null;
     const total = byWorker.get(key);
     if (total) {
-      total.ss += line.sss_ss ?? 0;
-      total.ec += line.sss_ec ?? 0;
+      total.ss = Math.max(total.ss, line.sss_ss ?? 0);
+      total.ec = Math.max(total.ec, line.sss_ec ?? 0);
       total.sss_no ??= sssNo;
     } else {
       byWorker.set(key, {
