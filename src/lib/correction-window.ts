@@ -39,6 +39,20 @@ export const CORRECTION_GRACE_DAYS = 7;
  */
 export const CORRECTION_OPEN_MONTHS = 3;
 
+/**
+ * Payroll months HR has reopened to departments on top of the rolling window,
+ * as "YYYY-MM". They stay open until removed from this list — the rolling rule
+ * never closes them — so delete an entry once its corrections are in.
+ *
+ * Only the part of a reopened month up to today is open: the future is never
+ * correctable, reopened or not.
+ */
+export const REOPENED_CORRECTION_MONTHS: readonly string[] = [
+  "2026-06",
+  "2026-07",
+  "2026-08",
+];
+
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -49,6 +63,22 @@ export interface CorrectionWindow {
   from: string;
   /** Last duty date that may be corrected — always today (YYYY-MM-DD). */
   to: string;
+  /**
+   * Reopened ranges that do NOT touch from..to, oldest first. Absent when every
+   * reopened month is already inside (or adjoins, and so widened) the window.
+   */
+  reopened?: { from: string; to: string }[];
+}
+
+function lastDayOfMonth(year: number, month: number): string {
+  // Day 0 of the next month is the last day of this one; UTC so it cannot shift.
+  const d = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function shiftDays(iso: string, delta: number): string {
+  const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
 }
 
 /**
@@ -60,7 +90,10 @@ export interface CorrectionWindow {
  * absolute months makes it fall out for any number of months back, so on
  * 2027-01-09 the window still opens on 2026-11-01.
  */
-export function correctionWindow(today: string): CorrectionWindow {
+export function correctionWindow(
+  today: string,
+  reopenedMonths: readonly string[] = REOPENED_CORRECTION_MONTHS,
+): CorrectionWindow {
   const [year, month, day] = today.split("-").map(Number) as [
     number,
     number,
@@ -71,10 +104,42 @@ export function correctionWindow(today: string): CorrectionWindow {
   const absolute = year * 12 + (month - 1) - monthsBack;
   const openYear = Math.floor(absolute / 12);
   const openMonth = (absolute % 12) + 1;
-  return {
-    from: `${openYear}-${String(openMonth).padStart(2, "0")}-01`,
-    to: today,
-  };
+  let from = `${openYear}-${String(openMonth).padStart(2, "0")}-01`;
+
+  // Reopened months, clamped to today, newest first so each one that adjoins
+  // the window widens it and lets the next-older one adjoin in turn.
+  const ranges = reopenedMonths
+    .map((ym) => {
+      const [y, m] = ym.split("-").map(Number) as [number, number];
+      const end = lastDayOfMonth(y, m);
+      return { from: `${ym}-01`, to: end < today ? end : today };
+    })
+    .filter((r) => r.from <= today)
+    .sort((a, b) => (a.from < b.from ? 1 : -1));
+
+  const detached: { from: string; to: string }[] = [];
+  for (const r of ranges) {
+    if (r.to >= shiftDays(from, -1)) {
+      if (r.from < from) from = r.from;
+    } else {
+      detached.push(r);
+    }
+  }
+  // A detached range can still adjoin an older detached one; merge those.
+  detached.reverse();
+  const merged: { from: string; to: string }[] = [];
+  for (const r of detached) {
+    const last = merged[merged.length - 1];
+    if (last && r.from <= shiftDays(last.to, 1)) {
+      if (r.to > last.to) last.to = r.to;
+    } else {
+      merged.push({ ...r });
+    }
+  }
+
+  return merged.length
+    ? { from, to: today, reopened: merged }
+    : { from, to: today };
 }
 
 /** True when `date` falls inside the window — ISO dates compare lexicographically. */
@@ -82,7 +147,8 @@ export function isDateInCorrectionWindow(
   date: string,
   window: CorrectionWindow,
 ): boolean {
-  return date >= window.from && date <= window.to;
+  if (date >= window.from && date <= window.to) return true;
+  return (window.reopened ?? []).some((r) => date >= r.from && date <= r.to);
 }
 
 /**
@@ -96,7 +162,7 @@ export function correctionWindowError(
   if (date > window.to) {
     return `${date} has not happened yet. You can only correct days up to today.`;
   }
-  if (date < window.from) {
+  if (date < window.from && !isDateInCorrectionWindow(date, window)) {
     return `${date} is outside the payroll months you can still correct (${describeCorrectionWindow(window)}). Ask HR to correct anything older.`;
   }
   return null;
@@ -108,13 +174,18 @@ export function correctionWindowError(
  *   "July 1 – August 20, 2026"
  */
 export function describeCorrectionWindow(window: CorrectionWindow): string {
-  const [fy, fm] = window.from.split("-").map(Number) as [number, number];
-  const [ty, tm, td] = window.to.split("-").map(Number) as [
+  const ranges = [...(window.reopened ?? []), { from: window.from, to: window.to }];
+  return ranges.map((r) => describeRange(r.from, r.to)).join(" and ");
+}
+
+function describeRange(fromIso: string, toIso: string): string {
+  const [fy, fm, fd] = fromIso.split("-").map(Number) as [number, number, number];
+  const [ty, tm, td] = toIso.split("-").map(Number) as [
     number,
     number,
     number,
   ];
-  const fromLabel = `${MONTH_NAMES[fm - 1]} 1`;
+  const fromLabel = `${MONTH_NAMES[fm - 1]} ${fd}`;
   if (fy !== ty) {
     return `${fromLabel}, ${fy} – ${MONTH_NAMES[tm - 1]} ${td}, ${ty}`;
   }

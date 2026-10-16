@@ -615,7 +615,8 @@ export function CorrectionRequestForm({
               </span>
               . The current payroll month and the two before it stay open, and
               the oldest of them hangs on through the first 7 days of the month
-              after it — ask HR to correct anything older.
+              after it, along with any month HR has reopened — ask HR to correct
+              anything older.
             </p>
           )}
           <div className="grid gap-4 sm:grid-cols-3">
@@ -687,7 +688,10 @@ export function CorrectionRequestForm({
               <Input
                 id="date_from"
                 type="date"
-                min={correctionWindow?.from}
+                min={
+                  correctionWindow?.reopened?.[0]?.from ??
+                  correctionWindow?.from
+                }
                 max={correctionWindow?.to}
                 value={dateFrom}
                 onChange={(e) => {
@@ -701,7 +705,10 @@ export function CorrectionRequestForm({
               <Input
                 id="date_to"
                 type="date"
-                min={correctionWindow?.from}
+                min={
+                  correctionWindow?.reopened?.[0]?.from ??
+                  correctionWindow?.from
+                }
                 max={correctionWindow?.to}
                 value={dateTo}
                 onChange={(e) => {
