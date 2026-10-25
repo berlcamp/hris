@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus } from "lucide-react";
+import { CircleDashed, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/tables/data-table";
@@ -64,12 +64,20 @@ export default async function AttendanceCorrectionsPage() {
           </p>
         </div>
         {canRequest && (
-          <Link href="/attendance-corrections/new">
-            <Button size="sm">
-              <Plus className="h-4 w-4" />
-              {isDirect ? "Record Attendance" : "New Request"}
-            </Button>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/attendance-corrections/unsettled">
+              <Button size="sm" variant="outline">
+                <CircleDashed className="h-4 w-4" />
+                Unsettled Days
+              </Button>
+            </Link>
+            <Link href="/attendance-corrections/new">
+              <Button size="sm">
+                <Plus className="h-4 w-4" />
+                {isDirect ? "Record Attendance" : "New Request"}
+              </Button>
+            </Link>
+          </div>
         )}
       </div>
 
