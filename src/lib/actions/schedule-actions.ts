@@ -9,6 +9,9 @@ import {
   type ScheduleFormValues,
 } from "@/lib/validations/schedule-schema";
 import { canManageSchedules } from "@/lib/auth-helpers";
+import { recomputeAttendanceDeductionsBatch } from "@/lib/actions/attendance-deduction-actions";
+import { manilaToday } from "@/lib/format-date";
+import { resortEmployeesInRange, resortWindow } from "@/lib/schedule-resort";
 import type { UserRole } from "@/lib/types";
 
 export interface ScheduleRow {
@@ -30,6 +33,19 @@ export interface ScheduleWithAssignedCount extends ScheduleRow {
 function trimTime(t: string | null): string | null {
   if (!t) return null;
   return t.slice(0, 5);
+}
+
+// A new base schedule changes which cells the employees' punches belong in.
+// Re-sort their saved punches from the start of the previous month — older
+// months are usually finalized — and refresh the VL deduction it touched.
+async function resortBaseScheduleChange(
+  supabase: ReturnType<typeof createAdminClient>,
+  employeeIds: string[],
+) {
+  const window = resortWindow("0001-01-01", manilaToday());
+  if (!window || employeeIds.length === 0) return;
+  const result = await resortEmployeesInRange(supabase, employeeIds, window.from, window.to);
+  if (result.touched.length > 0) await recomputeAttendanceDeductionsBatch(result.touched);
 }
 
 function requireAdmin(roles: readonly UserRole[] | undefined) {
@@ -214,7 +230,14 @@ export async function deleteSchedule(
     .delete()
     .eq("id", id);
 
-  if (error) return { error: error.message };
+  if (error) {
+    return {
+      error:
+        error.code === "23503"
+          ? "This schedule is still used by a rotation, a per-date override or a pending correction, so it cannot be deleted."
+          : error.message,
+    };
+  }
 
   await logAudit({
     userId: user!.id,
@@ -307,6 +330,7 @@ export async function assignEmployeesToSchedule(
     tableName: "employees",
     newValues: { schedule_id: scheduleId, employee_ids: employeeIds },
   });
+  await resortBaseScheduleChange(supabase, employeeIds);
 
   revalidatePath("/admin/schedules");
   revalidatePath("/employees");
@@ -341,6 +365,7 @@ export async function unassignEmployeesFromSchedule(
     tableName: "employees",
     newValues: { employee_ids: employeeIds },
   });
+  await resortBaseScheduleChange(supabase, employeeIds);
 
   revalidatePath("/admin/schedules");
   revalidatePath("/employees");

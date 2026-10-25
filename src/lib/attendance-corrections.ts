@@ -19,6 +19,9 @@ export interface CorrectionItemInput {
   disposition: Disposition;
   /** Already-resolved schedule — see resolveCorrectionSchedule. */
   schedule: ScheduleLike;
+  /** Whether the employee's schedule makes this a rest day (rotation or
+   *  override). Omitted: Saturday/Sunday. */
+  restDay?: boolean;
   /** The pinned schedule's id, or null to inherit. Written to attendance_logs. */
   scheduleId: string | null;
   time_in_am: string | null;
@@ -56,6 +59,9 @@ export function resolveCorrectionSchedule(
 
 export interface ResolvedItemSchedule {
   schedule: ScheduleLike;
+  /** Set by loadItemSchedules from the day's rotation / override; a pinned
+   *  schedule is always a working day. */
+  restDay?: boolean;
   // The item's own proposed_schedule_id was set but no longer resolves to a
   // schedule row (e.g. deleted between submit and approval). Should be
   // unreachable in practice — attendance_correction_items_proposed_schedule_id_fkey
@@ -275,6 +281,7 @@ export function buildCorrectionRecord(
       item.duty_date,
       { ...fields, remarks: item.remarks ?? null },
       item.schedule,
+      { restDay: item.restDay },
     ),
     // Excluded from both import paths even with "overwrite existing" ON.
     correction_locked: true,

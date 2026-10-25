@@ -774,3 +774,22 @@ test("an untouched holiday still prints HOLIDAY", () => {
   );
   assert.deepEqual(span, { label: "HOLIDAY", kind: "holiday" });
 });
+
+// ── Rest days decided by the schedule (Phase 2) ─────────────────────
+
+test("a correction on a rostered Saturday is charged like a workday", () => {
+  const r = buildCorrectionRecord(EMP2, item({
+    duty_date: "2026-10-24", restDay: false,
+    time_in_am: "08:20", time_out_am: "12:00", time_in_pm: "13:00", time_out_pm: "17:00",
+  }));
+  assert.equal(r.late_minutes, 20);
+});
+
+test("a correction on a weekday the rotation leaves off charges nothing", () => {
+  const r = buildCorrectionRecord(EMP2, item({
+    duty_date: "2026-10-21", restDay: true,
+    time_in_am: "08:20", time_out_am: "12:00", time_in_pm: null, time_out_pm: null,
+  }));
+  assert.equal(r.late_minutes, 0);
+  assert.equal(r.undertime_minutes, 0);
+});

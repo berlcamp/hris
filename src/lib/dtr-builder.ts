@@ -28,6 +28,7 @@ import {
   type SlotKey,
 } from "@/lib/attendance-schedule";
 import { getHolidayMap } from "@/lib/holiday-helpers";
+import { loadScheduleContext } from "@/lib/schedule-context";
 import {
   resolveSignatories,
   type DtrSignatory,
@@ -83,6 +84,9 @@ export interface DtrEntry {
   // Blank cells the employee still has to settle (unsettledSlots). They print
   // blank and cost nothing until settled. Absent on non-worked rows.
   unsettled_slots?: SlotKey[];
+  // Whether the employee's schedule makes this a rest day (rotation, override,
+  // else Saturday/Sunday). Drives the REST DAY / weekday label (dtrSpanFor).
+  rest_day?: boolean;
 }
 
 export interface DtrSummary {
@@ -438,6 +442,9 @@ export async function buildDtrResults(
   const calendar = buildCalendar(startDate, endDate);
   const defaultSched = await resolveDefaultSchedule(supabase);
   const overrideSchedMap = await loadOverrideSchedules(supabase, logs ?? []);
+  // Each day's schedule and rest day: a correction's pin, a per-date override,
+  // the rotation in effect, else the employee's base schedule Mon–Fri.
+  const resolveDay = await loadScheduleContext(supabase, empIds, startDate, endDate);
   const holidayMap = await getHolidayMap(supabase, startDate, endDate);
 
   // Resolve the DTR signatory for every employee in one batched query.
@@ -455,9 +462,9 @@ export async function buildDtrResults(
     const logMap =
       logsByEmp.get(emp.id) ?? new Map<string, Record<string, unknown>>();
     const leaveMap = leavesByEmp.get(emp.id) ?? new Map<string, string>();
-    // Resolve the schedule once so late/undertime per row reflect the schedule
-    // the employee is assigned to *now* (not whatever was stamped at import
-    // time).
+    // The base schedule, for the form's "official hours" header. Each day is
+    // scored against the schedule resolveDay gives it, as it stands *now*
+    // (not whatever was stamped at import time).
     const sched = emp.schedules ?? defaultSched;
 
     const entries: DtrEntry[] = [];
@@ -471,6 +478,10 @@ export async function buildDtrResults(
 
     for (const day of calendar) {
       const log = logMap.get(day.date);
+      const pin = log?.schedule_id
+        ? overrideSchedMap.get(log.schedule_id as string) ?? null
+        : null;
+      const { sched: daySched, restDay } = resolveDay(emp.id, day.date, pin);
       const leaveCode = leaveMap.get(day.date) ?? null;
       const holiday = holidayMap.get(day.date) ?? null;
       const holidayType: HolidayType | null = holiday?.type ?? null;
@@ -514,6 +525,7 @@ export async function buildDtrResults(
           holiday_name: holidayName,
           no_time_reason_label: null,
           ...EMPTY_SLOT_REASONS,
+          rest_day: restDay,
         });
         continue;
       }
@@ -526,14 +538,8 @@ export async function buildDtrResults(
         const tInAmRaw = log.time_in_am as string | null;
         const tInPmRaw = log.time_in_pm as string | null;
         const tOutPmRaw = log.time_out_pm as string | null;
-        // A day pinned to an override schedule is scored against that schedule;
-        // otherwise against the employee's current assigned schedule. Either way
-        // late/undertime are recomputed (not read from the stored flags) so the
-        // numbers stay correct even after a schedule change.
-        const daySched =
-          (log.schedule_id
-            ? overrideSchedMap.get(log.schedule_id as string)
-            : null) ?? sched;
+        // late/undertime are recomputed against daySched (not read from the
+        // stored flags) so the numbers stay correct after a schedule change.
         const tOutAmRaw = log.time_out_am as string | null;
         const reasonInAm = slotReasonShort(log.time_in_am_reason);
         const reasonOutAm = slotReasonShort(log.time_out_am_reason);
@@ -569,21 +575,18 @@ export async function buildDtrResults(
           // day, so neither session is charged.
           excuseAm: holidayExcusesAm || !!log.no_time_reason,
           excusePm: holidayExcusesPm || !!log.no_time_reason,
+          restDay,
         };
         const { lateMinutes: effLateMins, undertimeMinutes: effUndertimeMins } =
           dayLateUndertime(day.date, daySched, daySlots, dayOpts);
         const daysUnsettled = unsettledSlots(day.date, daySched, daySlots, dayOpts);
         // Cap undertime at 7h. A day with punches is never reclassified absent
-        // (see applyUndertimeAbsenceRule); a weekend owes no hours at all.
-        // This branch is the one that had no weekend rule at all: the no-row
-        // branch below has always guarded its absence with `!day.isWeekend`,
-        // and a Saturday that merely HAD a row was charged as if it were a
-        // Tuesday.
+        // (see applyUndertimeAbsenceRule); a rest day owes no hours at all.
         const {
           lateMins: finalLateMins,
           undertimeMins: cappedUndertimeMins,
           absent: dayAbsent,
-        } = day.isWeekend
+        } = restDay
           ? applyRestDayRule(effLateMins, effUndertimeMins)
           : applyUndertimeAbsenceRule(effLateMins, effUndertimeMins, isAbsent);
         // An absent day is charged a full 8-hour undertime on the DTR.
@@ -604,7 +607,7 @@ export async function buildDtrResults(
         // so the PM arrival must not print red either — a red cell beside an
         // empty undertime column reads as a charge the DTR is not making.
         const isPmLate =
-          !day.isWeekend && !reasonInPm && !holidayExcusesPm && pmLateMins > 0;
+          !restDay && !reasonInPm && !holidayExcusesPm && pmLateMins > 0;
         // An absent day (already absent, or reclassified by the 8h rule) prints
         // ABSENT across the row, so any partial punches are not shown.
         const showTimes = !dayAbsent;
@@ -636,12 +639,13 @@ export async function buildDtrResults(
           reason_in_pm: showTimes ? reasonInPm : null,
           reason_out_pm: showTimes ? reasonOutPm : null,
           unsettled_slots: showTimes ? daysUnsettled : [],
+          rest_day: restDay,
         });
 
-        // An unworked weekend counts as neither present nor absent — exactly
-        // what the no-row branch below does for the same date. A weekend that
+        // An unworked rest day counts as neither present nor absent — exactly
+        // what the no-row branch below does for the same date. A rest day that
         // WAS worked still counts present; the punches are the difference.
-        if (day.isWeekend && !hasPunch) {
+        if (restDay && !hasPunch) {
           // a rest day nobody reported for: not a day of service, not an absence
         } else if (dayAbsent) totalAbsent++;
         else totalPresent++;
@@ -653,7 +657,7 @@ export async function buildDtrResults(
           totalUndertimeCount++;
           totalUndertimeMinutes += finalUndertimeMins;
         }
-      } else if (!day.isWeekend && leaveCode) {
+      } else if (!restDay && leaveCode) {
         entries.push({
           date: day.date,
           day_of_week: day.dayOfWeek,
@@ -672,6 +676,7 @@ export async function buildDtrResults(
           holiday_name: holidayName,
           no_time_reason_label: null,
           ...EMPTY_SLOT_REASONS,
+          rest_day: restDay,
         });
         totalOnLeave++;
       } else {
@@ -679,7 +684,7 @@ export async function buildDtrResults(
         // A half-day holiday is not an absence, but the half it does not cover
         // is still owed and is charged 4 hours — see unrecordedDayCharge.
         const { absent, undertimeMinutes: unrecordedUndertime } =
-          unrecordedDayCharge(day.date, isHalfHoliday);
+          unrecordedDayCharge(day.date, isHalfHoliday, { restDay });
         entries.push({
           date: day.date,
           day_of_week: day.dayOfWeek,
@@ -692,8 +697,10 @@ export async function buildDtrResults(
           is_undertime: unrecordedUndertime > 0,
           undertime_minutes: unrecordedUndertime,
           is_absent: absent,
-          remarks: day.isWeekend
-            ? "Weekend"
+          remarks: restDay
+            ? day.isWeekend
+              ? "Weekend"
+              : "Rest day"
             : isHalfHoliday
               ? holidayName
               : null,
@@ -702,6 +709,7 @@ export async function buildDtrResults(
           holiday_name: holidayName,
           no_time_reason_label: null,
           ...EMPTY_SLOT_REASONS,
+          rest_day: restDay,
         });
         if (absent) totalAbsent++;
         if (unrecordedUndertime > 0) {

@@ -336,11 +336,13 @@ export interface DayMinutes {
 // sits on; excuseAm / excusePm (a holiday half, or a day-level reason like OFF)
 // excuse that session's charges wholesale.
 //
-// On a REST DAY (see isRestDay) NOTHING is charged at all. No hours are owed on
-// a Saturday or Sunday, so there is no schedule for a punch to be measured
-// against. The times still print on the DTR; only the deduction is dropped.
+// On a REST DAY NOTHING is charged at all: no hours are owed, so there is no
+// schedule for a punch to be measured against. The times still print on the
+// DTR; only the deduction is dropped. Which days are rest days is the
+// employee's schedule's call (opts.restDay, from resolveDaySchedule); without
+// it, Saturday and Sunday (isRestDay).
 //
-// hris.day_late_undertime (migration 093) mirrors this clause for clause for
+// hris.day_late_undertime (migration 094) mirrors this clause for clause for
 // the stored columns and the VL auto-deduction. Change both together.
 export function dayLateUndertime(
   dutyDate: string,
@@ -352,12 +354,15 @@ export function dayLateUndertime(
      *  reason like OFF. */
     excuseAm?: boolean;
     excusePm?: boolean;
+    /** Whether the employee's schedule makes this a rest day (see
+     *  resolveDaySchedule). Defaults to Saturday/Sunday. */
+    restDay?: boolean;
   } = {},
 ): DayMinutes {
   const r = opts.reasons ?? {};
   const { excuseAm = false, excusePm = false } = opts;
 
-  if (isRestDay(dutyDate)) {
+  if (opts.restDay ?? isRestDay(dutyDate)) {
     return { lateMinutes: 0, undertimeMinutes: 0 };
   }
   if (
@@ -434,11 +439,12 @@ export function unsettledSlots(
     reasons?: SlotReasonFlags;
     excuseAm?: boolean;
     excusePm?: boolean;
+    restDay?: boolean;
   } = {},
 ): SlotKey[] {
   const r = opts.reasons ?? {};
   const { excuseAm = false, excusePm = false } = opts;
-  if (isRestDay(dutyDate)) return [];
+  if (opts.restDay ?? isRestDay(dutyDate)) return [];
   const has: Record<SlotKey, boolean> = {
     in_am: !!slots.time_in_am,
     out_am: !!slots.time_out_am,
@@ -499,8 +505,9 @@ export function applyUndertimeAbsenceRule(
 export function unrecordedDayCharge(
   dutyDate: string,
   halfDayHoliday: boolean,
+  opts: { restDay?: boolean } = {},
 ): { absent: boolean; undertimeMinutes: number } {
-  if (isRestDay(dutyDate)) return { absent: false, undertimeMinutes: 0 };
+  if (opts.restDay ?? isRestDay(dutyDate)) return { absent: false, undertimeMinutes: 0 };
   if (halfDayHoliday) {
     return { absent: false, undertimeMinutes: HALF_DAY_UNDERTIME_MINUTES };
   }

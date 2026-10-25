@@ -93,6 +93,9 @@ export function computeAttendanceFlags(
   },
   dutyDate: string,
   sched: ScheduleLike,
+  /** Whether the employee's schedule makes this a rest day (resolveDaySchedule).
+   *  Omitted: Saturday/Sunday. */
+  opts: { restDay?: boolean } = {},
 ) {
   const hasAnyLog =
     entry.time_in_am || entry.time_out_am || entry.time_in_pm || entry.time_out_pm;
@@ -110,6 +113,7 @@ export function computeAttendanceFlags(
       },
       excuseAm: dayExcused,
       excusePm: dayExcused,
+      restDay: opts.restDay,
     },
   );
 
@@ -127,6 +131,7 @@ export function buildAttendanceRecord(
   date: string,
   fields: AttendanceTimeFields,
   sched: ScheduleLike,
+  opts: { restDay?: boolean } = {},
 ) {
   // A night-shift HH:MM rolls to the next calendar day only when it falls in
   // the early-morning portion of the shift (per the off-shift midpoint). This
@@ -154,6 +159,7 @@ export function buildAttendanceRecord(
     },
     date,
     sched,
+    opts,
   );
 
   // A reason is kept even when the slot also has a punched time (e.g. a HOLIDAY

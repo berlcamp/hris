@@ -11,7 +11,6 @@ import {
 import { logAudit } from "@/lib/audit";
 import {
   dayLateUndertime,
-  dutyDateFor,
   unrecordedDayCharge,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
@@ -27,7 +26,7 @@ import {
   employeesWithAttendance,
   extractTime,
   loadDtrEmployeesForDepartment,
-  resolveDefaultSchedule,
+  loadOverrideSchedules,
   timestampOnNextDay,
   type BulkDtrResult,
   type DtrEmployeeRow,
@@ -38,6 +37,8 @@ import {
   recomputeAttendanceDeductionsBatch,
 } from "@/lib/actions/attendance-deduction-actions";
 import type { DahuaParsedRow } from "@/lib/dahua-parse";
+import { loadScheduleContext } from "@/lib/schedule-context";
+import { dutyDateForPunch } from "@/lib/schedule-resolver";
 import {
   resortDaysForPunches,
   storePunches,
@@ -98,6 +99,13 @@ export interface ImportPreviewRow extends DahuaParsedRow {
    *  "overwrite existing" ON. */
   isProtected: boolean;
   conflictDetails: string | null;
+}
+
+// --- Helpers ---
+
+function addDaysIso(iso: string, delta: number): string {
+  const [y, m, d] = iso.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
 }
 
 // The biometric importer's bucketing and day-record building moved to
@@ -238,45 +246,37 @@ export async function matchAndPreviewImport(
 
   const supabase = createAdminClient();
 
-  // Get all employee IDs (and their schedule) mapped by biometric_no
-  const uniqueNos = [...new Set(parsedRows.map((r) => r.employeeNo))];
-  const numericNos = uniqueNos.map(Number).filter((n) => !isNaN(n));
-  const { data: employees } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select(
-      "id, biometric_no, schedules(id, time_in, time_out, break_start, break_end)",
-    )
-    .in("biometric_no", numericNos);
-
-  const empRows = (employees ?? []) as unknown as {
-    id: string;
-    biometric_no: number;
-    schedules: ScheduleLike | null;
-  }[];
-
-  const empMap = new Map(empRows.map((e) => [String(e.biometric_no), e.id]));
-  const defaultSched = await resolveDefaultSchedule(supabase);
-  const schedByEmp = new Map<string, ScheduleLike>(
-    empRows.map((e) => [e.id, e.schedules ?? defaultSched]),
+  const empMap = await matchEmployeeNos(
+    supabase,
+    parsedRows.map((r) => r.employeeNo),
   );
+  const employeeIds = [...new Set(empMap.values())];
 
-  // Compute duty dates per parsed row using each employee's schedule so the
-  // preview reports conflicts against the bucket the importer will actually
-  // write to (matters for night shifts).
+  // Duty dates per parsed row, the way the importer's re-sort computes them
+  // (dutyDateForPunch against the previous day's schedule), so the preview
+  // reports conflicts against the day the punch will actually land on.
+  const parsedDates = parsedRows.map((r) => r.date).filter(Boolean).sort();
+  const resolveDay =
+    employeeIds.length > 0 && parsedDates.length > 0
+      ? await loadScheduleContext(
+          supabase,
+          employeeIds,
+          addDaysIso(parsedDates[0], -1),
+          parsedDates[parsedDates.length - 1],
+        )
+      : null;
   const previewWithDuty = parsedRows.map((row) => {
     const employeeId = empMap.get(row.employeeNo) ?? null;
-    const sched = employeeId
-      ? schedByEmp.get(employeeId) ?? defaultSched
-      : defaultSched;
-    const duty = employeeId ? dutyDateFor(row.date, row.time, sched) : row.date;
+    const duty =
+      employeeId && resolveDay
+        ? dutyDateForPunch(row.date, row.time, resolveDay(employeeId, addDaysIso(row.date, -1)))
+        : row.date;
     return { row, employeeId, duty };
   });
 
   const dutyDates = [
     ...new Set(previewWithDuty.map((p) => p.duty)),
   ];
-  const employeeIds = [...new Set(empRows.map((e) => e.id))];
 
   let existingLogs: {
     employee_id: string;
@@ -892,7 +892,7 @@ export async function getAttendanceReport(
       // this report cannot judge a day from its arrival and departure alone —
       // it would read every lunch pair as missing and charge everybody.
       .select(
-        "employee_id, date, time_in_am, time_out_am, time_in_pm, time_out_pm, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason, no_time_reason, is_absent",
+        "employee_id, date, schedule_id, time_in_am, time_out_am, time_in_pm, time_out_pm, time_in_am_reason, time_out_am_reason, time_in_pm_reason, time_out_pm_reason, no_time_reason, is_absent",
       )
       .in("employee_id", empIds)
       .gte("date", startDate)
@@ -955,11 +955,13 @@ export async function getAttendanceReport(
 
   // Inclusion is implicit: only employees with attendance logs in the range
   // appear in the report.
-  const defaultSched = await resolveDefaultSchedule(supabase);
+  // Each day is scored against the same schedule and rest day the DTR uses:
+  // a correction's pin, a per-date override, the rotation, else the base.
+  const pinSchedMap = await loadOverrideSchedules(supabase, logs ?? []);
+  const resolveDay = await loadScheduleContext(supabase, empIds, startDate, endDate);
   return empRows
     .filter((e) => (logsByEmp.get(e.id)?.size ?? 0) > 0)
     .map((emp) => {
-    const sched = emp.schedules ?? defaultSched;
     const logMap = logsByEmp.get(emp.id) ?? new Map();
     const leaveSet = leavesByEmp.get(emp.id) ?? new Set<string>();
 
@@ -973,6 +975,10 @@ export async function getAttendanceReport(
 
     for (const day of calendar) {
       const log = logMap.get(day.date) as Record<string, unknown> | undefined;
+      const pin = log?.schedule_id
+        ? pinSchedMap.get(log.schedule_id as string) ?? null
+        : null;
+      const { sched, restDay } = resolveDay(emp.id, day.date, pin);
       const holidayType = holidayMap.get(day.date)?.type ?? null;
       const hasPunch =
         !!log &&
@@ -990,10 +996,9 @@ export async function getAttendanceReport(
       }
       if (log) {
         const isAbsent = (log.is_absent as boolean) ?? false;
-        // A weekend owes no hours, so a blank row there is a rest day, not an
-        // absence — the same rule the DTR applies, and the same one the no-row
-        // branch below already applied to this very date.
-        if (day.isWeekend && isAbsent) {
+        // A rest day owes no hours, so a blank row there is not an absence —
+        // the same rule the DTR applies, and the no-row branch below.
+        if (restDay && isAbsent) {
           // counted as neither present nor absent
         } else if (isAbsent) {
           daysAbsent++;
@@ -1028,11 +1033,12 @@ export async function getAttendanceReport(
                 },
                 excuseAm: holidayExcuses.am || !!log.no_time_reason,
                 excusePm: holidayExcuses.pm || !!log.no_time_reason,
+                restDay,
               },
             );
           // Same DTR rule: undertime caps at 7h, and a day with punches is
           // never reclassified absent.
-          const { lateMins: lm, undertimeMins: um, absent } = day.isWeekend
+          const { lateMins: lm, undertimeMins: um, absent } = restDay
             ? applyRestDayRule(lmRaw, umRaw)
             : applyUndertimeAbsenceRule(lmRaw, umRaw, false);
           if (absent) {
@@ -1049,14 +1055,15 @@ export async function getAttendanceReport(
             }
           }
         }
-      } else if (!day.isWeekend && leaveSet.has(day.date)) {
+      } else if (!restDay && leaveSet.has(day.date)) {
         daysOnLeave++;
       } else {
-        // No row: the DTR's own rule — a weekday is absent, a half-day holiday
-        // owes its other half as 4 hours of undertime, a weekend owes nothing.
+        // No row: the DTR's own rule — a workday is absent, a half-day holiday
+        // owes its other half as 4 hours of undertime, a rest day owes nothing.
         const { absent, undertimeMinutes: um } = unrecordedDayCharge(
           day.date,
           holidayType === "half_am" || holidayType === "half_pm",
+          { restDay },
         );
         if (absent) {
           daysAbsent++;

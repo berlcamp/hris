@@ -101,3 +101,26 @@ test("isWeekendDayName recognises exactly the two weekend names", () => {
     assert.equal(isWeekendDayName(d), false, d);
   }
 });
+
+// ── Rest days decided by the schedule (Phase 2) ─────────────────────
+
+test("a weekday the schedule makes a rest day prints REST DAY", () => {
+  assert.deepEqual(dtrSpanFor(day({ day_of_week: "Friday", rest_day: true }), true), {
+    label: "REST DAY",
+    kind: "weekend",
+  });
+});
+
+test("a rostered Saturday with no punches is an absence, not SATURDAY", () => {
+  assert.deepEqual(
+    dtrSpanFor(day({ day_of_week: "Saturday", rest_day: false, is_absent: true }), true),
+    { label: "ABSENT", kind: "absent" },
+  );
+});
+
+test("an unrostered weekend still prints its day name", () => {
+  assert.deepEqual(dtrSpanFor(day({ day_of_week: "Sunday", rest_day: true }), true), {
+    label: "SUNDAY",
+    kind: "weekend",
+  });
+});

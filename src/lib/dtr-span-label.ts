@@ -22,6 +22,9 @@ export interface DtrSpanInput {
   is_absent: boolean;
   /** Printable label for an explicitly recorded whole-day reason, or null. */
   no_time_reason_label: string | null;
+  /** Whether the employee's schedule makes this a rest day (Phase 2). Omitted:
+   *  Saturday and Sunday. */
+  rest_day?: boolean;
 }
 
 export interface DtrSpan {
@@ -43,7 +46,9 @@ export function isWeekendDayName(dayOfWeek: string): boolean {
  *     LEAVE or TRAVEL). Everything below it is a default derived from the
  *     calendar, and a default must never overrule a statement.
  *  2. A full-day holiday nobody worked.
- *  3. A weekend nobody worked.
+ *  3. A rest day nobody worked — the weekday name on a Saturday/Sunday, REST
+ *     DAY on any other day the schedule leaves off. A rostered Saturday is
+ *     not a rest day and falls through to the absence below.
  *  4. Approved leave.
  *  5. An absence.
  *
@@ -60,8 +65,12 @@ export function dtrSpanFor(
   if (entry.holiday === "full" && hasNoPunch) {
     return { label: "HOLIDAY", kind: "holiday" };
   }
-  if (isWeekendDayName(entry.day_of_week) && hasNoPunch) {
-    return { label: entry.day_of_week.toUpperCase(), kind: "weekend" };
+  const restDay = entry.rest_day ?? isWeekendDayName(entry.day_of_week);
+  if (restDay && hasNoPunch) {
+    const label = isWeekendDayName(entry.day_of_week)
+      ? entry.day_of_week.toUpperCase()
+      : "REST DAY";
+    return { label, kind: "weekend" };
   }
   if (entry.leave_type && !entry.is_absent) {
     return { label: "ON LEAVE", kind: "leave" };

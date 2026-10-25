@@ -411,3 +411,40 @@ test("a day with punches is never turned into an absence by its undertime", () =
 test("a row already marked absent stays absent", () => {
   assert.equal(applyUndertimeAbsenceRule(0, 0, true).absent, true);
 });
+
+// ── Rest days decided by the schedule (Phase 2) ─────────────────────
+
+import { unrecordedDayCharge } from "../../src/lib/attendance-schedule.ts";
+
+test("a rostered Saturday is charged like any workday", () => {
+  assert.deepEqual(
+    dayLateUndertime(SAT, REGULAR, day(["08:10", "12:00", null, null]), { restDay: false }),
+    { lateMinutes: 10, undertimeMinutes: 240 },
+  );
+  assert.deepEqual(
+    unsettledSlots(SAT, REGULAR, day(["08:00", null, null, "17:00"]), { restDay: false }),
+    ["out_am", "in_pm"],
+  );
+});
+
+test("a weekday the schedule makes a rest day owes nothing", () => {
+  assert.deepEqual(
+    dayLateUndertime(D, REGULAR, day(["08:10", "12:00", null, null]), { restDay: true }),
+    { lateMinutes: 0, undertimeMinutes: 0 },
+  );
+  assert.deepEqual(
+    unsettledSlots(D, REGULAR, day(["08:00", null, null, null]), { restDay: true }),
+    [],
+  );
+});
+
+test("an unrecorded day follows the schedule's rest day, not the weekday", () => {
+  assert.deepEqual(unrecordedDayCharge(SAT, false, { restDay: false }), {
+    absent: true,
+    undertimeMinutes: 480,
+  });
+  assert.deepEqual(unrecordedDayCharge(D, false, { restDay: true }), {
+    absent: false,
+    undertimeMinutes: 0,
+  });
+});

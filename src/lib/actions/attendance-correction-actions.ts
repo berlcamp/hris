@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadScheduleContext } from "@/lib/schedule-context";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { logAudit } from "@/lib/audit";
 import { canDirectApplyAttendanceCorrection, canFileAttendanceCorrection, canReadOwnDeptCorrections, canRequestAttendanceCorrection, canReviewAttendanceCorrection, RoleInput } from "@/lib/auth-helpers";
@@ -922,19 +923,19 @@ async function loadItemSchedules(
   supabase: ReturnType<typeof createAdminClient>,
   employeeId: string,
   items: {
+    duty_date: string;
     attendance_log_id: string | null;
     proposed_schedule_id: string | null;
   }[],
 ): Promise<ResolvedItemSchedule[]> {
-  const { data: emp, error: empErr } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select("schedules(id, time_in, time_out, break_start, break_end)")
-    .eq("id", employeeId)
-    .maybeSingle();
-  if (empErr) throw empErr;
-  const employeeSchedule =
-    (emp?.schedules as unknown as ScheduleLike | null) ?? null;
+  // Without a pin, each day is measured against what the employee's rotation
+  // or a per-date override says for THAT date (resolveDaySchedule), and a rest
+  // day is charged nothing — the same answer the DTR gives.
+  const dates = items.map((i) => i.duty_date).sort();
+  const resolveDay =
+    dates.length > 0
+      ? await loadScheduleContext(supabase, [employeeId], dates[0], dates[dates.length - 1])
+      : null;
 
   // CREATE items have no row, so no row-level pin to look up — resolution for
   // them falls through to the employee's schedule (or the org default).
@@ -975,13 +976,21 @@ async function loadItemSchedules(
     (schedules ?? []).map((s) => [s.id as string, s as ScheduleLike]),
   );
 
-  return resolveItemSchedules(
-    items,
-    scheduleById,
-    rowScheduleIdByLogId,
-    employeeSchedule,
-    DEFAULT_SCHEDULE,
-  );
+  return items.map((item) => {
+    const day = resolveDay ? resolveDay(employeeId, item.duty_date) : null;
+    const [resolved] = resolveItemSchedules(
+      [item],
+      scheduleById,
+      rowScheduleIdByLogId,
+      day?.sched ?? null,
+      DEFAULT_SCHEDULE,
+    );
+    const rowScheduleId = item.attendance_log_id
+      ? (rowScheduleIdByLogId.get(item.attendance_log_id) ?? null)
+      : null;
+    const pinned = !!item.proposed_schedule_id || !!rowScheduleId;
+    return { ...resolved, restDay: pinned ? false : day?.restDay };
+  });
 }
 
 // Builds every day's finished attendance row and commits them through the
@@ -1041,6 +1050,7 @@ async function applyCorrectionItems(
       duty_date: item.duty_date,
       disposition: item.disposition,
       schedule: resolved[i].schedule,
+      restDay: resolved[i].restDay,
       scheduleId: item.proposed_schedule_id,
       time_in_am: hhmmOf(item.proposed_time_in_am),
       time_out_am: hhmmOf(item.proposed_time_out_am),
@@ -1207,6 +1217,7 @@ export async function getCorrectionReviewSummary(id: string) {
       duty_date: item.duty_date,
       disposition: item.disposition,
       schedule: resolved[i].schedule,
+      restDay: resolved[i].restDay,
       scheduleId: item.proposed_schedule_id,
       time_in_am: hhmmOf(item.proposed_time_in_am),
       time_out_am: hhmmOf(item.proposed_time_out_am),

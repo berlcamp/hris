@@ -359,8 +359,16 @@ const navGroups: NavGroup[] = [
     label: "Administration",
     // DTR Manager sees Work Schedules, Holidays and Departments within this
     // group; OCM Admin only sees Departments; HR Admin only sees CSC Team
-    // Members; every other item stays super_admin-only.
-    roles: ["super_admin", "hr_admin", "dtr_manager", "ocm_admin"],
+    // Members; Department Admins only see Work Schedules (their department's
+    // rotations and per-day schedules); every other item stays super_admin-only.
+    roles: [
+      "super_admin",
+      "hr_admin",
+      "dtr_manager",
+      "ocm_admin",
+      "department_admin",
+      "department_admin_and_department_head",
+    ],
     items: [
       { title: "User Management", href: "/admin/users", icon: UserPlus, roles: ["super_admin"] },
       { title: "Departments", href: "/admin/departments", icon: Network, roles: ["super_admin", "ocm_admin", "dtr_manager"] },
@@ -389,7 +397,7 @@ const navGroups: NavGroup[] = [
         icon: Upload,
         roles: ["super_admin"],
       },
-      { title: "Work Schedules", href: "/admin/schedules", icon: CalendarClock, roles: ["super_admin", "dtr_manager"] },
+      { title: "Work Schedules", href: "/admin/schedules", icon: CalendarClock, roles: ["super_admin", "dtr_manager", "department_admin", "department_admin_and_department_head"] },
       { title: "Holidays", href: "/attendance/holidays", icon: CalendarOff, roles: ["super_admin", "dtr_manager"] },
       { title: "IPCR Periods", href: "/admin/ipcr-periods", icon: CalendarDays, roles: ["super_admin"] },
       {

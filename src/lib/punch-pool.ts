@@ -13,13 +13,11 @@
 // loadable by the node test runner.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  DEFAULT_SCHEDULE,
-  bucketPunchesForDuty,
-  dutyDateFor,
-  type ScheduleLike,
-} from "./attendance-schedule.ts";
+import { bucketPunchesForDuty, type ScheduleLike } from "./attendance-schedule.ts";
 import { computeAttendanceFlags } from "./attendance-record.ts";
+import { selectAll } from "./postgrest-paging.ts";
+import { loadScheduleContext } from "./schedule-context.ts";
+import { dutyDateForPunch } from "./schedule-resolver.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = SupabaseClient<any, any, any>;
@@ -49,6 +47,9 @@ export interface ResortResult {
   written: number;
   /** Days left alone because a person authored them. */
   protectedSkipped: number;
+  /** Device-written rows removed because their punches now belong to another
+   *  duty day (a night shift claiming the next morning). */
+  cleared: number;
   errors: number;
   /** Employee-days the seeds resolved to. */
   dayRecords: number;
@@ -58,7 +59,6 @@ export interface ResortResult {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}(:\d{2})?$/;
-const PAGE = 1000;
 const WRITE_CHUNK = 500;
 // Keeps `.in("employee_id", …)` well inside PostgREST's URL limit.
 const EMPLOYEE_CHUNK = 50;
@@ -113,24 +113,6 @@ export function dedupePunches(
   return out;
 }
 
-// PostgREST caps a response at 1000 rows; a month of punches for a department
-// is far more. Pages through `build` until a short page comes back.
-async function selectAll<T>(
-  build: (
-    from: number,
-    to: number,
-  ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
-): Promise<T[]> {
-  const out: T[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await build(from, from + PAGE - 1);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < PAGE) return out;
-  }
-}
-
 /**
  * Adds parsed punches to the pool. A punch already there (same employee
  * number, date, time to the second, and device) is skipped, so uploading the
@@ -182,10 +164,12 @@ export async function storePunches(
  * Re-sorts every employee-day the seed punches belong to, from ALL of that
  * employee's pooled punches, and writes the result to attendance_logs.
  *
- * The duty date of a punch comes from the employee's assigned schedule (a night
- * shift's 06:00 punch belongs to the previous day); a per-day override pinned
- * to that day then decides the AM/PM split and late/undertime — the same order
- * the importer has always used. A day a person authored (source other than
+ * Each day is read against the schedule that applies to it (resolveDaySchedule:
+ * a correction's pin, a per-date override, the rotation in effect, else the
+ * employee's base schedule), and a rest day is charged nothing. A punch belongs
+ * to the day before only when that day was a night shift (dutyDateForPunch), so
+ * an employee rotating between nights and days keeps each punch on the right
+ * duty day. A day a person authored (source other than
  * 'biometric', or correction_locked) is never overwritten; its punches stay in
  * the pool for the officer to see.
  *
@@ -200,6 +184,7 @@ export async function resortDaysForPunches(
   const result: ResortResult = {
     written: 0,
     protectedSkipped: 0,
+    cleared: 0,
     errors: 0,
     dayRecords: 0,
     touched: [],
@@ -207,43 +192,34 @@ export async function resortDaysForPunches(
   const employeeIds = [...new Set(seeds.map((s) => s.employeeId))];
   if (employeeIds.length === 0) return result;
 
-  const { data: defaultRow } = await db
-    .schema("hris")
-    .from("schedules")
-    .select("id, time_in, time_out, break_start, break_end")
-    .eq("is_default", true)
-    .maybeSingle();
-  const defaultSched = (defaultRow as ScheduleLike | null) ?? DEFAULT_SCHEDULE;
+  // Every seed's duty date depends on the schedule of the day before it, so
+  // the context covers one day either side of the seeds.
+  const seedDates = seeds.map((s) => s.date).filter((d) => DATE_RE.test(d)).sort();
+  if (seedDates.length === 0) return result;
+  const resolve = await loadScheduleContext(
+    db,
+    employeeIds,
+    addDaysIso(seedDates[0], -1),
+    addDaysIso(seedDates[seedDates.length - 1], 1),
+  );
+  const dutyOf = (employeeId: string, date: string, time: string) =>
+    dutyDateForPunch(date, time, resolve(employeeId, addDaysIso(date, -1)));
 
-  const schedByEmp = new Map<string, ScheduleLike>();
-  for (let i = 0; i < employeeIds.length; i += EMPLOYEE_CHUNK) {
-    const ids = employeeIds.slice(i, i + EMPLOYEE_CHUNK);
-    const { data, error } = await db
-      .schema("hris")
-      .from("employees")
-      .select("id, schedules(id, time_in, time_out, break_start, break_end)")
-      .in("id", ids);
-    if (error) throw new Error(error.message);
-    for (const e of (data ?? []) as unknown as {
-      id: string;
-      schedules: ScheduleLike | null;
-    }[]) {
-      schedByEmp.set(e.id, e.schedules ?? defaultSched);
-    }
-  }
-  const schedFor = (employeeId: string) => schedByEmp.get(employeeId) ?? defaultSched;
-
-  // employeeId → set of duty dates to re-sort.
+  // employeeId → set of days to re-sort: each seed's duty date, and its own
+  // calendar date. The calendar date matters when a schedule change moves its
+  // punches onto the night before — the row they used to make up is stale.
   const targets = new Map<string, Set<string>>();
   for (const s of seeds) {
     if (!DATE_RE.test(s.date) || !TIME_RE.test(s.time)) continue;
-    const duty = dutyDateFor(s.date, hhmm(s.time), schedFor(s.employeeId));
+    const duty = dutyOf(s.employeeId, s.date, hhmm(s.time));
     if (!targets.has(s.employeeId)) targets.set(s.employeeId, new Set());
-    targets.get(s.employeeId)!.add(duty);
+    targets.get(s.employeeId)!.add(duty).add(s.date);
   }
 
-  const overrideCache = new Map<string, ScheduleLike>();
+  const pinCache = new Map<string, ScheduleLike>();
   const records: Record<string, unknown>[] = [];
+  const staleIds: string[] = [];
+  const staleTouched: ResortResult["touched"] = [];
   const recordTouched: ResortResult["touched"] = [];
 
   const targetEmps = [...targets.keys()];
@@ -273,6 +249,7 @@ export async function resortDaysForPunches(
     );
 
     const existing = await selectAll<{
+      id: string;
       employee_id: string;
       date: string;
       schedule_id: string | null;
@@ -282,7 +259,7 @@ export async function resortDaysForPunches(
       db
         .schema("hris")
         .from("attendance_logs")
-        .select("employee_id, date, schedule_id, source, correction_locked")
+        .select("id, employee_id, date, schedule_id, source, correction_locked")
         .in("employee_id", ids)
         .gte("date", minDuty)
         .lte("date", maxDuty)
@@ -293,21 +270,21 @@ export async function resortDaysForPunches(
       existing.map((r) => [`${r.employee_id}_${r.date}`, r]),
     );
 
-    const missingOverrides = [
+    const missingPins = [
       ...new Set(
         existing
           .map((r) => r.schedule_id)
-          .filter((id): id is string => !!id && !overrideCache.has(id)),
+          .filter((id): id is string => !!id && !pinCache.has(id)),
       ),
     ];
-    if (missingOverrides.length > 0) {
+    if (missingPins.length > 0) {
       const { data, error } = await db
         .schema("hris")
         .from("schedules")
         .select("id, time_in, time_out, break_start, break_end")
-        .in("id", missingOverrides);
+        .in("id", missingPins);
       if (error) throw new Error(error.message);
-      for (const s of (data ?? []) as ScheduleLike[]) overrideCache.set(s.id, s);
+      for (const s of (data ?? []) as ScheduleLike[]) pinCache.set(s.id, s);
     }
 
     // Group the pooled punches by employee + duty date, keeping only the days
@@ -315,7 +292,7 @@ export async function resortDaysForPunches(
     const grouped = new Map<string, { date: string; time: string; status: string }[]>();
     for (const p of punches) {
       const time = hhmm(p.punch_time);
-      const duty = dutyDateFor(p.punch_date, time, schedFor(p.employee_id));
+      const duty = dutyOf(p.employee_id, p.punch_date, time);
       if (!targets.get(p.employee_id)?.has(duty)) continue;
       const key = `${p.employee_id}_${duty}`;
       if (!grouped.has(key)) grouped.set(key, []);
@@ -326,10 +303,25 @@ export async function resortDaysForPunches(
       for (const duty of targets.get(id)!) {
         const key = `${id}_${duty}`;
         const dayPunches = grouped.get(key);
-        if (!dayPunches || dayPunches.length === 0) continue;
+        const prior = existingByKey.get(key);
+        if (!dayPunches || dayPunches.length === 0) {
+          // A date whose punches now all belong to another duty day. A row the
+          // device wrote there is stale; a row a person wrote, or one carrying
+          // a pinned schedule, is left alone.
+          if (
+            prior &&
+            prior.source === "biometric" &&
+            !prior.correction_locked &&
+            !prior.schedule_id
+          ) {
+            staleIds.push(prior.id);
+            const [yr, mo] = duty.split("-").map(Number) as [number, number];
+            staleTouched.push({ employeeId: id, year: yr, month: mo });
+          }
+          continue;
+        }
         result.dayRecords++;
 
-        const prior = existingByKey.get(key);
         if (
           prior &&
           ((prior.source !== null && prior.source !== "biometric") ||
@@ -340,10 +332,13 @@ export async function resortDaysForPunches(
         }
 
         try {
-          const override = prior?.schedule_id
-            ? overrideCache.get(prior.schedule_id) ?? null
+          // A correction's pin on the existing row wins; otherwise the day's
+          // rotation / override / base schedule.
+          const pin = prior?.schedule_id
+            ? pinCache.get(prior.schedule_id) ?? null
             : null;
-          const sched = override ?? schedFor(id);
+          const day = resolve(id, duty, pin);
+          const sched = day.sched;
           const bucket = bucketPunchesForDuty(dedupePunches(dayPunches), duty, sched);
           const flags = computeAttendanceFlags(
             {
@@ -357,13 +352,14 @@ export async function resortDaysForPunches(
             },
             duty,
             sched,
+            { restDay: day.restDay },
           );
           const next = addDaysIso(duty, 1);
           const on = (nextDay: boolean) => (nextDay ? next : duty);
           records.push({
             employee_id: id,
             date: duty,
-            schedule_id: override?.id ?? null,
+            schedule_id: pin?.id ?? null,
             time_in_am: toTimestamp(on(bucket.time_in_am_next_day), bucket.time_in_am),
             time_out_am: toTimestamp(on(bucket.time_out_am_next_day), bucket.time_out_am),
             time_in_pm: toTimestamp(on(bucket.time_in_pm_next_day), bucket.time_in_pm),
@@ -383,7 +379,22 @@ export async function resortDaysForPunches(
 
   if (opts.dryRun) {
     result.written = records.length;
+    result.cleared = staleIds.length;
     return result;
+  }
+
+  for (let i = 0; i < staleIds.length; i += WRITE_CHUNK) {
+    const { error } = await db
+      .schema("hris")
+      .from("attendance_logs")
+      .delete()
+      .in("id", staleIds.slice(i, i + WRITE_CHUNK));
+    if (error) {
+      result.errors += Math.min(WRITE_CHUNK, staleIds.length - i);
+      continue;
+    }
+    result.cleared += Math.min(WRITE_CHUNK, staleIds.length - i);
+    result.touched.push(...staleTouched.slice(i, i + WRITE_CHUNK));
   }
 
   for (let i = 0; i < records.length; i += WRITE_CHUNK) {

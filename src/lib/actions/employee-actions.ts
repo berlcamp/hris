@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { recomputeAttendanceDeductionsBatch } from "@/lib/actions/attendance-deduction-actions";
+import { resortEmployeesInRange, resortWindow } from "@/lib/schedule-resort";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import {
@@ -283,6 +285,15 @@ export async function updateEmployee(
   // edited without ever showing a hire date field.
   const hireDate = input.hire_date || manilaToday();
 
+  // A new base schedule moves which cells this employee's punches belong in;
+  // read the old one so the re-sort below runs only when it actually changed.
+  const { data: before } = await supabase
+    .schema("hris")
+    .from("employees")
+    .select("schedule_id")
+    .eq("id", id)
+    .maybeSingle();
+
   const { data, error } = await supabase
     .schema("hris")
     .from("employees")
@@ -327,6 +338,14 @@ export async function updateEmployee(
     recordId: id,
     newValues: { first_name: input.first_name, last_name: input.last_name },
   });
+
+  if ((before?.schedule_id ?? null) !== (input.schedule_id ?? null)) {
+    const window = resortWindow("0001-01-01", manilaToday());
+    if (window) {
+      const result = await resortEmployeesInRange(supabase, [id], window.from, window.to);
+      if (result.touched.length > 0) await recomputeAttendanceDeductionsBatch(result.touched);
+    }
+  }
 
   revalidatePath("/employees");
   revalidatePath(`/employees/${id}`);
