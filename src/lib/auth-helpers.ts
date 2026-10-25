@@ -650,3 +650,16 @@ export function canOverrideEventAttendance(role: RoleInput): boolean {
 export function canAccessEvents(role: RoleInput): boolean {
   return canScanEvents(role);
 }
+
+// Which set of steps the DTR guide opens on (lib/dtr-help-content.ts): the
+// officers who import and approve, the department admins who file requests,
+// or everyone else. The guide lets any viewer switch; this is only the default.
+export function dtrGuideAudience(
+  actor: CorrectionActor,
+): "officer" | "department" | "employee" {
+  if (canDirectApplyAttendanceCorrection(actor.roles) || isAttendanceManager(actor.roles)) {
+    return "officer";
+  }
+  if (canRequestAttendanceCorrection(actor)) return "department";
+  return "employee";
+}

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
-import { canPrintDtr } from "@/lib/auth-helpers";
+import { canPrintDtr, dtrGuideAudience } from "@/lib/auth-helpers";
 import { BulkDtrClient } from "@/components/attendance/bulk-dtr-client";
 import { DtrGuideDialog } from "@/components/dtr/dtr-guide-dialog";
 
@@ -28,7 +28,7 @@ export default async function BulkDtrPage() {
             a date range.
           </p>
         </div>
-        <DtrGuideDialog />
+        <DtrGuideDialog audience={dtrGuideAudience(user)} />
       </div>
       <BulkDtrClient
         departments={departments}

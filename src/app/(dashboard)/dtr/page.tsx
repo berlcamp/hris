@@ -7,6 +7,7 @@ import {
   canAccessDtr,
   canImportDtrDevice,
   canSelectDtrDepartment,
+  dtrGuideAudience,
   isDeptScoped,
 } from "@/lib/auth-helpers";
 import { DahuaImportDialog } from "@/components/attendance/dahua-import-dialog";
@@ -57,7 +58,7 @@ export default async function DtrPage() {
         </p>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <DtrGuideDialog />
+        <DtrGuideDialog audience={dtrGuideAudience(user)} />
         {showImport && <DahuaImportDialog />}
       </div>
     </div>

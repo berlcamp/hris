@@ -8,6 +8,7 @@ import { getDepartments } from "@/lib/actions/user-actions";
 import {
   canDirectApplyAttendanceCorrection,
   canFileAttendanceCorrection,
+  dtrGuideAudience,
 } from "@/lib/auth-helpers";
 import { manilaToday } from "@/lib/format-date";
 import { UnsettledReview } from "@/components/attendance-corrections/unsettled-review";
@@ -40,7 +41,7 @@ export default async function UnsettledDaysPage() {
             </p>
           </div>
         </div>
-        <DtrGuideDialog />
+        <DtrGuideDialog audience={dtrGuideAudience(user)} />
       </div>
       <UnsettledReview
         directApply={direct}

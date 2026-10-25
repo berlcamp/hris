@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees } from "@/lib/actions/employee-actions";
-import { canAccessAttendance, canPrintDtr } from "@/lib/auth-helpers";
+import { canAccessAttendance, canPrintDtr, dtrGuideAudience } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { IndividualDtrClient } from "@/components/attendance/individual-dtr-client";
 import { DtrGuideDialog } from "@/components/dtr/dtr-guide-dialog";
@@ -42,7 +42,7 @@ export default async function DtrPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <DtrGuideDialog />
+          <DtrGuideDialog audience={dtrGuideAudience(user)} />
           {canBulkDtr && (
             <Link href="/attendance/dtr/bulk">
               <Button variant="outline" size="sm">
