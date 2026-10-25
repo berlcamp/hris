@@ -18,6 +18,7 @@ import {
 import { getDepartmentDtrBulk } from "@/lib/actions/attendance-actions";
 import { formatManilaLongDate } from "@/lib/format-date";
 import { BulkDtrPdf } from "@/components/pdf/bulk-dtr-pdf";
+import { unsettledNotice } from "@/lib/dtr-unsettled";
 
 interface BulkDtrClientProps {
   departments: { id: string; name: string; code: string }[];
@@ -86,6 +87,9 @@ export function BulkDtrClient({
       URL.revokeObjectURL(url);
 
       toast.success(`Generated DTR for ${results.length} employee${results.length === 1 ? "" : "s"}.`);
+      // Blank punches print blank and cost nothing until they are settled.
+      const notice = unsettledNotice(results);
+      if (notice) toast.warning(notice, { duration: 10_000 });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to generate bulk DTR",

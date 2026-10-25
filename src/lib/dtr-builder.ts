@@ -15,12 +15,17 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import {
   DEFAULT_SCHEDULE,
+  UNDERTIME_ABSENT_MINUTES,
+  UNDERTIME_CAP_MINUTES,
+  applyUndertimeAbsenceRule,
   dayLateUndertime,
   hasBreak,
   pmLateMinutesFor,
   trimTimeStr,
   unrecordedDayCharge,
+  unsettledSlots,
   type ScheduleLike,
+  type SlotKey,
 } from "@/lib/attendance-schedule";
 import { getHolidayMap } from "@/lib/holiday-helpers";
 import {
@@ -75,6 +80,9 @@ export interface DtrEntry {
   reason_out_am: string | null;
   reason_in_pm: string | null;
   reason_out_pm: string | null;
+  // Blank cells the employee still has to settle (unsettledSlots). They print
+  // blank and cost nothing until settled. Absent on non-worked rows.
+  unsettled_slots?: SlotKey[];
 }
 
 export interface DtrSummary {
@@ -183,30 +191,9 @@ export function slotReasonShort(code: unknown): string | null {
   return code ? NO_TIME_REASON_SHORT[code as NoTimeReason] ?? null : null;
 }
 
-// DTR undertime ceiling. A standard workday is 8 hours, so undertime is capped
-// at 7 hours: anything from 8 hours up means the employee rendered no
-// meaningful service that day and the day is counted ABSENT instead of as a
-// near-full-day undertime.
-const UNDERTIME_CAP_MINUTES = 7 * 60; // 420
-export const UNDERTIME_ABSENT_MINUTES = 8 * 60; // 480
-
-// Applies the cap/absence rule to a day's already-excused late + undertime
-// minutes. When undertime reaches 8 hours the day is reclassified absent and
-// both late and undertime are zeroed; otherwise undertime is clamped to 7 hours.
-export function applyUndertimeAbsenceRule(
-  lateMins: number,
-  undertimeMins: number,
-  alreadyAbsent: boolean,
-): { lateMins: number; undertimeMins: number; absent: boolean } {
-  if (undertimeMins >= UNDERTIME_ABSENT_MINUTES) {
-    return { lateMins: 0, undertimeMins: 0, absent: true };
-  }
-  return {
-    lateMins,
-    undertimeMins: Math.min(undertimeMins, UNDERTIME_CAP_MINUTES),
-    absent: alreadyAbsent,
-  };
-}
+// The 7-hour cap and the 8-hour absent charge live with the rest of the day
+// rules in attendance-schedule.ts; re-exported for the existing importers.
+export { UNDERTIME_ABSENT_MINUTES, applyUndertimeAbsenceRule };
 
 /**
  * The REST-DAY counterpart of applyUndertimeAbsenceRule, for a Saturday or
@@ -562,34 +549,32 @@ export async function buildDtrResults(
         // when the afternoon is excused.
         const { am: holidayExcusesAm, pm: holidayExcusesPm } =
           holidayExcusedSessions(holidayType);
+        const daySlots = {
+          time_in_am: extractTime(tInAmRaw),
+          time_out_am: extractTime(tOutAmRaw),
+          time_in_pm: extractTime(tInPmRaw),
+          time_out_pm: extractTime(tOutPmRaw),
+          time_in_am_next_day: timestampOnNextDay(tInAmRaw, day.date),
+          time_in_pm_next_day: timestampOnNextDay(tInPmRaw, day.date),
+          time_out_pm_next_day: timestampOnNextDay(tOutPmRaw, day.date),
+        };
+        const dayOpts = {
+          reasons: {
+            in_am: !!reasonInAm,
+            out_am: !!reasonOutAm,
+            in_pm: !!reasonInPm,
+            out_pm: !!reasonOutPm,
+          },
+          // A day-level reason (OFF, a declared rest day) states the whole
+          // day, so neither session is charged.
+          excuseAm: holidayExcusesAm || !!log.no_time_reason,
+          excusePm: holidayExcusesPm || !!log.no_time_reason,
+        };
         const { lateMinutes: effLateMins, undertimeMinutes: effUndertimeMins } =
-          dayLateUndertime(
-            day.date,
-            daySched,
-            {
-              time_in_am: extractTime(tInAmRaw),
-              time_out_am: extractTime(tOutAmRaw),
-              time_in_pm: extractTime(tInPmRaw),
-              time_out_pm: extractTime(tOutPmRaw),
-              time_in_am_next_day: timestampOnNextDay(tInAmRaw, day.date),
-              time_in_pm_next_day: timestampOnNextDay(tInPmRaw, day.date),
-              time_out_pm_next_day: timestampOnNextDay(tOutPmRaw, day.date),
-            },
-            {
-              reasons: {
-                in_am: !!reasonInAm,
-                out_am: !!reasonOutAm,
-                in_pm: !!reasonInPm,
-                out_pm: !!reasonOutPm,
-              },
-              // A day-level reason (OFF, a declared rest day) states the whole
-              // day, so neither session is charged.
-              excuseAm: holidayExcusesAm || !!log.no_time_reason,
-              excusePm: holidayExcusesPm || !!log.no_time_reason,
-            },
-          );
-        // Cap undertime at 7h; 8h+ reclassifies the day as absent — unless the
-        // day is a weekend, which owes no hours and so can never be an absence.
+          dayLateUndertime(day.date, daySched, daySlots, dayOpts);
+        const daysUnsettled = unsettledSlots(day.date, daySched, daySlots, dayOpts);
+        // Cap undertime at 7h. A day with punches is never reclassified absent
+        // (see applyUndertimeAbsenceRule); a weekend owes no hours at all.
         // This branch is the one that had no weekend rule at all: the no-row
         // branch below has always guarded its absence with `!day.isWeekend`,
         // and a Saturday that merely HAD a row was charged as if it were a
@@ -650,6 +635,7 @@ export async function buildDtrResults(
           reason_out_am: showTimes ? reasonOutAm : null,
           reason_in_pm: showTimes ? reasonInPm : null,
           reason_out_pm: showTimes ? reasonOutPm : null,
+          unsettled_slots: showTimes ? daysUnsettled : [],
         });
 
         // An unworked weekend counts as neither present nor absent — exactly

@@ -22,6 +22,7 @@ import {
 } from "@/lib/actions/dtr-actions";
 import { formatMonthLabel, isMonthKey } from "@/lib/month-range";
 import { BulkDtrPdf } from "@/components/pdf/bulk-dtr-pdf";
+import { unsettledNotice } from "@/lib/dtr-unsettled";
 import type { BulkDtrResult } from "@/lib/dtr-builder";
 
 interface DepartmentOption {
@@ -128,6 +129,9 @@ export function DtrClient({
       <BulkDtrPdf results={results} periodLabel={formatMonthLabel(month)} />,
     ).toBlob();
     downloadPdf(blob, filename);
+    // Blank punches print blank and cost nothing until they are settled.
+    const notice = unsettledNotice(results);
+    if (notice) toast.warning(notice, { duration: 10_000 });
   };
 
   const handleBulk = async () => {

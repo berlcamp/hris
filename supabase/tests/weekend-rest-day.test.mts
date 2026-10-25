@@ -62,18 +62,18 @@ const slots = (
 
 // --- the weekday rule is untouched -------------------------------------------
 
-test("a weekday keeps every flat half-day charge", () => {
+test("a weekday charges a blank session and measures its punches", () => {
   assert.equal(
     dayLateUndertime(MON, REGULAR, slots("08:00", "12:00", null, null))
       .undertimeMinutes,
     240,
-    "an unaccounted afternoon is still half a day",
+    "a fully blank afternoon is half a day",
   );
   assert.equal(
-    dayLateUndertime(MON, REGULAR, slots("08:00", null, null, null))
+    dayLateUndertime(MON, REGULAR, slots("08:00", "12:00", "13:00", "16:00"))
       .undertimeMinutes,
-    480,
-    "a lone weekday scan is still a full day, which the DTR reads as absent",
+    60,
+    "an early weekday departure is charged",
   );
   assert.equal(
     dayLateUndertime(MON, REGULAR, slots("08:30", "12:00", "13:00", "17:00"))
@@ -172,8 +172,8 @@ test("a no-break weekend shift is charged nothing", () => {
   assert.equal(
     dayLateUndertime(MON, NO_BREAK, slots("08:00", null, null, null))
       .undertimeMinutes,
-    540,
-    "a weekday no-break shift with no clock-out bills the whole shift",
+    0,
+    "a weekday no-break shift with no clock-out is unsettled, not charged",
   );
   assert.equal(
     dayLateUndertime(SAT, NO_BREAK, slots("08:00", null, null, null))

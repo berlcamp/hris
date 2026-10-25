@@ -26,6 +26,7 @@ import { commandSubstringFilter } from "@/lib/command-filter";
 import { getEmployeeDtrRange } from "@/lib/actions/attendance-actions";
 import { formatManilaLongDate } from "@/lib/format-date";
 import { BulkDtrPdf } from "@/components/pdf/bulk-dtr-pdf";
+import { unsettledNotice } from "@/lib/dtr-unsettled";
 import type { EmployeeWithRelations } from "@/lib/actions/employee-actions";
 
 interface IndividualDtrClientProps {
@@ -85,6 +86,9 @@ export function IndividualDtrClient({
       URL.revokeObjectURL(url);
 
       toast.success("DTR PDF generated.");
+      // Blank punches print blank and cost nothing until they are settled.
+      const notice = unsettledNotice([result]);
+      if (notice) toast.warning(notice, { duration: 10_000 });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to generate DTR",

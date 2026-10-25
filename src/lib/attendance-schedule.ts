@@ -153,141 +153,47 @@ interface Punch {
   time: string;
   // Whether the punch's calendar date is duty-date + 1 (relevant for night shifts).
   onNextDay: boolean;
-  // Absolute ms timestamp — used for sorting and bucket assignment.
+  // Absolute ms timestamp — used for sorting and slot assignment.
   ms: number;
-  // Normalized Dahua attendance status: "checkin" | "breakout" | "breakin" |
-  // "checkout" | "" (when the source had no usable label, e.g. CSV imports).
-  status: string;
 }
 
-// Maps a normalized Dahua attendance status to the AM/PM slot it represents.
-const STATUS_SLOT: Record<
-  string,
-  "in_am" | "out_am" | "in_pm" | "out_pm" | undefined
-> = {
-  checkin: "in_am",
-  breakout: "out_am",
-  breakin: "in_pm",
-  checkout: "out_pm",
-};
+const MINUTE_MS = 60_000;
 
-function normPunchStatus(s: string | null | undefined): string {
-  return (s ?? "").replace(/[\s_-]+/g, "").toLowerCase();
-}
+// A punch this soon after an arrival, and before the middle of the session, is
+// a re-scan of the arrival — not a departure. 7:30 / 7:57 / 8:01 is one arrival
+// at 7:30. Agreed with the HR office; a genuine early departure (leaving sick
+// at 9:30) is more than an hour after arriving and still counts.
+export const ARRIVAL_RESCAN_MINUTES = 60;
 
-// When every punch carries a recognized Dahua label, assign slots by the
-// device's own intent rather than by time window. This is immune to re-scans
-// landing a minute on the wrong side of the break boundary.
-//   time_in_am  = earliest Check In       time_out_pm = latest Check Out
-// The two midday break punches are treated as ONE ordered group, NOT split by
-// their Break Out / Break In label — the device frequently tags the return from
-// lunch as "Break Out" too (it doesn't reliably distinguish leaving from
-// returning). So the earliest break punch is the AM departure (left for lunch)
-// and the latest is the PM arrival (came back):
-//   time_out_am = earliest break punch    time_in_pm  = latest break punch
-// `punches` must be pre-sorted ascending by ms. `dutyDate`/`sched` are used only
-// to locate the PM midpoint when rescuing a mislabeled end-of-day punch (below).
-function bucketByStatus(
-  punches: Punch[],
-  dutyDate: string,
-  sched: ScheduleLike,
-): BucketResult {
-  const inSlot = (slot: string) =>
-    punches.filter((p) => STATUS_SLOT[p.status] === slot);
-  const first = (arr: Punch[]) => arr[0] ?? null;
-  const last = (arr: Punch[]) => arr[arr.length - 1] ?? null;
+// Re-scans of the lunch departure (12:01, 12:03) are one departure, kept at the
+// latest. Anything further apart is the return from lunch: nobody takes a
+// lunch shorter than this.
+export const DEPARTURE_RESCAN_MINUTES = 10;
 
-  const inAm = first(inSlot("in_am"));
-  const outPmPunches = inSlot("out_pm");
-  // Explicitly nullable: the rescue below can clear it when the only "Check
-  // Out" of the day turns out to be the return from lunch.
-  let outPm: Punch | null = last(outPmPunches);
-
-  // Break Out + Break In merged and ordered; earliest = out, latest = in.
-  const breaks = punches.filter((p) => {
-    const slot = STATUS_SLOT[p.status];
-    return slot === "out_am" || slot === "in_pm";
-  });
-
-  // Halfway between the scheduled lunch return and the scheduled clock-out.
-  // Both rescues below hang off it: nobody returns from lunch after it, and
-  // nobody leaves for the day before it.
-  const pmMidpointMs =
-    (shiftMomentMs(dutyDate, sched, sched.break_end!) +
-      shiftMomentMs(dutyDate, sched, sched.time_out)) /
-    2;
-
-  // The device labels punches by ORDER (Check In / Break Out / Break In / Check
-  // Out), so on an early-release day the final logout comes through as a Break
-  // punch instead of a Check Out — no out_pm punch exists, and the merged break
-  // group ends with what is really the DEPARTURE. If the employee was present
-  // earlier in the day and that last break punch lands past the PM midpoint
-  // (nobody returns from lunch at 3PM), rescue it as time_out_pm and let the
-  // remaining break punches supply the real AM-out / PM-in. Without this the
-  // 3PM logout prints as the PM arrival, PM out stays blank, and the whole
-  // afternoon is charged as un-clocked-out undertime. The midpoint mirrors the
-  // window path's lone-PM heuristic; a genuine (early) lunch return stays put.
-  if (!outPm && (inAm || breaks.length > 1) && breaks.length > 0) {
-    const lastBreak = breaks[breaks.length - 1];
-    if (lastBreak.ms >= pmMidpointMs) {
-      outPm = lastBreak;
-      breaks.pop();
-    }
-  }
-
-  // "Earliest break punch = left for lunch" only holds if the employee was
-  // HERE in the morning. With no Check In, they were absent/on leave in the AM
-  // and arrived at midday, so the first break punch is the PM ARRIVAL — not a
-  // departure from a lunch they never took. Recording it as time_out_am would
-  // print a phantom AM departure and leave the real arrival blank.
-  const outAm = inAm ? (breaks.length > 0 ? breaks[0] : null) : null;
-  let inPm = inAm
-    ? breaks.length > 1
-      ? breaks[breaks.length - 1]
-      : null
-    : breaks.length > 0
-      ? breaks[0]
-      : null;
-
-  // An afternoon cannot have a departure and no arrival. Nobody clocks out of
-  // a session they never clocked into, so a "Check Out" sitting alone in the
-  // PM is not a departure — it is the return from lunch, mislabeled. The
-  // device tags punches by ORDER (Check In / Break Out / Break In / Check
-  // Out), so whenever the midday scans do not both come through as Break
-  // punches, the tap after lunch arrives as a Check Out.
-  //
-  // The clock decides, on the same midpoint as the rescue above: before it,
-  // the punch is a lunch return and becomes time_in_pm; at or after it, a
-  // genuine early release, which stays the departure and leaves the arrival
-  // blank for the half-day rule to charge. This is that rescue's mirror image
-  // — there a mislabeled LATE punch is recovered as the departure, here a
-  // mislabeled EARLY one is recovered as the arrival.
-  if (!inPm && outPm && outPmPunches.length > 0) {
-    const earliestOut = outPmPunches[0];
-    if (earliestOut.ms < pmMidpointMs) {
-      inPm = earliestOut;
-      // With only one such punch it IS the arrival, so nothing is left to be
-      // the departure. With several, the later ones still close the day.
-      if (outPm === earliestOut) outPm = null;
-    }
-  }
-
-  return {
-    time_in_am: inAm?.time ?? null,
-    time_in_am_next_day: inAm?.onNextDay ?? false,
-    time_out_am: outAm?.time ?? null,
-    time_out_am_next_day: outAm?.onNextDay ?? false,
-    time_in_pm: inPm?.time ?? null,
-    time_in_pm_next_day: inPm?.onNextDay ?? false,
-    time_out_pm: outPm?.time ?? null,
-    time_out_pm_next_day: outPm?.onNextDay ?? false,
-  };
-}
-
-// Buckets a set of raw punches for one duty date into AM/PM slots given the
-// employee's schedule. For schedules with no break, the in-punch goes to
-// `time_in_am` and the out-punch to `time_out_pm` (the other two stay null);
-// downstream DTR code looks at the schedule to decide column layout.
+// Sorts one duty date's raw punches into the four DTR cells.
+//
+// Time decides, never the device's Check In / Break Out label: an employee who
+// logs in at Building 1 and out at Building 3 is "Check In" on both, because
+// each device labels by its own order. The rules, for a schedule with a break:
+//
+//   AM in   the first punch, if it is before break start (otherwise the
+//           employee was absent in the morning and every punch is afternoon).
+//           Punches before the morning's midpoint and within
+//           ARRIVAL_RESCAN_MINUTES of it are re-scans and are dropped.
+//   AM out  the next punch, if it is nearer break start than break end (before
+//           the lunch midpoint) — the lunch departure, or an early departure
+//           for the day. Its re-scans within DEPARTURE_RESCAN_MINUTES extend it,
+//           so it keeps the latest.
+//   PM in   the first remaining punch, unless it is already past the
+//           afternoon's midpoint — then there was no return from lunch and it
+//           is a departure.
+//   PM out  the last remaining punch, if it is past the afternoon's midpoint
+//           or more than ARRIVAL_RESCAN_MINUTES after the PM in.
+//
+// A cell the rules cannot fill stays blank. Blank is UNSETTLED, not guessed:
+// see unsettledSlots. A schedule with no break has one session — first punch
+// in, last punch out, by the same re-scan rule — and its AM-out / PM-in cells
+// stay blank by design.
 export function bucketPunchesForDuty(
   punchesByActualDate: { date: string; time: string; status?: string | null }[],
   dutyDate: string,
@@ -296,133 +202,96 @@ export function bucketPunchesForDuty(
   if (punchesByActualDate.length === 0) return emptyBucket();
 
   const punches: Punch[] = punchesByActualDate.map((p) => {
-    const onNextDay = p.date !== dutyDate;
+    const time = hhmm(p.time);
     return {
-      time: p.time,
-      onNextDay,
-      ms: new Date(`${p.date}T${p.time}:00`).getTime(),
-      status: normPunchStatus(p.status),
+      time,
+      onNextDay: p.date !== dutyDate,
+      ms: new Date(`${p.date}T${time}:00`).getTime(),
     };
   });
   punches.sort((a, b) => a.ms - b.ms);
 
-  // --- Status-first path (break schedules) ---
-  // Only when every punch is a recognized Check In/Break Out/Break In/Check Out
-  // label AND the day actually carries at least one break punch; otherwise fall
-  // through to time-window bucketing. No-break shifts use the window path, where
-  // earliest-in / latest-out already pick the endpoints.
-  //
-  // Some Dahua devices only ever emit "Check In"/"Check Out" — they never label
-  // the midday lunch scans as Break Out/Break In. For those, the labels are
-  // technically all "recognized" but carry no AM-out/PM-in information, so
-  // trusting them would collapse the lunch pair into the first-in / last-out and
-  // leave AM-out + PM-in blank. Requiring a real break punch routes those days
-  // to the time-window path, which splits the 12:08 lunch-out / 12:5x lunch-in
-  // correctly by the schedule's break window.
-  const hasBreakPunch = punches.some(
-    (p) => STATUS_SLOT[p.status] === "out_am" || STATUS_SLOT[p.status] === "in_pm",
-  );
-  if (
-    hasBreak(sched) &&
-    hasBreakPunch &&
-    punches.every((p) => STATUS_SLOT[p.status])
-  ) {
-    return bucketByStatus(punches, dutyDate, sched);
-  }
+  const out = emptyBucket();
+  const set = (slot: "in_am" | "out_am" | "in_pm" | "out_pm", p: Punch | null) => {
+    if (!p) return;
+    out[`time_${slot}`] = p.time;
+    out[`time_${slot}_next_day`] = p.onNextDay;
+  };
+  const rescanMs = ARRIVAL_RESCAN_MINUTES * MINUTE_MS;
+  const inMs = shiftMomentMs(dutyDate, sched, sched.time_in);
+  const outMs = shiftMomentMs(dutyDate, sched, sched.time_out);
 
-  // --- No-break path: single in/out ---
+  // A departure follows an arrival by more than a re-scan, or is past the
+  // middle of the session it closes. Monotonic in time, so if any punch
+  // qualifies the last one does.
+  const departureAfter = (rest: Punch[], arrival: Punch, midMs: number) => {
+    const last = rest[rest.length - 1];
+    if (!last || last === arrival) return null;
+    return last.ms >= midMs || last.ms - arrival.ms > rescanMs ? last : null;
+  };
+
   if (!hasBreak(sched)) {
+    const midMs = (inMs + outMs) / 2;
     const first = punches[0];
-    const last = punches[punches.length - 1];
-    return {
-      time_in_am: first.time,
-      time_in_am_next_day: first.onNextDay,
-      time_out_am: null,
-      time_out_am_next_day: false,
-      time_in_pm: null,
-      time_in_pm_next_day: false,
-      time_out_pm: punches.length > 1 ? last.time : null,
-      time_out_pm_next_day: punches.length > 1 ? last.onNextDay : false,
-    };
+    if (first.ms >= midMs) {
+      // Only end-of-shift punches: the clock-out, with no clock-in.
+      set("out_pm", punches[punches.length - 1]);
+    } else {
+      set("in_am", first);
+      set("out_pm", departureAfter(punches, first, midMs));
+    }
+    return out;
   }
 
-  // --- Has-break path: split by break window ---
   const breakStartMs = shiftMomentMs(dutyDate, sched, sched.break_start!);
   const breakEndMs = shiftMomentMs(dutyDate, sched, sched.break_end!);
+  const amMidMs = (inMs + breakStartMs) / 2;
+  const lunchMidMs = (breakStartMs + breakEndMs) / 2;
+  const pmMidMs = (breakEndMs + outMs) / 2;
 
-  const am: Punch[] = [];
-  const mid: Punch[] = [];
-  const pm: Punch[] = [];
-  for (const p of punches) {
-    if (p.ms < breakStartMs) am.push(p);
-    else if (p.ms < breakEndMs) mid.push(p);
-    else pm.push(p);
-  }
-  // Punches inside the break window are lunch punches — but only for someone
-  // who was here in the morning. With an AM arrival, the first goes to AM-out
-  // (if missing) and the rest to PM (the last becoming PM-in if missing).
-  //
-  // With NO morning punch the employee was absent/on leave in the AM and simply
-  // arrived at midday, so every break-window punch is a PM punch. Pushing one
-  // into the empty AM bucket is what made a lone 12:45 arrival print as AM
-  // Arrival and read as ~4.75 hours late.
-  if (mid.length > 0) {
-    if (am.length > 0) {
-      if (am.length < 2) am.push(mid[0]);
-      if (mid.length > 1) pm.unshift(mid[mid.length - 1]);
-    } else {
-      pm.unshift(...mid);
+  let i = 0;
+  if (punches[0].ms < breakStartMs) {
+    const amIn = punches[0];
+    set("in_am", amIn);
+    i = 1;
+    while (
+      i < punches.length &&
+      punches[i].ms < amMidMs &&
+      punches[i].ms - amIn.ms <= rescanMs
+    ) {
+      i++;
+    }
+    if (i < punches.length && punches[i].ms < lunchMidMs) {
+      let amOut = punches[i++];
+      while (
+        i < punches.length &&
+        punches[i].ms < breakEndMs &&
+        punches[i].ms - amOut.ms <= DEPARTURE_RESCAN_MINUTES * MINUTE_MS
+      ) {
+        amOut = punches[i++];
+      }
+      set("out_am", amOut);
     }
   }
 
-  const amFirst = am[0];
-  const amLast = am.length > 1 ? am[am.length - 1] : null;
-
-  // A lone PM punch is ambiguous: it is either the return from lunch (arrival)
-  // or the end of the day (departure). Split on the midpoint of the PM session,
-  // so a 17:05 punch reads as the departure it plainly is rather than an
-  // arrival that leaves time_out_pm blank and charges a phantom half-day of
-  // undertime.
-  //
-  // A "Check Out" label cannot promote a punch to departure on its own: the
-  // device labels by ORDER, so the tap after lunch routinely arrives tagged
-  // Check Out, and honouring that left the afternoon with an exit and no
-  // entry. Nobody clocks out of a session they never clocked into, so before
-  // the midpoint the clock wins and the punch is the arrival. A "Break In"
-  // label still pins a punch as the arrival — that direction never invents a
-  // departure, and bucketByStatus rescues a genuinely late one separately.
-  let pmFirst: Punch | null = null;
-  let pmLast: Punch | null = null;
-  if (pm.length > 1) {
-    pmFirst = pm[0];
-    pmLast = pm[pm.length - 1];
-  } else if (pm.length === 1) {
-    const only = pm[0];
-    const slot = STATUS_SLOT[only.status];
-    const pmMidpointMs =
-      (breakEndMs + shiftMomentMs(dutyDate, sched, sched.time_out)) / 2;
-    const isDeparture = slot === "in_pm" ? false : only.ms >= pmMidpointMs;
-    if (isDeparture) pmLast = only;
-    else pmFirst = only;
+  const rest = punches.slice(i);
+  if (rest.length > 0) {
+    if (rest[0].ms >= pmMidMs) {
+      set("out_pm", rest[rest.length - 1]);
+    } else {
+      set("in_pm", rest[0]);
+      set("out_pm", departureAfter(rest, rest[0], pmMidMs));
+    }
   }
-
-  return {
-    time_in_am: amFirst?.time ?? null,
-    time_in_am_next_day: amFirst?.onNextDay ?? false,
-    time_out_am: amLast?.time ?? null,
-    time_out_am_next_day: amLast?.onNextDay ?? false,
-    time_in_pm: pmFirst?.time ?? null,
-    time_in_pm_next_day: pmFirst?.onNextDay ?? false,
-    time_out_pm: pmLast?.time ?? null,
-    time_out_pm_next_day: pmLast?.onNextDay ?? false,
-  };
+  return out;
 }
 
-// A half day. An LGU workday is two sessions — morning and afternoon — and a
-// session missing either of its two punches is charged as a whole half day,
-// flat, whatever the schedule's actual shape. Deliberately NOT derived from
-// time_in → break_start: a 7:30–16:30 schedule still charges 4:00 for an
-// unaccounted morning, because the DTR's unit of undertime is the half day.
+// A half day. An LGU workday is two sessions — morning and afternoon. A session
+// with BOTH cells blank (dayLateUndertime), or with no attendance at all on a
+// day that has no row (a half-day holiday's other half, unrecordedDayCharge),
+// is charged as a whole half day, flat, whatever the schedule's actual shape.
+// A session with only ONE blank cell is never charged this: that cell is
+// unsettled (see unsettledSlots).
 export const HALF_DAY_UNDERTIME_MINUTES = 4 * 60; // 240
 
 export interface DaySlotTimes {
@@ -450,38 +319,29 @@ export interface DayMinutes {
 
 // The whole of a day's late + undertime, in ONE place.
 //
-// The rule, for a schedule with a break: a session (morning = AM in/out,
-// afternoon = PM in/out) that does not carry BOTH its punches rendered no
-// verifiable service, and is charged a flat half day. A DTR cell cannot be
-// blank and cost nothing — that is what let a missing lunch scan, or an
-// afternoon with a departure but no arrival, pass as a full day's work.
+// For a schedule with a break, a day is two sessions — morning (AM in/out) and
+// afternoon (PM in/out):
+//   * a session with BOTH cells blank rendered no service and is charged a
+//     flat half day (HALF_DAY_UNDERTIME_MINUTES), unless excused or explained;
+//   * a session with ONE blank cell costs nothing — the cell is unsettled (see
+//     unsettledSlots) and the employee settles it through a correction.
+// Migration 070 charged the flat half day for ONE blank cell too, which billed
+// eight hours to an employee who came in at 8:00 and left at 17:00 but skipped
+// the lunch scans, and printed the day ABSENT. A day with no punches at all is
+// an absence and is charged by the DTR, not here.
 //
-// The flat charge SUPERSEDES that session's per-minute charges: a morning
-// already billed as four unaccounted hours is not also billed for arriving
-// late, which would put more than four hours of penalty on a four-hour
-// session. A complete session is charged exactly what it was charged before —
-// lateness against time_in, early departure against time_out, and a late
-// return from lunch against break_end.
+// The punches that ARE there are still measured: lateness against time_in, a
+// late return from lunch against break_end, an early departure against
+// time_out. A slot reason (OB / FW / TRAVEL / NO BREAK / …) excuses the punch it
+// sits on; excuseAm / excusePm (a holiday half, or a day-level reason like OFF)
+// excuse that session's charges wholesale.
 //
-// A reason on either of a session's slots explains the missing punch, so the
-// flat charge does not apply; the punches that ARE there are still measured,
-// so tagging the two lunch slots NO BREAK on a day worked straight through
-// does not also forgive arriving half an hour late.
+// On a REST DAY (see isRestDay) NOTHING is charged at all. No hours are owed on
+// a Saturday or Sunday, so there is no schedule for a punch to be measured
+// against. The times still print on the DTR; only the deduction is dropped.
 //
-// Schedules with no break keep their existing treatment — a single in/out pair
-// has no half to charge, and a missing clock-out bills the whole shift.
-//
-// On a REST DAY (see isRestDay) NOTHING is charged at all — not the flat half
-// days, and not the per-minute lateness or early departure either. No hours are
-// owed on a Saturday or Sunday, so there is no schedule for a punch to be
-// measured against: an employee who reports for weekend duty is rendering
-// service that was never required of them, and arriving at 8:15 or leaving at
-// 15:00 on a day nothing could roster them onto is not a shortfall. The times
-// still print on the DTR; only the deduction is dropped.
-//
-// Late and undertime are returned together because the two now interact: split
-// across two functions, every caller would have to re-implement the
-// supersession rule and they would drift apart.
+// hris.day_late_undertime (migration 093) mirrors this clause for clause for
+// the stored columns and the VL auto-deduction. Change both together.
 export function dayLateUndertime(
   dutyDate: string,
   sched: ScheduleLike,
@@ -489,7 +349,7 @@ export function dayLateUndertime(
   opts: {
     reasons?: SlotReasonFlags;
     /** The morning is excused wholesale — a full/AM holiday, or a day-level
-     *  reason like OFF. Suppresses the flat charge AND the per-minute ones. */
+     *  reason like OFF. */
     excuseAm?: boolean;
     excusePm?: boolean;
   } = {},
@@ -497,18 +357,9 @@ export function dayLateUndertime(
   const r = opts.reasons ?? {};
   const { excuseAm = false, excusePm = false } = opts;
 
-  // Derived here rather than passed in: every caller — the DTR, the summary
-  // report, the biometric importer, the corrections apply path — scores the
-  // same calendar, so a caller that could forget the flag is a caller that
-  // would drift from the printed document.
   if (isRestDay(dutyDate)) {
     return { lateMinutes: 0, undertimeMinutes: 0 };
   }
-
-  // A day with NO punches at all is an absence, not two incomplete sessions.
-  // The absent flag carries it and the DTR charges the full eight hours there
-  // (UNDERTIME_ABSENT_MINUTES). Charging 4 + 4 here as well would turn every
-  // rest day, holiday and approved leave into an eight-hour undertime.
   if (
     !slots.time_in_am &&
     !slots.time_out_am &&
@@ -518,53 +369,28 @@ export function dayLateUndertime(
     return { lateMinutes: 0, undertimeMinutes: 0 };
   }
 
-  if (!hasBreak(sched)) {
-    return {
-      lateMinutes:
-        excuseAm || r.in_am
-          ? 0
-          : lateMinutesFor(
-              dutyDate,
-              sched,
-              slots.time_in_am,
-              slots.time_in_am_next_day ?? false,
-            ),
-      undertimeMinutes:
-        excusePm || r.out_pm
-          ? 0
-          : undertimeMinutesFor(
-              dutyDate,
-              sched,
-              slots.time_out_pm,
-              slots.time_out_pm_next_day ?? false,
-              !!slots.time_in_am,
-            ),
-    };
-  }
+  const lateMinutes =
+    excuseAm || r.in_am
+      ? 0
+      : lateMinutesFor(
+          dutyDate,
+          sched,
+          slots.time_in_am,
+          slots.time_in_am_next_day ?? false,
+        );
 
-  let lateMinutes = 0;
   let undertimeMinutes = 0;
-
-  // --- morning ---
-  const amComplete = !!slots.time_in_am && !!slots.time_out_am;
-  const amExplained = excuseAm || !!r.in_am || !!r.out_am;
-  if (!amComplete && !amExplained) {
-    undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
-  } else if (!excuseAm && !r.in_am) {
-    lateMinutes = lateMinutesFor(
-      dutyDate,
-      sched,
-      slots.time_in_am,
-      slots.time_in_am_next_day ?? false,
-    );
+  if (hasBreak(sched)) {
+    const amBlank = !slots.time_in_am && !slots.time_out_am;
+    const pmBlank = !slots.time_in_pm && !slots.time_out_pm;
+    if (amBlank && !(excuseAm || r.in_am || r.out_am)) {
+      undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
+    }
+    if (pmBlank && !(excusePm || r.in_pm || r.out_pm)) {
+      undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
+    }
   }
-
-  // --- afternoon ---
-  const pmComplete = !!slots.time_in_pm && !!slots.time_out_pm;
-  const pmExplained = excusePm || !!r.in_pm || !!r.out_pm;
-  if (!pmComplete && !pmExplained) {
-    undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
-  } else if (!excusePm) {
+  if (!excusePm) {
     // Early departure, measured only when there is a departure to measure.
     if (!r.out_pm && slots.time_out_pm) {
       undertimeMinutes += undertimeMinutesFor(
@@ -575,7 +401,8 @@ export function dayLateUndertime(
         true,
       );
     }
-    // A late return from lunch is afternoon service not rendered.
+    // A late return from lunch is afternoon service not rendered. Zero for a
+    // schedule with no break.
     if (!r.in_pm) {
       undertimeMinutes += pmLateMinutesFor(
         dutyDate,
@@ -589,11 +416,85 @@ export function dayLateUndertime(
   return { lateMinutes, undertimeMinutes };
 }
 
+export type SlotKey = "in_am" | "out_am" | "in_pm" | "out_pm";
+
+// The blank cells of a day that the employee still has to settle.
+//
+// Only a day with at least one punch can be unsettled — a day with none is an
+// absence — and never a rest day, which owes nothing. A session is explained
+// wholesale by excuseAm / excusePm or by a reason on either of its slots (NO
+// BREAK on the two lunch slots settles a day worked straight through). On a
+// schedule with no break the AM-out and PM-in cells are blank by design; only a
+// missing clock-in or clock-out is unsettled there.
+export function unsettledSlots(
+  dutyDate: string,
+  sched: ScheduleLike,
+  slots: DaySlotTimes,
+  opts: {
+    reasons?: SlotReasonFlags;
+    excuseAm?: boolean;
+    excusePm?: boolean;
+  } = {},
+): SlotKey[] {
+  const r = opts.reasons ?? {};
+  const { excuseAm = false, excusePm = false } = opts;
+  if (isRestDay(dutyDate)) return [];
+  const has: Record<SlotKey, boolean> = {
+    in_am: !!slots.time_in_am,
+    out_am: !!slots.time_out_am,
+    in_pm: !!slots.time_in_pm,
+    out_pm: !!slots.time_out_pm,
+  };
+  if (!has.in_am && !has.out_am && !has.in_pm && !has.out_pm) return [];
+
+  const missing: SlotKey[] = [];
+  if (!hasBreak(sched)) {
+    if (!has.in_am && !excuseAm && !r.in_am) missing.push("in_am");
+    if (!has.out_pm && !excusePm && !r.out_pm) missing.push("out_pm");
+    return missing;
+  }
+  if (!(excuseAm || r.in_am || r.out_am)) {
+    if (!has.in_am) missing.push("in_am");
+    if (!has.out_am) missing.push("out_am");
+  }
+  if (!(excusePm || r.in_pm || r.out_pm)) {
+    if (!has.in_pm) missing.push("in_pm");
+    if (!has.out_pm) missing.push("out_pm");
+  }
+  return missing;
+}
+
+// DTR undertime ceiling. A standard workday is 8 hours, so a day's charged
+// undertime is capped at 7 hours. A day with NO attendance at all is an absence
+// and is charged the full eight (UNDERTIME_ABSENT_MINUTES) instead.
+export const UNDERTIME_CAP_MINUTES = 7 * 60; // 420
+export const UNDERTIME_ABSENT_MINUTES = 8 * 60; // 480
+
+// Applies the cap to a day's already-excused late + undertime minutes.
+//
+// This used to reclassify any day reaching 8 hours of undertime as ABSENT and
+// hide its punches. A day with punches has at most one fully blank session (4
+// hours), so the only days that still measure that much are real punches
+// scored against the wrong schedule — a night shift on a day schedule — and
+// those must print so the officer can pin the right schedule. A day with punches is never an absence; only a row
+// already marked absent (no punches) stays one.
+export function applyUndertimeAbsenceRule(
+  lateMins: number,
+  undertimeMins: number,
+  alreadyAbsent: boolean,
+): { lateMins: number; undertimeMins: number; absent: boolean } {
+  return {
+    lateMins,
+    undertimeMins: Math.min(undertimeMins, UNDERTIME_CAP_MINUTES),
+    absent: alreadyAbsent,
+  };
+}
+
 // The charge for a day with NO attendance row and no approved leave — nothing
 // was recorded, so both sessions are unaccounted. A weekday is an absence (the
 // full eight hours). A half-day holiday excuses one session, so the day is not
-// an absence, but the other session is still owed and is charged the same flat
-// half day dayLateUndertime puts on any unaccounted session. A rest day owes
+// an absence, but the other session is still owed and, with nothing recorded
+// for it, is charged a flat half day (HALF_DAY_UNDERTIME_MINUTES). A rest day owes
 // nothing. Full holidays never reach here — the DTR prints them first.
 export function unrecordedDayCharge(
   dutyDate: string,

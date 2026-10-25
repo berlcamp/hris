@@ -81,9 +81,9 @@ export function computeAttendanceFlags(
     time_in_am_next_day?: boolean;
     time_in_pm_next_day?: boolean;
     time_out_pm_next_day?: boolean;
-    // A slot's reason explains why its punch is missing, so the session it
-    // belongs to is not charged the flat half day. Absent on the import path,
-    // where the device reports punches and nothing else.
+    // A slot's reason excuses the punch it sits on (and settles its session's
+    // blank cells). Absent on the import path, where the device reports
+    // punches and nothing else.
     reason_in_am?: string | null;
     reason_out_am?: string | null;
     reason_in_pm?: string | null;

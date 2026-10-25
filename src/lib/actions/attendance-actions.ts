@@ -1030,8 +1030,8 @@ export async function getAttendanceReport(
                 excusePm: holidayExcuses.pm || !!log.no_time_reason,
               },
             );
-          // Same DTR rule: undertime caps at 7h; 8h+ counts the day absent —
-          // and a weekend, owing no hours, is never reclassified absent.
+          // Same DTR rule: undertime caps at 7h, and a day with punches is
+          // never reclassified absent.
           const { lateMins: lm, undertimeMins: um, absent } = day.isWeekend
             ? applyRestDayRule(lmRaw, umRaw)
             : applyUndertimeAbsenceRule(lmRaw, umRaw, false);
