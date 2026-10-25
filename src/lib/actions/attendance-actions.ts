@@ -10,7 +10,6 @@ import {
 } from "@/lib/auth-helpers";
 import { logAudit } from "@/lib/audit";
 import {
-  bucketPunchesForDuty,
   dayLateUndertime,
   dutyDateFor,
   unrecordedDayCharge,
@@ -28,22 +27,23 @@ import {
   employeesWithAttendance,
   extractTime,
   loadDtrEmployeesForDepartment,
-  loadOverrideSchedules,
   resolveDefaultSchedule,
   timestampOnNextDay,
   type BulkDtrResult,
   type DtrEmployeeRow,
   type DtrSignatoryDeptRow,
 } from "@/lib/dtr-builder";
-// buildAttendanceRecord is no longer reached from here: manual entry was the
-// only caller and now lives in the corrections module, which goes through
-// buildCorrectionRecord. The biometric importer still needs the flag maths.
-import { computeAttendanceFlags } from "@/lib/attendance-record";
 import {
   recomputeAttendanceDeductionFor,
   recomputeAttendanceDeductionsBatch,
 } from "@/lib/actions/attendance-deduction-actions";
 import type { DahuaParsedRow } from "@/lib/dahua-parse";
+import {
+  resortDaysForPunches,
+  storePunches,
+  type PoolPunchInput,
+  type ResortSeed,
+} from "@/lib/punch-pool";
 import { getHolidayMap } from "@/lib/holiday-helpers";
 import { holidayExcusedSessions } from "@/lib/validations/holiday-schema";
 
@@ -100,61 +100,9 @@ export interface ImportPreviewRow extends DahuaParsedRow {
   conflictDetails: string | null;
 }
 
-// --- Helpers ---
-
-function addDaysIso(dateStr: string, delta: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + delta);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/** Convert a date string and HH:MM time string to an ISO timestamp string for TIMESTAMPTZ columns */
-function toTimestamp(date: string, time: string | null): string | null {
-  if (!time) return null;
-  return `${date}T${time}:00`;
-}
-
-// extractTime, timestampOnNextDay, resolveDefaultSchedule, loadOverrideSchedules,
-// applyUndertimeAbsenceRule and UNDERTIME_ABSENT_MINUTES moved to
-// @/lib/dtr-builder, which the biometric importer below imports them back from.
-// They are shared with the DTR builder and only one copy may define the rules.
-
-/**
- * Dahua face devices fire the same event 2–3 times within seconds (e.g. one
- * "Check In" recorded at 07:54:34/37/40). After parse truncates each to HH:MM
- * these become identical punches that overflow the AM/PM slots in
- * bucketPunchesForDuty, pushing the real Break-Out / Check-Out into the wrong
- * column. Collapse a run of punches that share the same minute, or share the
- * same device status and land within 2 minutes of each other (the burst),
- * keeping the earliest — so each real event survives exactly once. Punches far
- * apart in time are never merged, even with the same status.
- */
-function dedupePunches(
-  punches: { date: string; time: string; status: string }[],
-): { date: string; time: string; status: string }[] {
-  const normStatus = (s: string) => s.replace(/[\s_-]+/g, "").toLowerCase();
-  const toMin = (t: string) => {
-    const [h, m] = t.slice(0, 5).split(":").map(Number);
-    return h * 60 + m;
-  };
-  const sorted = [...punches].sort((a, b) =>
-    `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`),
-  );
-  const out: { date: string; time: string; status: string }[] = [];
-  for (const p of sorted) {
-    const prev = out[out.length - 1];
-    if (prev && prev.date === p.date) {
-      const sameMinute = p.time === prev.time;
-      const sameStatusBurst =
-        !!p.status &&
-        normStatus(p.status) === normStatus(prev.status) &&
-        Math.abs(toMin(p.time) - toMin(prev.time)) <= 2;
-      if (sameMinute || sameStatusBurst) continue;
-    }
-    out.push(p);
-  }
-  return out;
-}
+// The biometric importer's bucketing and day-record building moved to
+// @/lib/punch-pool, which re-sorts days from the raw punch pool. The DTR's
+// time/rule helpers live in @/lib/dtr-builder. Only one copy of each rule.
 
 // --- Data Fetching ---
 
@@ -376,7 +324,7 @@ export async function matchAndPreviewImport(
       conflictDetails: isProtected
         ? "Entered by hand — will be kept, not overwritten"
         : hasConflict
-        ? "Existing record will be updated"
+        ? "Merged with the punches already on file for this day"
         : !matched
         ? "Employee not found in system"
         : null,
@@ -385,10 +333,15 @@ export async function matchAndPreviewImport(
 }
 
 // --- Import Dahua attendance data ---
+//
+// An import adds the file's punches to the raw punch pool (hris.attendance_punches,
+// migration 091) and then re-sorts every employee-day it touched from ALL of the
+// employee's pooled punches — every device, every import. A day that began at
+// Building 1 and ended at Building 3 comes out whole, whichever file is imported
+// first. The pool and the re-sort live in @/lib/punch-pool, shared with replay.
 
-// Compact raw punch persisted per import batch so an import can be re-bucketed
-// later ("replay") without the original Dahua file. Mirrors the parsed rows the
-// browser sends to the importer.
+// The batch's own copy of the parsed rows: what replay re-reads to find the days
+// a batch covers. Mirrors the rows the browser sends to the importer.
 interface StoredPunch {
   employeeNo: string;
   employeeName: string;
@@ -397,179 +350,48 @@ interface StoredPunch {
   status: string;
 }
 
-// Shared core for the Dahua importer AND import replay: groups matched punches
-// by employee + duty date, honors any per-day override schedule already pinned
-// to that day, buckets each group into AM/PM slots, and builds the
-// attendance_logs upsert row. Keeping this in ONE place is what lets replay
-// re-apply a bucketing fix identically to a fresh import. Returns each record's
-// `${employeeId}_${dutyDate}` key (parallel to `records`) and the source of any
-// existing row per key, so callers can decide what to overwrite vs. skip.
-async function buildBiometricRecords(
+// Resolves employee numbers to employee ids by biometric_no ON THE SERVER. The
+// preview's matched / employeeId flags came back from the browser; they are for
+// display only and must not decide whose day a punch lands on.
+async function matchEmployeeNos(
   supabase: ReturnType<typeof createAdminClient>,
-  matchedPunches: {
-    employeeId: string;
-    date: string;
-    time: string;
-    status: string;
-  }[],
-  schedByEmp: Map<string, ScheduleLike>,
-  defaultSched: ScheduleLike,
-): Promise<{
-  records: Record<string, unknown>[];
-  keys: string[];
-  existingSourceByKey: Map<string, string>;
-  /** Keys whose existing row came from an APPROVED attendance correction. */
-  correctionLockedKeys: Set<string>;
-  touched: { employeeId: string; year: number; month: number }[];
-  errors: number;
-}> {
-  interface Group {
-    employeeId: string;
-    dutyDate: string;
-    sched: ScheduleLike;
-    punches: { date: string; time: string; status: string }[];
-  }
-  const grouped = new Map<string, Group>();
-  for (const p of matchedPunches) {
-    const sched = schedByEmp.get(p.employeeId) ?? defaultSched;
-    const dutyDate = dutyDateFor(p.date, p.time, sched);
-    const key = `${p.employeeId}_${dutyDate}`;
-    if (!grouped.has(key)) {
-      grouped.set(key, { employeeId: p.employeeId, dutyDate, sched, punches: [] });
-    }
-    grouped.get(key)!.punches.push({ date: p.date, time: p.time, status: p.status });
-  }
-
-  // Honor per-day schedule overrides pinned by a DTR manager, and capture each
-  // existing row's source so replay can skip days a human has since corrected.
-  const overrideSchedByKey = new Map<string, ScheduleLike>();
-  const existingSourceByKey = new Map<string, string>();
-  const correctionLockedKeys = new Set<string>();
-  const employeeIds = [...new Set([...grouped.values()].map((g) => g.employeeId))];
-  const dutyDates = [...new Set([...grouped.values()].map((g) => g.dutyDate))];
-  if (employeeIds.length > 0 && dutyDates.length > 0) {
-    const { data: existing } = await supabase
+  employeeNos: string[],
+): Promise<Map<string, string>> {
+  const numeric = [...new Set(employeeNos)]
+    .map(Number)
+    .filter((n) => Number.isInteger(n));
+  const byNo = new Map<string, string>();
+  const CHUNK = 500;
+  for (let i = 0; i < numeric.length; i += CHUNK) {
+    const { data, error } = await supabase
       .schema("hris")
-      .from("attendance_logs")
-      .select("employee_id, date, schedule_id, source, correction_locked")
-      .in("employee_id", employeeIds)
-      .in("date", dutyDates);
-    const existingRows = (existing ?? []) as {
-      employee_id: string;
-      date: string;
-      schedule_id: string | null;
-      source: string | null;
-      correction_locked: boolean | null;
-    }[];
-    const schedById = await loadOverrideSchedules(supabase, existingRows);
-    for (const r of existingRows) {
-      const key = `${r.employee_id}_${r.date}`;
-      existingSourceByKey.set(key, r.source ?? "");
-      if (r.correction_locked) correctionLockedKeys.add(key);
-      if (r.schedule_id) {
-        const sched = schedById.get(r.schedule_id);
-        if (sched) overrideSchedByKey.set(key, sched);
-      }
-    }
+      .from("employees")
+      .select("id, biometric_no")
+      .in("biometric_no", numeric.slice(i, i + CHUNK));
+    if (error) throw error;
+    for (const e of data ?? []) byNo.set(String(e.biometric_no), e.id as string);
   }
-
-  const records: Record<string, unknown>[] = [];
-  const keys: string[] = [];
-  const touched: { employeeId: string; year: number; month: number }[] = [];
-  let errors = 0;
-  for (const [key, group] of grouped) {
-    try {
-      // A pinned override schedule for this day wins over the employee's
-      // assigned one (for break-window bucketing and late/undertime).
-      const overrideSched = overrideSchedByKey.get(key) ?? null;
-      const effSched = overrideSched ?? group.sched;
-
-      const bucket = bucketPunchesForDuty(
-        dedupePunches(group.punches),
-        group.dutyDate,
-        effSched,
-      );
-
-      const flags = computeAttendanceFlags(
-        {
-          time_in_am: bucket.time_in_am,
-          time_out_am: bucket.time_out_am,
-          time_in_pm: bucket.time_in_pm,
-          time_out_pm: bucket.time_out_pm,
-          time_in_am_next_day: bucket.time_in_am_next_day,
-          time_in_pm_next_day: bucket.time_in_pm_next_day,
-          time_out_pm_next_day: bucket.time_out_pm_next_day,
-        },
-        group.dutyDate,
-        effSched,
-      );
-
-      const nextDate = addDaysIso(group.dutyDate, 1);
-      const dateOf = (onNext: boolean) => (onNext ? nextDate : group.dutyDate);
-
-      records.push({
-        employee_id: group.employeeId,
-        date: group.dutyDate,
-        schedule_id: overrideSched?.id ?? null,
-        time_in_am: toTimestamp(dateOf(bucket.time_in_am_next_day), bucket.time_in_am),
-        time_out_am: toTimestamp(dateOf(bucket.time_out_am_next_day), bucket.time_out_am),
-        time_in_pm: toTimestamp(dateOf(bucket.time_in_pm_next_day), bucket.time_in_pm),
-        time_out_pm: toTimestamp(dateOf(bucket.time_out_pm_next_day), bucket.time_out_pm),
-        ...flags,
-        source: "biometric",
-        remarks: null,
-      });
-      keys.push(key);
-
-      const [yr, mo] = group.dutyDate.split("-").map(Number);
-      touched.push({ employeeId: group.employeeId, year: yr, month: mo });
-    } catch {
-      errors++;
-    }
-  }
-  return {
-    records,
-    keys,
-    existingSourceByKey,
-    correctionLockedKeys,
-    touched,
-    errors,
-  };
+  return byNo;
 }
 
-// Persist the raw parsed punches for this import so it can be replayed later.
-// Stores ALL rows (even unmatched) so a replay can re-match employees added
-// after the fact. Best-effort: a failed save must not fail the import itself.
-async function saveImportBatch(
-  supabase: ReturnType<typeof createAdminClient>,
-  importedBy: string,
-  previewRows: ImportPreviewRow[],
-  description: string,
-): Promise<void> {
-  if (previewRows.length === 0) return;
-  const punches: StoredPunch[] = previewRows.map((r) => ({
+function toPoolInput(
+  rows: StoredPunch[],
+  byNo: Map<string, string>,
+): PoolPunchInput[] {
+  return rows.map((r) => ({
     employeeNo: r.employeeNo,
     employeeName: r.employeeName,
+    employeeId: byNo.get(r.employeeNo) ?? null,
     date: r.date,
     time: r.time,
     status: r.status,
   }));
-  const dates = punches.map((p) => p.date).filter(Boolean).sort();
-  try {
-    await supabase
-      .schema("hris")
-      .from("attendance_import_batches")
-      .insert({
-        imported_by: importedBy,
-        description,
-        period_start: dates[0] ?? null,
-        period_end: dates[dates.length - 1] ?? null,
-        punch_count: punches.length,
-        punches,
-      });
-  } catch {
-    // swallow — the attendance rows are already written; replay is a convenience
-  }
+}
+
+function toSeeds(rows: PoolPunchInput[]): ResortSeed[] {
+  return rows
+    .filter((r): r is PoolPunchInput & { employeeId: string } => !!r.employeeId)
+    .map((r) => ({ employeeId: r.employeeId, date: r.date, time: r.time }));
 }
 
 // The longest description the batch list can show without the layout fighting
@@ -581,10 +403,8 @@ const IMPORT_DESCRIPTION_MAX = 120;
  * Normalizes and validates the description an import must carry.
  *
  * Checked on the server as well as in the dialog because the dialog is not the
- * only possible caller of a server action — and because `saveImportBatch`
- * deliberately swallows its own errors, so a blank label rejected only by the
- * NOT NULL would lose the batch silently and take replay with it. Failing here
- * fails before a single attendance row is written.
+ * only possible caller of a server action. Failing here fails before a single
+ * punch or attendance row is written.
  */
 function normalizeImportDescription(raw: string): string {
   const description = raw.trim().replace(/\s+/g, " ");
@@ -600,16 +420,21 @@ function normalizeImportDescription(raw: string): string {
 }
 
 export async function importDahuaAttendance(
-  previewRows: ImportPreviewRow[],
-  overwriteExisting: boolean,
+  previewRows: DahuaParsedRow[],
+  /** The device the file was exported from (hris.biometric_devices). */
+  deviceId: string,
   /** Required label for the saved batch — how this import is found for replay. */
   description: string,
 ): Promise<{
+  /** Employee-days written to attendance_logs. */
   imported: number;
-  skipped: number;
   protectedSkipped: number;
   errors: number;
   totalPunches: number;
+  /** Punches the pool did not already have. */
+  newPunches: number;
+  /** Punches already in the pool — the same file, or an overlapping export. */
+  duplicatePunches: number;
   unmatchedPunches: number;
   dayRecords: number;
 }> {
@@ -618,177 +443,100 @@ export async function importDahuaAttendance(
     throw new Error("Unauthorized");
   }
 
-  // Before any write: a rejected description must not leave attendance rows
+  // Before any write: a rejected description or device must not leave punches
   // behind with no batch to replay them from.
   const batchDescription = normalizeImportDescription(description);
 
   const supabase = createAdminClient();
 
-  // Fetch each matched employee's schedule once so bucketing matches the
-  // preview's duty-date calculation.
-  const employeeIds = [
-    ...new Set(
-      previewRows
-        .filter((r) => r.matched && r.employeeId)
-        .map((r) => r.employeeId as string),
-    ),
-  ];
-
-  const defaultSched = await resolveDefaultSchedule(supabase);
-  const schedByEmp = new Map<string, ScheduleLike>();
-  if (employeeIds.length > 0) {
-    const { data: emps } = await supabase
-      .schema("hris")
-      .from("employees")
-      .select("id, schedules(id, time_in, time_out, break_start, break_end)")
-      .in("id", employeeIds);
-    for (const e of (emps ?? []) as unknown as {
-      id: string;
-      schedules: ScheduleLike | null;
-    }[]) {
-      schedByEmp.set(e.id, e.schedules ?? defaultSched);
-    }
+  const { data: device } = await supabase
+    .schema("hris")
+    .from("biometric_devices")
+    .select("id, name, is_active")
+    .eq("id", deviceId)
+    .maybeSingle();
+  if (!device || !device.is_active) {
+    throw new Error("Choose the device this file was exported from.");
   }
 
-  // Pre-filter conflicts (skipped when not overwriting) and collect the matched
-  // punches; the shared builder handles grouping, override schedules, bucketing
-  // and flag computation — identical to replay.
-  const skipKeys = new Set<string>();
-  const matched: {
-    employeeId: string;
-    date: string;
-    time: string;
-    status: string;
-  }[] = [];
-  for (const row of previewRows) {
-    if (!row.matched || !row.employeeId) continue;
-    const sched = schedByEmp.get(row.employeeId) ?? defaultSched;
-    const dutyDate = dutyDateFor(row.date, row.time, sched);
-    if (row.hasConflict && !overwriteExisting) {
-      skipKeys.add(`${row.employeeId}_${dutyDate}`);
-      continue;
-    }
-    matched.push({
-      employeeId: row.employeeId,
-      date: row.date,
-      time: row.time,
-      status: row.status,
-    });
+  const stored: StoredPunch[] = previewRows.map((r) => ({
+    employeeNo: r.employeeNo,
+    employeeName: r.employeeName,
+    date: r.date,
+    time: r.time,
+    status: r.status,
+  }));
+  const byNo = await matchEmployeeNos(
+    supabase,
+    stored.map((p) => p.employeeNo),
+  );
+  const poolRows = toPoolInput(stored, byNo);
+
+  // The batch is written FIRST: every pooled punch points at it. Unlike the
+  // old best-effort save, a batch that cannot be recorded stops the import.
+  const dates = stored.map((p) => p.date).filter(Boolean).sort();
+  const { data: batch, error: batchErr } = await supabase
+    .schema("hris")
+    .from("attendance_import_batches")
+    .insert({
+      imported_by: user.id,
+      description: batchDescription,
+      device_id: deviceId,
+      period_start: dates[0] ?? null,
+      period_end: dates[dates.length - 1] ?? null,
+      punch_count: stored.length,
+      punches: stored,
+    })
+    .select("id")
+    .single();
+  if (batchErr || !batch) {
+    throw new Error(batchErr?.message ?? "Could not save the import batch.");
   }
 
-  const {
-    records,
-    keys,
-    existingSourceByKey,
-    correctionLockedKeys,
-    touched,
-    errors: buildErrors,
-  } = await buildBiometricRecords(supabase, matched, schedByEmp, defaultSched);
-
-  // Never overwrite a day a PERSON authored. One principle across all three
-  // import paths: the device may correct its own records, never somebody's.
-  //
-  // This is the same rule runImportReplay applies (skip unless the existing row
-  // is absent or still source = 'biometric'); before it was added here, a run
-  // with "overwrite existing" ON upserted unconditionally and discarded every
-  // manual entry, hand-edit and per-slot reason in range — including a blank
-  // rest day tagged SATURDAY, which would revert to reading as an absence.
-  //
-  // correction_locked is checked as well as `source`, not instead of it:
-  // migration 065 introduced the flag precisely so protection does not hinge on
-  // a column other flows may reset. Today the two agree (buildCorrectionRecord
-  // writes source 'manual'), and that redundancy is the point.
-  //
-  // The skip is unconditional rather than gated on `overwriteExisting`, because
-  // with overwrite OFF these rows are already filtered into skipKeys — so this
-  // only ever changes behaviour in the case that would have destroyed data.
-  const toWrite: Record<string, unknown>[] = [];
-  const toWriteTouched: typeof touched = [];
-  let protectedSkipped = 0;
-  for (let i = 0; i < records.length; i++) {
-    const existingSource = existingSourceByKey.get(keys[i]);
-    const humanAuthored =
-      existingSource !== undefined && existingSource !== "biometric";
-    if (humanAuthored || correctionLockedKeys.has(keys[i])) {
-      // No overlap with skipKeys to worry about: a day filtered there never
-      // reaches buildBiometricRecords, so it has no record and no key here.
-      protectedSkipped++;
-      continue;
-    }
-    toWrite.push(records[i]);
-    toWriteTouched.push(touched[i]);
-  }
-
-  let imported = 0;
-  let errors = buildErrors;
-  const skipped = skipKeys.size + protectedSkipped;
-
-  // Batch-upsert against the UNIQUE(employee_id, date) constraint instead of a
-  // SELECT + INSERT/UPDATE per group. The old per-row loop did ~2 sequential DB
-  // round-trips per record, which blew past the serverless function timeout on
-  // large imports (3000+ punches). When overwrite is off, `ignoreDuplicates`
-  // makes existing rows a no-op (conflicts are already filtered into skipKeys);
-  // when on, it merges over the existing row. `.select("id")` returns only the
-  // rows actually written, giving an accurate `imported` count either way.
-  const CHUNK = 500;
-  for (let i = 0; i < toWrite.length; i += CHUNK) {
-    const chunk = toWrite.slice(i, i + CHUNK);
-    try {
-      const { data, error } = await supabase
-        .schema("hris")
-        .from("attendance_logs")
-        .upsert(chunk, {
-          onConflict: "employee_id,date",
-          ignoreDuplicates: !overwriteExisting,
-        })
-        .select("id");
-      if (error) throw error;
-      imported += data?.length ?? 0;
-    } catch {
-      errors += chunk.length;
-    }
-  }
+  const pool = await storePunches(supabase, poolRows, {
+    deviceId,
+    batchId: batch.id as string,
+  });
+  const res = await resortDaysForPunches(supabase, toSeeds(poolRows));
 
   // Refresh VL ledger for every (employee, month) the import touched.
-  if (toWriteTouched.length > 0) {
-    await recomputeAttendanceDeductionsBatch(toWriteTouched);
+  if (res.touched.length > 0) {
+    await recomputeAttendanceDeductionsBatch(res.touched);
   }
 
-  // Save the raw punches so this import can be replayed after a bucketing fix.
-  await saveImportBatch(supabase, user.id, previewRows, batchDescription);
-
+  const unmatchedPunches = poolRows.filter((r) => !r.employeeId).length;
   await logAudit({
     userId: user.id,
     userEmail: user.email,
     action: "import_attendance",
     tableName: "attendance_logs",
+    recordId: batch.id as string,
     newValues: {
       description: batchDescription,
-      imported,
-      skipped,
-      protectedSkipped,
-      errors,
-      overwriteExisting,
+      device: device.name,
+      imported: res.written,
+      protectedSkipped: res.protectedSkipped,
+      errors: res.errors + pool.invalid,
+      newPunches: pool.inserted,
+      duplicatePunches: pool.duplicates,
       totalRows: previewRows.length,
     },
   });
 
   revalidatePath("/attendance");
-  const matchedPunches = previewRows.filter((r) => r.matched).length;
   return {
-    imported,
-    skipped,
+    imported: res.written,
     /** Days left alone because a person authored them (manual entry, hand-edit
-     *  or approved correction). Reported separately from `skipped` so the
-     *  result can say what was PROTECTED, not just what was not written. */
-    protectedSkipped,
-    errors,
+     *  or approved correction). Their punches are still in the pool. */
+    protectedSkipped: res.protectedSkipped,
+    errors: res.errors + pool.invalid,
     totalPunches: previewRows.length,
-    unmatchedPunches: previewRows.length - matchedPunches,
-    dayRecords: records.length,
+    newPunches: pool.inserted,
+    duplicatePunches: pool.duplicates,
+    unmatchedPunches,
+    dayRecords: res.dayRecords,
   };
 }
-
 // --- Import batches: list + replay ---
 
 export interface ImportBatchRow {
@@ -836,65 +584,36 @@ export async function getImportBatches(): Promise<ImportBatchRow[]> {
   });
 }
 
-// Loads a batch's raw punches and re-matches them to employees by biometric_no,
-// resolving each matched employee's schedule. Shared by preview + run. Returns
-// the matched punch list, schedule map, default schedule, and the count of
-// punches whose biometric_no isn't in the system.
+// Loads a batch's saved rows and re-matches them to employees by biometric_no.
+// Shared by preview + run.
 async function loadBatchForReplay(
   supabase: ReturnType<typeof createAdminClient>,
   batchId: string,
 ): Promise<{
-  matched: { employeeId: string; date: string; time: string; status: string }[];
-  schedByEmp: Map<string, ScheduleLike>;
-  defaultSched: ScheduleLike;
+  poolRows: PoolPunchInput[];
+  deviceId: string | null;
   unmatchedPunches: number;
 }> {
   const { data: batch, error } = await supabase
     .schema("hris")
     .from("attendance_import_batches")
-    .select("punches")
+    .select("punches, device_id")
     .eq("id", batchId)
     .maybeSingle();
   if (error) throw error;
   if (!batch) throw new Error("Import not found");
 
-  const punches = (batch.punches ?? []) as StoredPunch[];
-  const uniqueNos = [...new Set(punches.map((p) => p.employeeNo))];
-  const numericNos = uniqueNos.map(Number).filter((n) => !isNaN(n));
-  const { data: employees } = await supabase
-    .schema("hris")
-    .from("employees")
-    .select(
-      "id, biometric_no, schedules(id, time_in, time_out, break_start, break_end)",
-    )
-    .in("biometric_no", numericNos);
-  const empRows = (employees ?? []) as unknown as {
-    id: string;
-    biometric_no: number;
-    schedules: ScheduleLike | null;
-  }[];
-  const empMap = new Map(empRows.map((e) => [String(e.biometric_no), e.id]));
-  const defaultSched = await resolveDefaultSchedule(supabase);
-  const schedByEmp = new Map<string, ScheduleLike>(
-    empRows.map((e) => [e.id, e.schedules ?? defaultSched]),
+  const stored = (batch.punches ?? []) as StoredPunch[];
+  const byNo = await matchEmployeeNos(
+    supabase,
+    stored.map((p) => p.employeeNo),
   );
-
-  const matched: {
-    employeeId: string;
-    date: string;
-    time: string;
-    status: string;
-  }[] = [];
-  let unmatchedPunches = 0;
-  for (const p of punches) {
-    const employeeId = empMap.get(p.employeeNo);
-    if (!employeeId) {
-      unmatchedPunches++;
-      continue;
-    }
-    matched.push({ employeeId, date: p.date, time: p.time, status: p.status });
-  }
-  return { matched, schedByEmp, defaultSched, unmatchedPunches };
+  const poolRows = toPoolInput(stored, byNo);
+  return {
+    poolRows,
+    deviceId: (batch.device_id as string | null) ?? null,
+    unmatchedPunches: poolRows.filter((r) => !r.employeeId).length,
+  };
 }
 
 export interface ReplayPreview {
@@ -903,7 +622,7 @@ export interface ReplayPreview {
   unmatchedPunches: number;
 }
 
-// Dry run: how many days a replay would re-bucket vs. skip (because the day is
+// Dry run: how many days a replay would re-sort vs. skip (because the day is
 // no longer a plain biometric row — a manager corrected it since). No writes.
 export async function previewImportReplay(
   batchId: string,
@@ -913,29 +632,24 @@ export async function previewImportReplay(
     throw new Error("Unauthorized");
   }
   const supabase = createAdminClient();
-  const { matched, schedByEmp, defaultSched, unmatchedPunches } =
-    await loadBatchForReplay(supabase, batchId);
-  const { keys, existingSourceByKey } = await buildBiometricRecords(
+  const { poolRows, unmatchedPunches } = await loadBatchForReplay(
     supabase,
-    matched,
-    schedByEmp,
-    defaultSched,
+    batchId,
   );
-  let daysToSkip = 0;
-  for (const key of keys) {
-    const src = existingSourceByKey.get(key);
-    if (src !== undefined && src !== "biometric") daysToSkip++;
-  }
+  const res = await resortDaysForPunches(supabase, toSeeds(poolRows), {
+    dryRun: true,
+  });
   return {
-    daysToRebucket: keys.length - daysToSkip,
-    daysToSkip,
+    daysToRebucket: res.written,
+    daysToSkip: res.protectedSkipped,
     unmatchedPunches,
   };
 }
 
-// Re-buckets a saved import with the current logic. Overwrites only days whose
-// attendance_logs row is still source = 'biometric' (or absent); any day a
-// manager manually edited since is left untouched.
+// Re-sorts the days a saved import covers with the current logic, from the
+// whole punch pool — so punches other devices contributed to those days are
+// kept, not wiped. Overwrites only days whose attendance_logs row is still
+// source = 'biometric' (or absent); any day a manager edited is left untouched.
 export async function runImportReplay(batchId: string): Promise<{
   reBucketed: number;
   skipped: number;
@@ -947,61 +661,45 @@ export async function runImportReplay(batchId: string): Promise<{
     throw new Error("Unauthorized");
   }
   const supabase = createAdminClient();
-  const { matched, schedByEmp, defaultSched, unmatchedPunches } =
-    await loadBatchForReplay(supabase, batchId);
-  const { records, keys, existingSourceByKey, touched, errors: buildErrors } =
-    await buildBiometricRecords(supabase, matched, schedByEmp, defaultSched);
 
-  // Keep only records whose day is safe to overwrite: no existing row, or an
-  // existing row still sourced from biometric. Skip anything a human touched.
-  const toWrite: Record<string, unknown>[] = [];
-  const toWriteTouched: typeof touched = [];
-  let skipped = 0;
-  for (let i = 0; i < records.length; i++) {
-    const src = existingSourceByKey.get(keys[i]);
-    if (src !== undefined && src !== "biometric") {
-      skipped++;
-      continue;
-    }
-    toWrite.push(records[i]);
-    toWriteTouched.push(touched[i]);
+  // Punches pooled before their employee's biometric number was set.
+  await supabase.schema("hris").rpc("rematch_attendance_punches");
+
+  const { poolRows, deviceId, unmatchedPunches } = await loadBatchForReplay(
+    supabase,
+    batchId,
+  );
+  // Idempotent: puts back any of this batch's punches the pool is missing.
+  const pool = await storePunches(supabase, poolRows, { deviceId, batchId });
+  const res = await resortDaysForPunches(supabase, toSeeds(poolRows));
+
+  if (res.touched.length > 0) {
+    await recomputeAttendanceDeductionsBatch(res.touched);
   }
 
-  let errors = buildErrors;
-  let reBucketed = 0;
-  const CHUNK = 500;
-  for (let i = 0; i < toWrite.length; i += CHUNK) {
-    const chunk = toWrite.slice(i, i + CHUNK);
-    try {
-      const { data, error } = await supabase
-        .schema("hris")
-        .from("attendance_logs")
-        .upsert(chunk, { onConflict: "employee_id,date", ignoreDuplicates: false })
-        .select("id");
-      if (error) throw error;
-      reBucketed += data?.length ?? 0;
-    } catch {
-      errors += chunk.length;
-    }
-  }
-
-  if (toWriteTouched.length > 0) {
-    await recomputeAttendanceDeductionsBatch(toWriteTouched);
-  }
-
+  const errors = res.errors + pool.invalid;
   await logAudit({
     userId: user.id,
     userEmail: user.email,
     action: "replay_attendance_import",
     tableName: "attendance_logs",
     recordId: batchId,
-    newValues: { reBucketed, skipped, unmatchedPunches, errors },
+    newValues: {
+      reBucketed: res.written,
+      skipped: res.protectedSkipped,
+      unmatchedPunches,
+      errors,
+    },
   });
 
   revalidatePath("/attendance");
-  return { reBucketed, skipped, unmatchedPunches, errors };
+  return {
+    reBucketed: res.written,
+    skipped: res.protectedSkipped,
+    unmatchedPunches,
+    errors,
+  };
 }
-
 // --- Bulk DTR (department + date range) ---
 //
 // The ~200-line day loop these two functions used to each carry a copy of now

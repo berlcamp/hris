@@ -14,10 +14,16 @@ export interface DahuaParsedRow {
   employeeNo: string;
   employeeName: string;
   date: string;
+  /** HH:MM:SS, device wall-clock. Seconds are kept for the punch pool, which
+   *  dedupes on the exact time; a source without seconds reads as :00. */
   time: string;
   status: string;
   matched: boolean;
   employeeId: string | null;
+}
+
+function withSeconds(t: string): string {
+  return t.length === 5 ? `${t}:00` : t.slice(0, 8);
 }
 
 function extractCellValues(rowXml: string): string[] {
@@ -85,7 +91,7 @@ function parseDahuaXml(xmlContent: string): DahuaParsedRow[] {
     if (!dtMatch) continue;
 
     const date = dtMatch[1].replace(/\//g, "-");
-    const time = dtMatch[2].substring(0, 5); // HH:MM
+    const time = withSeconds(dtMatch[2]);
 
     // Attendance Status is column index 6 (e.g., "Break Out", "Check-In")
     const status = cells[6]?.trim() || "";
@@ -142,7 +148,7 @@ function parseDahuaCsv(csvContent: string): DahuaParsedRow[] {
     if (!dtMatch) continue;
 
     const date = dtMatch[1].replace(/\//g, "-");
-    const time = dtMatch[2].substring(0, 5);
+    const time = withSeconds(dtMatch[2]);
 
     rows.push({
       employeeNo: idNo,

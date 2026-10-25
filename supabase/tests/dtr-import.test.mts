@@ -157,7 +157,7 @@ test("re-importing with overwrite CLEARS the stale pre-fix AM arrival", async ()
   });
 
   // What the fixed importer now computes from the same raw punch, upserted the
-  // way importDahuaAttendance does it with overwriteExisting = true.
+  // way resortDaysForPunches (src/lib/punch-pool.ts) writes a biometric day.
   const bucket = bucketPunchesForDuty(
     [{ date: D, time: "12:45", status: "checkin" }],
     D,
@@ -220,7 +220,8 @@ test("event day (final logout mislabeled Break In) round-trips as PM in/out", as
 test("replay re-buckets a biometric day but never a manually-edited one", async () => {
   // The safety guarantee behind runImportReplay: it overwrites only days still
   // source = 'biometric'; a day a manager corrected (source = 'manual') is left
-  // alone. This mirrors the action's partition + upsert against the real DB.
+  // alone. This mirrors resortDaysForPunches' partition + upsert against the
+  // real DB; attendance-punches-db.test.mts drives the function itself.
   const D2 = "2026-06-16";
   await admin
     .from("attendance_logs")
@@ -359,7 +360,7 @@ test("a fresh import with overwrite ON keeps every human-authored day", async ()
     (existing ?? []).map((r) => [r.date as string, r as { source: string | null; correction_locked: boolean | null }]),
   );
 
-  // The exact partition importDahuaAttendance now applies.
+  // The exact partition resortDaysForPunches applies for every import.
   const toWrite = days.filter((d) => {
     const row = byDate.get(d);
     if (!row) return true;
