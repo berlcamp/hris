@@ -7,6 +7,7 @@ import { getEmployees } from "@/lib/actions/employee-actions";
 import { canAccessAttendance, canPrintDtr } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { IndividualDtrClient } from "@/components/attendance/individual-dtr-client";
+import { DtrGuideDialog } from "@/components/dtr/dtr-guide-dialog";
 
 export default async function DtrPage() {
   const user = await getCurrentUser();
@@ -40,14 +41,17 @@ export default async function DtrPage() {
             date range.
           </p>
         </div>
-        {canBulkDtr && (
-          <Link href="/attendance/dtr/bulk">
-            <Button variant="outline" size="sm">
-              <Printer className="h-4 w-4" />
-              Bulk DTR by Department
-            </Button>
-          </Link>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <DtrGuideDialog />
+          {canBulkDtr && (
+            <Link href="/attendance/dtr/bulk">
+              <Button variant="outline" size="sm">
+                <Printer className="h-4 w-4" />
+                Bulk DTR by Department
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
       <IndividualDtrClient
         employees={(employees ?? []).filter(

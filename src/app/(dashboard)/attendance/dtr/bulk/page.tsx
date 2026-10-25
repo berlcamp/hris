@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDepartments } from "@/lib/actions/user-actions";
 import { canPrintDtr } from "@/lib/auth-helpers";
 import { BulkDtrClient } from "@/components/attendance/bulk-dtr-client";
+import { DtrGuideDialog } from "@/components/dtr/dtr-guide-dialog";
 
 export default async function BulkDtrPage() {
   const user = await getCurrentUser();
@@ -19,12 +20,15 @@ export default async function BulkDtrPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Bulk DTR Generator</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Generate printable DTRs for all active employees of a department within
-          a date range.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Bulk DTR Generator</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Generate printable DTRs for all active employees of a department within
+            a date range.
+          </p>
+        </div>
+        <DtrGuideDialog />
       </div>
       <BulkDtrClient
         departments={departments}

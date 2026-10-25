@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth-helpers";
 import { DahuaImportDialog } from "@/components/attendance/dahua-import-dialog";
 import { DtrClient, type DtrMode } from "@/components/dtr/dtr-client";
+import { DtrGuideDialog } from "@/components/dtr/dtr-guide-dialog";
 
 export default async function DtrPage() {
   const user = await getCurrentUser();
@@ -55,7 +56,10 @@ export default async function DtrPage() {
               : "Download a month of CSC Form 48 DTRs for everyone assigned or detailed to a department."}
         </p>
       </div>
-      {showImport && <DahuaImportDialog />}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <DtrGuideDialog />
+        {showImport && <DahuaImportDialog />}
+      </div>
     </div>
   );
 
