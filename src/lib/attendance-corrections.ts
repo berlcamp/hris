@@ -116,6 +116,44 @@ export function resolveItemSchedules<
   });
 }
 
+/** The parts of a correction item that decide whether it writes anything. */
+export interface CorrectionItemContent {
+  attendance_log_id: string | null;
+  disposition: Disposition;
+  time_in_am: string | null;
+  time_out_am: string | null;
+  time_in_pm: string | null;
+  time_out_pm: string | null;
+  reason_in_am: string | null;
+  reason_out_am: string | null;
+  reason_in_pm: string | null;
+  reason_out_pm: string | null;
+}
+
+// An item that would CREATE a day with no punch, no reason and no Clear as off.
+// It states nothing — a weekday with no row already reads as an absence — yet
+// writing it inserts a correction-locked ABSENT row that no later import may
+// overwrite. That is how "Include all" over a whole month blanked days whose
+// punches had simply not been imported yet: the punches reached the pool and
+// the DTR still printed ABSENT. Such items are dropped, never written.
+//
+// A blank item on an EXISTING row is not this: it deliberately clears punches
+// somebody judged wrong, and the lock is what keeps them cleared.
+export function isBlankCreateItem(item: CorrectionItemContent): boolean {
+  return (
+    !item.attendance_log_id &&
+    item.disposition === "update" &&
+    !item.time_in_am &&
+    !item.time_out_am &&
+    !item.time_in_pm &&
+    !item.time_out_pm &&
+    !item.reason_in_am &&
+    !item.reason_out_am &&
+    !item.reason_in_pm &&
+    !item.reason_out_pm
+  );
+}
+
 // Re-exported, not redefined: dayLateUndertime needs the same weekday for the
 // rest-day rule, so the one implementation lives beside it in
 // attendance-schedule.ts and this module's existing callers keep their import.

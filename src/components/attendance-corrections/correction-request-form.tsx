@@ -57,6 +57,7 @@ import { employeeSearchKeywords } from "@/lib/employee-name-match";
 import type { ScheduleRow } from "@/lib/actions/schedule-actions";
 import type { CorrectionItemFormValues } from "@/lib/validations/attendance-correction-schema";
 import {
+  isBlankCreateItem,
   trailingDaysNeedingDisposition,
   weekendReasonFor,
   type TrailingDraft,
@@ -462,14 +463,42 @@ export function CorrectionRequestForm({
     [days, drafts],
   );
 
+  // One included day as the item the server receives.
+  const itemFor = (date: string): CorrectionItemFormValues => {
+    // Cleared again at the boundary rather than trusting the draft: the grid
+    // hides the break inputs for a no-break schedule, but nothing about the
+    // state guarantees they were emptied on the way in.
+    const d = clearUnusedBreakSlots(drafts[date]);
+    const day = (days ?? []).find((x) => x.date === date)!;
+    return {
+      duty_date: date,
+      // Null for a date with no attendance row — the item creates the day.
+      attendance_log_id: day.id,
+      disposition: d.disposition,
+      proposed_schedule_id: nullIfSentinel(d.scheduleId, INHERIT),
+      time_in_am: nullIfBlank(d.time_in_am),
+      time_out_am: nullIfBlank(d.time_out_am),
+      time_in_pm: nullIfBlank(d.time_in_pm),
+      time_out_pm: nullIfBlank(d.time_out_pm),
+      reason_in_am: asReason(d.reason_in_am),
+      reason_out_am: asReason(d.reason_out_am),
+      reason_in_pm: asReason(d.reason_in_pm),
+      reason_out_pm: asReason(d.reason_out_pm),
+    };
+  };
+
+  // Included days with no record and nothing entered. They state nothing, and
+  // the server drops them rather than lock an ABSENT row over a day whose
+  // punches may simply not be imported yet (isBlankCreateItem).
+  const blankCreatedDates = includedDates.filter((date) =>
+    isBlankCreateItem(itemFor(date)),
+  );
+
   // Days being CREATED rather than edited. Called out separately because it is
   // the one case where approval adds a row that never existed.
-  const createdIncluded = useMemo(
-    () =>
-      (days ?? []).filter((d) => !d.has_record && drafts[d.date]?.include)
-        .length,
-    [days, drafts],
-  );
+  const createdIncluded =
+    (days ?? []).filter((d) => !d.has_record && drafts[d.date]?.include)
+      .length - blankCreatedDates.length;
 
   const handleSubmit = async () => {
     if (includedDates.length === 0) {
@@ -498,29 +527,15 @@ export function CorrectionRequestForm({
       }
     }
 
-    const byDate = new Map((days ?? []).map((d) => [d.date, d]));
-    const items: CorrectionItemFormValues[] = includedDates.map((date) => {
-      // Cleared again at the boundary rather than trusting the draft: the grid
-      // hides the break inputs for a no-break schedule, but nothing about the
-      // state guarantees they were emptied on the way in.
-      const d = clearUnusedBreakSlots(drafts[date]);
-      const day = byDate.get(date)!;
-      return {
-        duty_date: date,
-        // Null for a date with no attendance row — the item creates the day.
-        attendance_log_id: day.id,
-        disposition: d.disposition,
-        proposed_schedule_id: nullIfSentinel(d.scheduleId, INHERIT),
-        time_in_am: nullIfBlank(d.time_in_am),
-        time_out_am: nullIfBlank(d.time_out_am),
-        time_in_pm: nullIfBlank(d.time_in_pm),
-        time_out_pm: nullIfBlank(d.time_out_pm),
-        reason_in_am: asReason(d.reason_in_am),
-        reason_out_am: asReason(d.reason_out_am),
-        reason_in_pm: asReason(d.reason_in_pm),
-        reason_out_pm: asReason(d.reason_out_pm),
-      };
-    });
+    const items = includedDates
+      .map(itemFor)
+      .filter((item) => !isBlankCreateItem(item));
+    if (items.length === 0) {
+      toast.error(
+        "None of the included days has a time, a reason, or Clear as off — there is nothing to correct.",
+      );
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -809,6 +824,20 @@ export function CorrectionRequestForm({
                       {createdIncluded === 1 ? "day has" : "days have"} no
                       attendance record at all. Approving this request creates{" "}
                       {createdIncluded === 1 ? "it" : "them"}.
+                    </span>
+                  </p>
+                )}
+
+                {blankCreatedDates.length > 0 && (
+                  <p className="flex items-start gap-2 rounded-md border border-muted-foreground/30 bg-muted/40 p-3 text-sm text-muted-foreground">
+                    <CalendarPlus className="h-4 w-4 mt-0.5 shrink-0" />
+                    <span>
+                      {blankCreatedDates.length} included{" "}
+                      {blankCreatedDates.length === 1 ? "day has" : "days have"}{" "}
+                      no attendance record and nothing entered, so{" "}
+                      {blankCreatedDates.length === 1 ? "it is" : "they are"}{" "}
+                      skipped. A later biometric import fills{" "}
+                      {blankCreatedDates.length === 1 ? "it" : "them"} in.
                     </span>
                   </p>
                 )}

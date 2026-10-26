@@ -14,6 +14,7 @@ import {
   buildCorrectionRecord,
   datesInRange,
   dayOfWeekFor,
+  isBlankCreateItem,
   resolveItemSchedules,
   type ResolvedItemSchedule,
 } from "@/lib/attendance-corrections";
@@ -411,7 +412,18 @@ export async function createCorrectionRequest(
         "Some of those days are not filled in correctly.",
     };
   }
-  const parsed = parsedResult.data;
+  // A blank day with no record states nothing, and writing it would lock an
+  // ABSENT row that the day's own punches can never replace (isBlankCreateItem).
+  const parsed = {
+    ...parsedResult.data,
+    items: parsedResult.data.items.filter((i) => !isBlankCreateItem(i)),
+  };
+  if (parsed.items.length === 0) {
+    return {
+      error:
+        "None of the included days has a time, a reason, or Clear as off — there is nothing to correct.",
+    };
+  }
   if (!(await hasReach(parsed.employee_id))) {
     return { error: "That employee is outside the records you may correct." };
   }
@@ -1039,18 +1051,39 @@ async function applyCorrectionItems(
     return "needs_rebase";
   }
 
+  // Requests filed before isBlankCreateItem existed can still carry blank
+  // CREATE items; drop them here too rather than lock an ABSENT row over a day
+  // whose punches have not been imported yet.
+  const kept = items
+    .map((item, i) => ({ item, sched: resolved[i] }))
+    .filter(
+      ({ item }) =>
+        !isBlankCreateItem({
+          attendance_log_id: item.attendance_log_id,
+          disposition: item.disposition,
+          time_in_am: item.proposed_time_in_am,
+          time_out_am: item.proposed_time_out_am,
+          time_in_pm: item.proposed_time_in_pm,
+          time_out_pm: item.proposed_time_out_pm,
+          reason_in_am: item.proposed_in_am_reason,
+          reason_out_am: item.proposed_out_am_reason,
+          reason_in_pm: item.proposed_in_pm_reason,
+          reason_out_pm: item.proposed_out_pm_reason,
+        }),
+    );
+
   // duty_date is the key the RPC looks items up by (migration 067) —
   // attendance_log_id is nullable now and several items can share NULL, so it
   // no longer identifies a row. It is still sent for readability of the payload
   // in the audit log; the function reads the item's own value, not this one.
-  const rows = items.map((item, i) => ({
+  const rows = kept.map(({ item, sched }) => ({
     duty_date: item.duty_date,
     attendance_log_id: item.attendance_log_id,
     record: buildCorrectionRecord(employeeId, {
       duty_date: item.duty_date,
       disposition: item.disposition,
-      schedule: resolved[i].schedule,
-      restDay: resolved[i].restDay,
+      schedule: sched.schedule,
+      restDay: sched.restDay,
       scheduleId: item.proposed_schedule_id,
       time_in_am: hhmmOf(item.proposed_time_in_am),
       time_out_am: hhmmOf(item.proposed_time_out_am),

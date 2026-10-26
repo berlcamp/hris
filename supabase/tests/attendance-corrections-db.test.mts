@@ -536,3 +536,82 @@ test("direct-apply writes the day and leaves no live request holding the range",
   const second = await seedRequest(date, date);
   assert.ok(second, "an applied request releases the overlap claim on its dates");
 });
+
+// --- Migration 095: blank CREATE rows ---------------------------------------
+
+test("migration 095 removes only the blank locked rows a correction created", async () => {
+  // Two days of one request: a blank CREATE item (what "Include all" filed for
+  // a day whose punches were not imported yet) and a real one with a time.
+  const blank = "2026-09-29";
+  const real = "2026-09-30";
+  SEEDED_DATES.push(blank, real);
+  const requestId = await seedRequest(blank, real);
+  await admin.from("attendance_correction_items").insert([
+    { request_id: requestId, duty_date: blank, attendance_log_id: null, disposition: "update", before: {} },
+    { request_id: requestId, duty_date: real, attendance_log_id: null, disposition: "update",
+      proposed_time_in_am: "08:00", before: {} },
+  ]);
+  const DAY: ScheduleLike = {
+    id: "day", time_in: "08:00", time_out: "17:00", break_start: "12:00", break_end: "13:00",
+  };
+  const recordFor = (date: string, timeInAm: string | null) =>
+    buildCorrectionRecord(EMPLOYEE, {
+      duty_date: date, disposition: "update", schedule: DAY, scheduleId: null,
+      time_in_am: timeInAm, time_out_am: null, time_in_pm: null, time_out_pm: null,
+      reason_in_am: null, reason_out_am: null, reason_in_pm: null, reason_out_pm: null,
+    });
+  // Applied the way the app did before isBlankCreateItem: every item sent.
+  const { data: outcome } = await admin.rpc("apply_attendance_correction", {
+    p_request_id: requestId, p_reviewer_id: REVIEWER, p_reviewer_email: "hr@example.gov",
+    p_rows: [
+      { duty_date: blank, attendance_log_id: null, record: recordFor(blank, null) },
+      { duty_date: real, attendance_log_id: null, record: recordFor(real, "08:00") },
+    ],
+  });
+  assert.equal(outcome, "applied");
+  const { data: damaged } = await admin
+    .from("attendance_logs").select("id, is_absent, correction_locked")
+    .eq("employee_id", EMPLOYEE).eq("date", blank).single();
+  assert.equal(damaged!.is_absent, true);
+  assert.equal(damaged!.correction_locked, true);
+
+  // A third blank row that a LATER request then targeted as an existing day —
+  // the production case that made the first version of 095 trip the
+  // attendance_correction_items_attendance_log_id_fkey. It must be kept.
+  const reviewed = "2026-09-28";
+  SEEDED_DATES.push(reviewed);
+  const firstId = await seedRequest(reviewed, reviewed);
+  await admin.from("attendance_correction_items").insert({
+    request_id: firstId, duty_date: reviewed, attendance_log_id: null, disposition: "update", before: {},
+  });
+  await admin.rpc("apply_attendance_correction", {
+    p_request_id: firstId, p_reviewer_id: REVIEWER, p_reviewer_email: "hr@example.gov",
+    p_rows: [{ duty_date: reviewed, attendance_log_id: null, record: recordFor(reviewed, null) }],
+  });
+  const { data: reviewedRow } = await admin
+    .from("attendance_logs").select("id")
+    .eq("employee_id", EMPLOYEE).eq("date", reviewed).single();
+  const laterId = await seedRequest(reviewed, reviewed);
+  await admin.from("attendance_correction_requests").update({ status: "rejected" }).eq("id", laterId);
+  await admin.from("attendance_correction_items").insert({
+    request_id: laterId, duty_date: reviewed, attendance_log_id: reviewedRow!.id,
+    disposition: "update", before: {},
+  });
+
+  execSync(
+    `psql "${status.DB_URL}" -v ON_ERROR_STOP=1 -q -f supabase/migrations/095_remove_blank_correction_rows.sql`,
+    { cwd: PROJECT_DIR },
+  );
+
+  const { data: left } = await admin
+    .from("attendance_logs").select("date")
+    .eq("employee_id", EMPLOYEE).in("date", [blank, real, reviewed]).order("date");
+  assert.deepEqual(left!.map((r) => r.date), [reviewed, real],
+    "the blank row goes; the day with a time and the re-reviewed day stay");
+
+  const { data: audit } = await admin
+    .from("audit_log").select("old_values")
+    .eq("action", "attendance_blank_correction_row_removed").eq("record_id", damaged!.id);
+  assert.equal(audit!.length, 1, "the removed row is kept in the audit log");
+  await admin.from("audit_log").delete().eq("record_id", damaged!.id);
+});

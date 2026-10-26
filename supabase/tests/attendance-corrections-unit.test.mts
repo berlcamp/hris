@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { dtrSpanFor } from "../../src/lib/dtr-span-label.ts";
+import { isBlankCreateItem } from "../../src/lib/attendance-corrections.ts";
 import {
   CORRECTION_REASONS,
   NO_TIME_REASONS,
@@ -792,4 +793,37 @@ test("a correction on a weekday the rotation leaves off charges nothing", () => 
   }));
   assert.equal(r.late_minutes, 0);
   assert.equal(r.undertime_minutes, 0);
+});
+
+// "Include all" over a whole month used to file an item for every day,
+// including days whose punches had not been imported yet. Applying it wrote
+// those days as blank, correction-locked ABSENT rows, and the later import —
+// which never overwrites a locked day — left the real punches in the pool
+// while the DTR printed ABSENT. A blank item for a day with no record states
+// nothing, so it is dropped instead of written.
+const blankItem = {
+  attendance_log_id: null,
+  disposition: "update" as const,
+  time_in_am: null,
+  time_out_am: null,
+  time_in_pm: null,
+  time_out_pm: null,
+  reason_in_am: null,
+  reason_out_am: null,
+  reason_in_pm: null,
+  reason_out_pm: null,
+};
+
+test("a blank item for a day with no record writes nothing", () => {
+  assert.equal(isBlankCreateItem(blankItem), true);
+});
+
+test("a blank item on an EXISTING row is kept: it deliberately clears punches", () => {
+  assert.equal(isBlankCreateItem({ ...blankItem, attendance_log_id: "log-1" }), false);
+});
+
+test("a new day with any punch, any reason, or Clear as off is kept", () => {
+  assert.equal(isBlankCreateItem({ ...blankItem, time_out_pm: "17:00" }), false);
+  assert.equal(isBlankCreateItem({ ...blankItem, reason_in_am: "official_business" }), false);
+  assert.equal(isBlankCreateItem({ ...blankItem, disposition: "clear_as_off" }), false);
 });
