@@ -49,22 +49,21 @@ import {
   lineBox,
   wrapLines,
 } from "./print-geometry.ts";
+import {
+  DEFAULT_JOB_ORDER_SIGNATORIES,
+  type JobOrderSignatories,
+} from "../job-order-signatories.ts";
 
-// Hard-coded LGU Ozamiz City letterhead and signatories, matching the printed
-// template — the same constants the memorandum carries. Overridable by env for
-// the two that already have a project-wide variable; the rest can be promoted
-// to a settings table later without touching this layout.
-const CITY_MAYOR_NAME = () =>
-  process.env.NEXT_PUBLIC_CITY_MAYOR_NAME ?? "SAM NORMAN G. FUENTES";
-const CITY_MAYOR_POSITION = () =>
-  process.env.NEXT_PUBLIC_CITY_MAYOR_POSITION ?? "City Mayor";
+/** The two signatories a special order prints. */
+export type JobOrderSpecialOrderSignatories = Pick<
+  JobOrderSignatories,
+  "city_mayor" | "city_administrator"
+>;
 
-/** Every Special Order is addressed to the City Administrator. */
-const CITY_ADMINISTRATOR = {
-  name: "MS. RUTHEZA GRACE A. OUANO",
-  title: "City Administrator",
-  office: "City Administrator's Office",
-};
+// The letterhead is fixed to LGU Ozamiz City and matches the printed template.
+// The two signatories — the City Mayor who signs and the City Administrator
+// every Special Order is addressed to — come from Job Orders → Signatories
+// (hris.job_order_signatories) through `params.signatories`.
 
 const CONTACT_LINES = [
   "TELEFAX NO. (088) 521-1390",
@@ -97,6 +96,8 @@ export interface GenerateJobOrderSpecialOrderPrintParams {
   /** Effectivity phrase interpolated into the body sentence, verbatim. */
   periodCovered: string | null;
   rows: JobOrderSpecialOrderPrintRow[];
+  /** Omitted, the built-in defaults print (DEFAULT_JOB_ORDER_SIGNATORIES). */
+  signatories?: JobOrderSpecialOrderSignatories;
 }
 
 /** The single body sentence as plain text — the geometry below measures it. */
@@ -391,6 +392,7 @@ function rowHeightPt(row: JobOrderSpecialOrderPrintRow): {
 function headHeightPt(
   subject: string,
   periodCovered: string | null,
+  hasOffice: boolean,
 ): { height: number; tight: boolean } {
   const letterhead =
     lineBox(15) + lineBox(15) + lineBox(13) + CONTACT_LINES.length * lineBox(7.5);
@@ -398,8 +400,8 @@ function headHeightPt(
   const title = lineBox(15) + fromPx(18);
 
   const fieldRow = (content: number) => content + fromPx(6);
-  // Name, then the title and office lines a step down from it.
-  const addressee = lineBox(12) * 3;
+  // Name, then the title and (when set) office lines a step down from it.
+  const addressee = lineBox(12) * (hasOffice ? 3 : 2);
   const subjectWrap = wrapLines(subject, FIELD_VALUE_WIDTH_PT, 12);
   const fields =
     fieldRow(addressee) +
@@ -446,7 +448,14 @@ function planTailHeightPt(
   tailRows: JobOrderSpecialOrderPrintRow[],
   isSplit: boolean,
 ): number | null {
-  const head = headHeightPt(params.subject, params.periodCovered);
+  const head = headHeightPt(
+    params.subject,
+    params.periodCovered,
+    Boolean(
+      (params.signatories ?? DEFAULT_JOB_ORDER_SIGNATORIES).city_administrator
+        .office,
+    ),
+  );
   const extra = tailExtraPt();
   let uncertain = head.tight || extra.tight;
 
@@ -509,6 +518,9 @@ export function renderJobOrderSpecialOrder(
 ): string {
   const { soNo, subject, soDate, periodCovered } = params;
   const rows = sortForPrint(params.rows);
+  const signatories = params.signatories ?? DEFAULT_JOB_ORDER_SIGNATORIES;
+  const mayor = signatories.city_mayor;
+  const addressee = signatories.city_administrator;
 
   // Split the list so the last few rows can be kept with the signature block.
   const isSplit = rows.length >= MIN_ROWS_TO_SPLIT;
@@ -543,14 +555,18 @@ export function renderJobOrderSpecialOrder(
     <tr>
       <td class="label">TO:</td>
       <td class="value">
-        <div>${escapeHtml(CITY_ADMINISTRATOR.name)}</div>
-        <div class="addressee-title">${escapeHtml(CITY_ADMINISTRATOR.title)}</div>
-        <div class="addressee-office">${escapeHtml(CITY_ADMINISTRATOR.office)}</div>
+        <div>${escapeHtml(addressee.name)}</div>
+        <div class="addressee-title">${escapeHtml(addressee.position)}</div>${
+          addressee.office
+            ? `
+        <div class="addressee-office">${escapeHtml(addressee.office)}</div>`
+            : ""
+        }
       </td>
     </tr>
     <tr>
       <td class="label">FROM:</td>
-      <td class="value">${escapeHtml(CITY_MAYOR_POSITION().toUpperCase())}</td>
+      <td class="value">${escapeHtml(mayor.position.toUpperCase())}</td>
     </tr>
     <tr>
       <td class="label">SUBJECT:</td>
@@ -574,8 +590,8 @@ export function renderJobOrderSpecialOrder(
     <p class="closing">${escapeHtml(CLOSING_LINE)}</p>
 
     <div class="signature">
-      <div class="signature-name">${escapeHtml(CITY_MAYOR_NAME())}</div>
-      <div class="signature-position">${escapeHtml(CITY_MAYOR_POSITION())}</div>
+      <div class="signature-name">${escapeHtml(mayor.name)}</div>
+      <div class="signature-position">${escapeHtml(mayor.position)}</div>
     </div>
 
     <div class="copies">

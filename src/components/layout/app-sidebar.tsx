@@ -40,6 +40,7 @@ import {
   FileClock,
   Mail,
   FileCheck,
+  PenLine,
   PartyPopper,
   QrCode,
   UsersRound,
@@ -337,6 +338,7 @@ const navGroups: NavGroup[] = [
       { title: "Payroll", href: "/job-orders/payroll", icon: Hammer, roles: jobOrderRoles },
       { title: "Memorandum", href: "/job-orders/memos", icon: Mail, roles: jobOrderRoles },
       { title: "Special Orders", href: "/job-orders/special-orders", icon: FileCheck, roles: jobOrderRoles },
+      { title: "Signatories", href: "/job-orders/signatories", icon: PenLine, roles: jobOrderRoles },
     ],
   },
   {
@@ -507,13 +509,14 @@ export function AppSidebar() {
                     (item.href === "/leaves" && (pathname === "/leaves" || (pathname.startsWith("/leaves/") && !pathname.startsWith("/leaves/credits")))) ||
                     (item.href === "/cto" && (pathname === "/cto" || (pathname.startsWith("/cto/") && !pathname.startsWith("/cto/credits")))) ||
                     // "/job-orders/areas", "/job-orders/payroll",
-                    // "/job-orders/memos" and "/job-orders/special-orders" are
+                    // "/job-orders/memos", "/job-orders/special-orders" and
+                    // "/job-orders/signatories" are
                     // sibling sections, not detail pages under "/job-orders" —
                     // without this they would also highlight "Job Order
                     // Employees" while viewing "Area Assignments", "Payroll",
-                    // "Memorandum" or "Special Orders", the same class of bug
+                    // "Memorandum", "Special Orders" or "Signatories", the same class of bug
                     // fixed above for /leaves and /cto.
-                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas") && !pathname.startsWith("/job-orders/payroll") && !pathname.startsWith("/job-orders/memos") && !pathname.startsWith("/job-orders/special-orders"))));
+                    (item.href === "/job-orders" && (pathname === "/job-orders" || (pathname.startsWith("/job-orders/") && !pathname.startsWith("/job-orders/areas") && !pathname.startsWith("/job-orders/payroll") && !pathname.startsWith("/job-orders/memos") && !pathname.startsWith("/job-orders/special-orders") && !pathname.startsWith("/job-orders/signatories"))));
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton

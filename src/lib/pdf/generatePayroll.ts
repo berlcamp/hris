@@ -1732,6 +1732,15 @@ export interface GeneratePayrollOBRPrintParams {
    * Job Order module passes its own ("<first member on the roll> AND COMPANY").
    */
   payee?: string;
+  /**
+   * Overrides the Requested by (A) and Certified (B) signatories, which
+   * otherwise come from the NEXT_PUBLIC_* env defaults. The Job Order module
+   * passes its own from Job Orders → Signatories.
+   */
+  signatories?: {
+    requestedBy: { name: string; position: string };
+    certifiedBy: { name: string; position: string };
+  };
 }
 
 // OBR styles - same as Purchase Request
@@ -1793,7 +1802,20 @@ export function generatePayrollOBRPrint({
   firstHalfTotals,
   accountCode,
   payee = "FUENTES, SAM NORMAN G. AND COMPANY",
+  signatories,
 }: GeneratePayrollOBRPrintParams): void {
+  const requestedByName = signatories
+    ? escapeObrText(signatories.requestedBy.name)
+    : getOBRCityMayorName();
+  const requestedByPosition = signatories
+    ? escapeObrText(signatories.requestedBy.position)
+    : getOBRCityMayorPosition();
+  const certifiedByName = signatories
+    ? escapeObrText(signatories.certifiedBy.name)
+    : getOBRBudgetOfficerName();
+  const certifiedByPosition = signatories
+    ? escapeObrText(signatories.certifiedBy.position)
+    : getOBRBudgetOfficerPosition();
   const is1stHalf = period_type === "1st Half" && firstHalfTotals != null;
   const amountFormatted = formatOBRAmount(totalAmount);
 
@@ -1977,19 +1999,19 @@ export function generatePayrollOBRPrint({
   <tr>
     <td style="text-align: center; vertical-align: top; font-size: 11pt;"><strong style="font-size: 11pt;">Printed Name</strong></td>
     <td style="text-align: center; vertical-align: top; font-size: 11pt;">
-      <div class="signature-name" style="font-size: 11pt;">${getOBRCityMayorName()}</div>
+      <div class="signature-name" style="font-size: 11pt;">${requestedByName}</div>
     </td>
     <td colspan="3" style="text-align: center; vertical-align: top; font-size: 11pt;">
-      <div class="signature-name" style="font-size: 11pt;">${getOBRBudgetOfficerName()}</div>
+      <div class="signature-name" style="font-size: 11pt;">${certifiedByName}</div>
     </td>
   </tr>
   <tr>
     <td style="text-align: center; vertical-align: top; font-size: 11pt;"><strong style="font-size: 11pt;"> Designation</strong></td>
     <td style="text-align: center; vertical-align: top; font-size: 11pt;">
-      <div class="signature-title" style="font-size: 10pt;">${getOBRCityMayorPosition()}</div>
+      <div class="signature-title" style="font-size: 10pt;">${requestedByPosition}</div>
     </td>
     <td colspan="3" style="text-align: center; vertical-align: top; font-size: 11pt;">
-      <div class="signature-title" style="font-size: 10pt;">${getOBRBudgetOfficerPosition()}</div>
+      <div class="signature-title" style="font-size: 10pt;">${certifiedByPosition}</div>
     </td>
   </tr>
   <tr>

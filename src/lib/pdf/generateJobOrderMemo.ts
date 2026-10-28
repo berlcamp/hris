@@ -42,23 +42,22 @@ import {
   lineBox,
   wrapLines,
 } from "./print-geometry.ts";
+import {
+  DEFAULT_JOB_ORDER_SIGNATORIES,
+  type JobOrderSignatories,
+} from "../job-order-signatories.ts";
 import type { JobOrderMemoType } from "@/lib/types";
 
-// Hard-coded LGU Ozamiz City letterhead and signatories, matching the printed
-// template. Overridable by env for the two that already have a project-wide
-// variable; the rest can be promoted to a settings table later without
-// touching this layout.
-const CITY_MAYOR_NAME = () =>
-  process.env.NEXT_PUBLIC_CITY_MAYOR_NAME ?? "SAM NORMAN G. FUENTES";
-const CITY_MAYOR_POSITION = () =>
-  process.env.NEXT_PUBLIC_CITY_MAYOR_POSITION ?? "City Mayor";
+/** The two signatories a memorandum prints. */
+export type JobOrderMemoSignatories = Pick<
+  JobOrderSignatories,
+  "city_mayor" | "city_administrator"
+>;
 
-/** The addressee of a "new" memo — the office that processes the contracts. */
-const CITY_ADMINISTRATOR = {
-  name: "MS. RUTHEZA GRACE A. OUANO",
-  title: "City Administrator",
-  office: "City Administrator's Office",
-};
+// The letterhead is fixed to LGU Ozamiz City and matches the printed template.
+// The two signatories — the City Mayor who signs and the City Administrator a
+// "new" memo is addressed to — come from Job Orders → Signatories
+// (hris.job_order_signatories) through `params.signatories`.
 
 const CONTACT_LINES = [
   "TELEFAX NO. (088) 521-1390",
@@ -87,6 +86,8 @@ export interface GenerateJobOrderMemoPrintParams {
   /** Period phrase interpolated into the body sentence, verbatim. */
   periodCovered: string | null;
   rows: JobOrderMemoPrintRow[];
+  /** Omitted, the built-in defaults print (DEFAULT_JOB_ORDER_SIGNATORIES). */
+  signatories?: JobOrderMemoSignatories;
 }
 
 /** Rates print bare on the template: 480, not ₱480.00. */
@@ -264,14 +265,21 @@ function buildLetterhead(): string {
   <div class="rule"></div>`;
 }
 
-function buildAddressee(memoType: JobOrderMemoType): string {
+function buildAddressee(
+  memoType: JobOrderMemoType,
+  signatories: JobOrderMemoSignatories,
+): string {
   if (memoType === "retain") {
     return `<div>ALL PERSONS CONCERNED</div>`;
   }
+  const addressee = signatories.city_administrator;
+  const office = addressee.office
+    ? `
+        <div class="addressee-sub">${escapeHtml(addressee.office)}</div>`
+    : "";
   return `
-        <div>${escapeHtml(CITY_ADMINISTRATOR.name)}</div>
-        <div class="addressee-sub">${escapeHtml(CITY_ADMINISTRATOR.title)}</div>
-        <div class="addressee-sub">${escapeHtml(CITY_ADMINISTRATOR.office)}</div>`;
+        <div>${escapeHtml(addressee.name)}</div>
+        <div class="addressee-sub">${escapeHtml(addressee.position)}</div>${office}`;
 }
 
 /** The single body sentence as plain text — the geometry below measures it. */
@@ -440,6 +448,7 @@ function headHeightPt(
   memoType: JobOrderMemoType,
   subject: string,
   periodCovered: string | null,
+  signatories: JobOrderMemoSignatories,
 ): { height: number; tight: boolean } {
   const letterhead =
     lineBox(15) + lineBox(15) + lineBox(13) + CONTACT_LINES.length * lineBox(7.5);
@@ -447,8 +456,11 @@ function headHeightPt(
   const title = lineBox(15) + fromPx(18);
 
   const fieldRow = (content: number) => content + fromPx(6);
+  const addresseeSubLines = signatories.city_administrator.office ? 2 : 1;
   const addressee =
-    memoType === "retain" ? lineBox(12) : lineBox(12) + 2 * lineBox(10);
+    memoType === "retain"
+      ? lineBox(12)
+      : lineBox(12) + addresseeSubLines * lineBox(10);
   const subjectWrap = wrapLines(subject, FIELD_VALUE_WIDTH_PT, 12);
   const fields =
     fieldRow(addressee) +
@@ -514,7 +526,12 @@ function planTailHeightPt(
   isSplit: boolean,
 ): number | null {
   const { memoType, subject, periodCovered } = params;
-  const head = headHeightPt(memoType, subject, periodCovered);
+  const head = headHeightPt(
+    memoType,
+    subject,
+    periodCovered,
+    params.signatories ?? DEFAULT_JOB_ORDER_SIGNATORIES,
+  );
   const extra = tailExtraPt(memoType);
   let uncertain = head.tight || extra.tight;
 
@@ -555,6 +572,8 @@ export function renderJobOrderMemo(
   params: GenerateJobOrderMemoPrintParams,
 ): string {
   const { memoType, memoNo, subject, memoDate, periodCovered, rows } = params;
+  const signatories = params.signatories ?? DEFAULT_JOB_ORDER_SIGNATORIES;
+  const mayor = signatories.city_mayor;
 
   // Split the list so the last few rows can be kept with the signature block.
   const isSplit = rows.length >= MIN_ROWS_TO_SPLIT;
@@ -588,11 +607,11 @@ export function renderJobOrderMemo(
   <table class="fields">
     <tr>
       <td class="label">TO:</td>
-      <td class="value">${buildAddressee(memoType)}</td>
+      <td class="value">${buildAddressee(memoType, signatories)}</td>
     </tr>
     <tr>
       <td class="label">FROM:</td>
-      <td class="value">${escapeHtml(CITY_MAYOR_POSITION().toUpperCase())}</td>
+      <td class="value">${escapeHtml(mayor.position.toUpperCase())}</td>
     </tr>
     <tr>
       <td class="label">SUBJECT:</td>
@@ -616,8 +635,8 @@ export function renderJobOrderMemo(
     ${memoType === "retain" ? buildRetainClosing() : ""}
 
     <div class="signature">
-      <div class="signature-name">${escapeHtml(CITY_MAYOR_NAME())}</div>
-      <div>${escapeHtml(CITY_MAYOR_POSITION())}</div>
+      <div class="signature-name">${escapeHtml(mayor.name)}</div>
+      <div>${escapeHtml(mayor.position)}</div>
     </div>
 
     <div class="copies">

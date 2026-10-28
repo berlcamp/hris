@@ -5,6 +5,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { getJobOrderSignatories } from "@/lib/actions/job-order-signatory-actions";
 import { getJobOrderSpecialOrderById } from "@/lib/actions/job-order-special-order-actions";
 import { generateJobOrderSpecialOrderPrint } from "@/lib/pdf/generateJobOrderSpecialOrder";
 import type {
@@ -12,12 +13,17 @@ import type {
   JobOrderSpecialOrderMember,
 } from "@/lib/types";
 
-/** Prints a special order. Shared by the detail page and the list's row button. */
-export function printJobOrderSpecialOrder(
+/**
+ * Prints a special order with the signatories saved under Job Orders →
+ * Signatories. Shared by the detail page and the list's row button.
+ */
+export async function printJobOrderSpecialOrder(
   specialOrder: JobOrderSpecialOrder,
   members: JobOrderSpecialOrderMember[],
 ) {
+  const signatories = await getJobOrderSignatories();
   generateJobOrderSpecialOrderPrint({
+    signatories,
     soNo: specialOrder.so_no,
     subject: specialOrder.subject,
     soDate: specialOrder.so_date,
@@ -55,7 +61,7 @@ export function JobOrderSpecialOrderPrintButton({
         toast.error("This special order has no members to print");
         return;
       }
-      printJobOrderSpecialOrder(found, members);
+      await printJobOrderSpecialOrder(found, members);
     } catch {
       toast.error(
         "Could not load this special order's members. Please try again.",

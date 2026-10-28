@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getJobOrderSssContributionsForMonth } from "@/lib/actions/job-order-payroll-actions";
+import { getJobOrderSignatories } from "@/lib/actions/job-order-signatory-actions";
 import {
   endOfMonth,
   formatMonthLabel,
@@ -51,7 +52,10 @@ export function JobOrderSssMonthlyPrintDialog() {
     }
     setLoading(true);
     try {
-      const { rows, error } = await getJobOrderSssContributionsForMonth(month);
+      const [{ rows, error }, signatories] = await Promise.all([
+        getJobOrderSssContributionsForMonth(month),
+        getJobOrderSignatories(),
+      ]);
       if (error) {
         toast.error(error);
         return;
@@ -74,16 +78,8 @@ export function JobOrderSssMonthlyPrintDialog() {
         periodStart: startOfMonth(month),
         periodEnd: endOfMonth(month),
         employeeGroup: "LGU OZAMIZ-JOB ORDER WORKERS",
-        preparedBy: {
-          name: "MARICELL P. SALVADOR",
-          position: "Day Care Worker I",
-          office: null,
-        },
-        notedBy: {
-          name: "RUTHEZA GRACE A. OUANO",
-          position: "City Administrator",
-          office: null,
-        },
+        preparedBy: signatories.sss_prepared_by,
+        notedBy: signatories.sss_noted_by,
       });
       setOpen(false);
     } catch {

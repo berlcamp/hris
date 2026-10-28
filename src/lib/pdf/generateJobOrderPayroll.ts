@@ -38,17 +38,16 @@ import type {
   JobOrderPayrollPrintRow,
   JoPayrollPage,
 } from "@/lib/job-order-payroll-helpers";
+import {
+  DEFAULT_JOB_ORDER_SIGNATORIES,
+  type JobOrderSignatories,
+} from "@/lib/job-order-signatories";
 import { generatePayrollOBRPrint } from "@/lib/pdf/generatePayroll";
 
-// Hard-coded LGU Ozamiz City signatory block — matches the printed Daily Wages
-// Payroll template the accounting office uses. If these names ever change, the
-// values can be promoted to a settings table without altering the layout.
-const DAILY_WAGES_SIGNATORIES = {
-  accountantName: "EASY XAFLAVAIRE HOPE E. DIMAL",
-  accountantTitle: "CITY ACCOUNTANT",
-  foreman: { name: "CAROLYN N. GO", title: "Executive Assistant IV" },
-  approver: { name: "RUTHEZA GRACE A. OUANO", title: "City Admistrator" },
-  treasurer: { name: "JULIE FE C. NAPIGKIT", title: "City Treasurer" },
+// The Daily Wages form's agency line is fixed. Its signatories — and the OBR's
+// — come from Job Orders → Signatories (hris.job_order_signatories) through
+// `params.signatories`.
+const DAILY_WAGES_AGENCY = {
   agencyName: "LGU OZAMIZ CITY",
   // Fixed on both printables. This used to interpolate the payroll's
   // denormalized `areas` label, which made the heading drift with whichever
@@ -85,6 +84,8 @@ export interface GenerateJoPayrollPrintParams {
    * payroll whose net pay quietly disagrees with the members table.
    */
   showSss: boolean;
+  /** Omitted, the built-in defaults print (DEFAULT_JOB_ORDER_SIGNATORIES). */
+  signatories?: JobOrderSignatories;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,8 +331,10 @@ const DAILY_WAGES_STYLES = `
 
 function renderDailyWagesHeader(
   periodHeader: string,
+  signatories: JobOrderSignatories,
 ): string {
-  const agencyLine = `<u>${escapeHtml(DAILY_WAGES_SIGNATORIES.agencyName)}</u> - ${escapeHtml(DAILY_WAGES_SIGNATORIES.officeName)}`;
+  const agencyLine = `<u>${escapeHtml(DAILY_WAGES_AGENCY.agencyName)}</u> - ${escapeHtml(DAILY_WAGES_AGENCY.officeName)}`;
+  const accountant = signatories.payroll_accountant;
 
   return `
     <div class="report-header">
@@ -341,8 +344,8 @@ function renderDailyWagesHeader(
         <div class="report-sub">AUGMENTATION OF SALARIES &amp; WAGES - JOB ORDER</div>
       </div>
       <div class="right">
-        <div class="accountant-name">${escapeHtml(DAILY_WAGES_SIGNATORIES.accountantName)}</div>
-        <div class="accountant-title">${escapeHtml(DAILY_WAGES_SIGNATORIES.accountantTitle)}</div>
+        <div class="accountant-name">${escapeHtml(accountant.name)}</div>
+        <div class="accountant-title">${escapeHtml(accountant.position)}</div>
       </div>
     </div>
     <div class="meta-row">
@@ -351,27 +354,30 @@ function renderDailyWagesHeader(
     </div>`;
 }
 
-function renderDailyWagesFooter(): string {
+function renderDailyWagesFooter(signatories: JobOrderSignatories): string {
+  const certifier = signatories.payroll_certifier;
+  const approver = signatories.payroll_approver;
+  const treasurer = signatories.payroll_treasurer;
   return `
     <table class="footer-table">
       <tr>
         <td>
           <div class="foot-label">CERTIFY:</div>
           <div class="foot-text">Each person whose name appears on this roll had rendered services for the time stated.</div>
-          <div class="foot-name">${escapeHtml(DAILY_WAGES_SIGNATORIES.foreman.name)}</div>
-          <div class="foot-title">${escapeHtml(DAILY_WAGES_SIGNATORIES.foreman.title)}</div>
+          <div class="foot-name">${escapeHtml(certifier.name)}</div>
+          <div class="foot-title">${escapeHtml(certifier.position)}</div>
           <div class="foot-role">Name &amp; Signature of Foreman/Supervisor</div>
         </td>
         <td>
           <div class="foot-label">Approved for Payment:</div>
-          <div class="foot-name">${escapeHtml(DAILY_WAGES_SIGNATORIES.approver.name)}</div>
-          <div class="foot-title">${escapeHtml(DAILY_WAGES_SIGNATORIES.approver.title)}</div>
+          <div class="foot-name">${escapeHtml(approver.name)}</div>
+          <div class="foot-title">${escapeHtml(approver.position)}</div>
           <div class="foot-role">Name &amp; Signature of Approving Officer</div>
         </td>
         <td>
           <div class="foot-text" style="text-indent:0;">CERTIFIED: Funds available in the amount of Php ______________</div>
-          <div class="foot-name">${escapeHtml(DAILY_WAGES_SIGNATORIES.treasurer.name)}</div>
-          <div class="foot-title">${escapeHtml(DAILY_WAGES_SIGNATORIES.treasurer.title)}</div>
+          <div class="foot-name">${escapeHtml(treasurer.name)}</div>
+          <div class="foot-title">${escapeHtml(treasurer.position)}</div>
         </td>
         <td>
           <div class="foot-text" style="text-indent:0;">Each person whose name appears on the above roll has been paid the amount stated opposite his/her name after identifying him.</div>
@@ -388,6 +394,7 @@ function renderDailyWagesPayroll({
   periodEnd,
   withAtm,
   showSss,
+  signatories = DEFAULT_JOB_ORDER_SIGNATORIES,
 }: GenerateJoPayrollPrintParams): string {
   const periodHeader = formatPeriodHeader(periodStart, periodEnd);
   // Sorted by name and cut into printed pages by the same function the Summary
@@ -541,7 +548,7 @@ function renderDailyWagesPayroll({
 
     return `
   <div class="payroll-page">
-    ${renderDailyWagesHeader(periodHeader)}
+    ${renderDailyWagesHeader(periodHeader, signatories)}
     <table class="payroll${stretch ? " stretch" : ""}">
       <colgroup>${colgroup}</colgroup>
       <thead>
@@ -576,7 +583,7 @@ function renderDailyWagesPayroll({
         ${grandTotalRow}
       </tbody>
     </table>
-    ${renderDailyWagesFooter()}
+    ${renderDailyWagesFooter(signatories)}
   </div>`;
   });
 
@@ -657,7 +664,7 @@ function renderSummaryHeader(periodHeader: string): string {
   <div class="report-title">SUMMARY OF PAYROLLS</div>
   <div class="report-sub">JOB ORDER SERVICES</div>
   <div class="meta-row">
-    <div>AGENCY: ${escapeHtml(DAILY_WAGES_SIGNATORIES.officeName.toUpperCase())}</div>
+    <div>AGENCY: ${escapeHtml(DAILY_WAGES_AGENCY.officeName.toUpperCase())}</div>
     <div>${periodHeader}</div>
   </div>`;
 }
@@ -825,14 +832,15 @@ const JO_OBR_ACCOUNT_CODE = "5-02-12-020";
  * not follow `showSss`.
  *
  * The form itself is the regular payroll module's OBR (`generatePayrollOBRPrint`),
- * reused rather than reimplemented: same office, same signatories, same
- * responsibility center, so a second copy would be one more place to update
- * when a signatory changes. Only the payee, particulars, account code and
- * amount differ.
+ * reused rather than reimplemented: same office, same responsibility center,
+ * so a second copy would be one more place to update. Only the payee,
+ * particulars, account code, amount and signatories (the module's own, from
+ * Job Orders → Signatories) differ.
  */
 export function generateJoPayrollObrPrint({
   rows,
   particulars,
+  signatories = DEFAULT_JOB_ORDER_SIGNATORIES,
 }: GenerateJoPayrollPrintParams): void {
   // Alphabetical, matching the order the Daily Wages form prints in, so the
   // payee is literally the first name on page 1 of the payroll.
@@ -851,5 +859,9 @@ export function generateJoPayrollObrPrint({
     totalAmount: totalGross,
     accountCode: JO_OBR_ACCOUNT_CODE,
     payee: firstName ? `${firstName} AND COMPANY` : "",
+    signatories: {
+      requestedBy: signatories.city_mayor,
+      certifiedBy: signatories.obr_budget_officer,
+    },
   });
 }

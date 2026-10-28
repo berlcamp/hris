@@ -6,15 +6,21 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { getJobOrderMemoById } from "@/lib/actions/job-order-memo-actions";
+import { getJobOrderSignatories } from "@/lib/actions/job-order-signatory-actions";
 import { generateJobOrderMemoPrint } from "@/lib/pdf/generateJobOrderMemo";
 import type { JobOrderMemo, JobOrderMemoMember } from "@/lib/types";
 
-/** Prints a memo. Shared by the detail page and the list's row button. */
-export function printJobOrderMemo(
+/**
+ * Prints a memo with the signatories saved under Job Orders → Signatories.
+ * Shared by the detail page and the list's row button.
+ */
+export async function printJobOrderMemo(
   memo: JobOrderMemo,
   members: JobOrderMemoMember[],
 ) {
+  const signatories = await getJobOrderSignatories();
   generateJobOrderMemoPrint({
+    signatories,
     memoType: memo.memo_type,
     memoNo: memo.memo_no,
     subject: memo.subject,
@@ -49,7 +55,7 @@ export function JobOrderMemoPrintButton({ memo }: { memo: JobOrderMemo }) {
         toast.error("This memo has no members to print");
         return;
       }
-      printJobOrderMemo(found, members);
+      await printJobOrderMemo(found, members);
     } catch {
       toast.error("Could not load this memo's members. Please try again.");
     } finally {

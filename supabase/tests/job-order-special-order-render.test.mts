@@ -368,3 +368,26 @@ test("the printed list is grouped by area assigned, then by name", () => {
   // The numbering follows the printed order, not the input order.
   assert.match(html, /<td class="no">1<\/td>\s*<td class="name">BAUTISTA, ANA<\/td>/);
 });
+
+test("signatories from Job Orders → Signatories replace the defaults, escaped", () => {
+  const html = renderJobOrderSpecialOrder({
+    soNo: "X",
+    subject: "S",
+    soDate: "2025-05-29",
+    periodCovered: "JUNE 2025",
+    rows: ROWS,
+    signatories: {
+      city_mayor: { name: "JUAN <B> DELA CRUZ", position: "Acting City Mayor", office: null },
+      city_administrator: { name: "MR. PEDRO SANTOS", position: "OIC Administrator", office: null },
+    },
+  });
+
+  assert.match(html, /JUAN &lt;B&gt; DELA CRUZ/);
+  assert.match(html, /ACTING CITY MAYOR/); // the FROM line
+  assert.match(html, /MR\. PEDRO SANTOS/);
+  assert.match(html, /OIC Administrator/);
+  // A null office prints no office line at all.
+  assert.doesNotMatch(html, /class="addressee-office"/);
+  assert.doesNotMatch(html, /SAM NORMAN G\. FUENTES/);
+  assert.doesNotMatch(html, /RUTHEZA/);
+});

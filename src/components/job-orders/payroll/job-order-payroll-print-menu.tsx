@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getJobOrderPayrollById } from "@/lib/actions/job-order-payroll-actions";
+import { getJobOrderSignatories } from "@/lib/actions/job-order-signatory-actions";
 import { toPrintRow } from "@/lib/job-order-payroll-helpers";
 import {
   generateJoPayrollObrPrint,
@@ -91,9 +92,13 @@ export function JobOrderPayrollPrintMenu({
 
   const printWith =
     (generate: (params: GenerateJoPayrollPrintParams) => void) => async () => {
-      const members = await loadMembers();
+      const [members, signatories] = await Promise.all([
+        loadMembers(),
+        getJobOrderSignatories(),
+      ]);
       if (!members) return;
       generate({
+        signatories,
         rows: members.map(toPrintRow),
         periodStart: payroll.period_start,
         periodEnd: payroll.period_end,

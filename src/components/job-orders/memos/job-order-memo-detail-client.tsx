@@ -51,6 +51,7 @@ export function JobOrderMemoDetailClient({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [printing, setPrinting] = useState(false);
 
   const deleteUnlocked = deleteConfirmText === DELETE_CONFIRM_PHRASE;
 
@@ -72,10 +73,18 @@ export function JobOrderMemoDetailClient({
     }
   };
 
-  const handlePrint = () => {
-    // Printing opens the browser's native print dialog directly (see
-    // print-html.ts) — there is no download/blob step, hence no pending state.
-    printJobOrderMemo(memo, members);
+  const handlePrint = async () => {
+    // The only wait is the signatories fetch: printing then opens the
+    // browser's native print dialog through a hidden iframe (see
+    // print-html.ts), so it still works after the await.
+    setPrinting(true);
+    try {
+      await printJobOrderMemo(memo, members);
+    } catch {
+      toast.error("Could not load the signatories. Please try again.");
+    } finally {
+      setPrinting(false);
+    }
   };
 
   return (
@@ -134,8 +143,16 @@ export function JobOrderMemoDetailClient({
               Delete
             </Button>
           )}
-          <Button size="sm" onClick={handlePrint} disabled={members.length === 0}>
-            <Printer className="h-4 w-4" />
+          <Button
+            size="sm"
+            onClick={handlePrint}
+            disabled={members.length === 0 || printing}
+          >
+            {printing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="h-4 w-4" />
+            )}
             Print Memo
           </Button>
         </div>

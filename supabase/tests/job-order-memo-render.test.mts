@@ -325,3 +325,29 @@ test("an unmeasurable layout keeps its natural height rather than guessing", () 
   }
   assert.match(html, /Copies furnished:/);
 });
+
+test("signatories from Job Orders → Signatories replace the defaults, escaped", () => {
+  const html = renderJobOrderMemo({
+    memoType: "new",
+    memoNo: "X",
+    subject: "JOB ORDER CONTRACTS",
+    memoDate: "2026-07-22",
+    periodCovered: "July 24-31, 2026",
+    rows: ROWS,
+    signatories: {
+      city_mayor: { name: "JUAN <B> DELA CRUZ", position: "Acting City Mayor", office: null },
+      city_administrator: {
+        name: "MR. PEDRO SANTOS",
+        position: "OIC Administrator",
+        office: "Office of the City Administrator",
+      },
+    },
+  });
+
+  assert.match(html, /JUAN &lt;B&gt; DELA CRUZ/);
+  assert.match(html, /ACTING CITY MAYOR/); // the FROM line
+  assert.match(html, /MR\. PEDRO SANTOS/);
+  assert.match(html, /Office of the City Administrator/);
+  assert.doesNotMatch(html, /SAM NORMAN G\. FUENTES/);
+  assert.doesNotMatch(html, /RUTHEZA/);
+});
