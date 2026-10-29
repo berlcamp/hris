@@ -8,6 +8,7 @@ import {
   Clock,
   Star,
   ArrowRight,
+  Briefcase,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,6 +21,12 @@ const reports = [
     description: "All plantilla positions with incumbent data and vacancy status",
     href: "/reports/plantilla",
     icon: Users,
+  },
+  {
+    title: "Position Summary",
+    description: "Items, filled and vacant counts per position title — download each position's employees to Excel",
+    href: "/reports/positions",
+    icon: Briefcase,
   },
   {
     title: "Leave Ledger",

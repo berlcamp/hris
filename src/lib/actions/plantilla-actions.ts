@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { canManageHrRecords, isDeptHead } from "@/lib/auth-helpers";
+import { canManageHrRecords, hasAnyRole, isDeptHead } from "@/lib/auth-helpers";
+import { selectAll } from "@/lib/postgrest-paging";
+import type { PositionItem } from "@/lib/position-summary";
 
 export interface PlantillaRecord {
   id: string;
@@ -78,6 +80,33 @@ export async function getAllPlantilla(): Promise<PlantillaListRow[]> {
     return [];
   }
   return data as PlantillaListRow[];
+}
+
+/**
+ * Every plantilla item with its incumbent, for the Position Summary report.
+ * HR-only (the page gates on super_admin/hr_admin); grouping happens in
+ * `summarizePositions` on the client so per-position downloads need no
+ * round-trip.
+ */
+export async function getPositionReportItems(): Promise<PositionItem[]> {
+  const user = await getCurrentUser();
+  if (!user || !hasAnyRole(user.roles, "super_admin", "hr_admin")) return [];
+
+  const supabase = createAdminClient();
+  // 1,200+ items: past PostgREST's 1000-row cap, so page through.
+  return selectAll<PositionItem>((from, to) =>
+    supabase
+      .schema("hris")
+      .from("plantilla")
+      .select(
+        `id, item_number, position_title, organizational_unit, salary_grade, step,
+         status, is_vacant, is_funded, actual_annual_salary, date_of_original_appointment,
+         employees(id, id_number, first_name, middle_name, last_name, suffix, status, employment_type,
+           departments!employees_department_id_fkey(name))`,
+      )
+      .order("id")
+      .range(from, to),
+  );
 }
 
 export async function getPlantillaByEmployee(employeeId: string): Promise<PlantillaRecord | null> {
