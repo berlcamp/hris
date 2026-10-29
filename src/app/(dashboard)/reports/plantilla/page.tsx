@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { getReportPlantilla } from "@/lib/actions/dashboard-actions";
+import { getPositionReportItems } from "@/lib/actions/plantilla-actions";
 import { PlantillaReportClient } from "@/components/reports/plantilla-report-client";
 import { hasAnyRole } from "@/lib/auth-helpers";
 
@@ -13,7 +13,7 @@ export default async function PlantillaReportPage() {
   if (!user) redirect("/login");
   if (!hasAnyRole(user.roles, "super_admin", "hr_admin")) redirect("/dashboard");
 
-  const data = await getReportPlantilla();
+  const data = await getPositionReportItems();
 
   return (
     <div className="space-y-6">
@@ -32,7 +32,7 @@ export default async function PlantillaReportPage() {
           </p>
         </div>
       </div>
-      <PlantillaReportClient data={data as any} />
+      <PlantillaReportClient data={data} />
     </div>
   );
 }

@@ -534,28 +534,6 @@ export async function getEmployeeDashboardData(userId: string): Promise<Employee
 
 // --- Reports helpers ---
 
-export async function getReportPlantilla() {
-  const user = await getCurrentUser();
-  const supabase = createAdminClient();
-
-  let query = supabase
-    .schema("hris")
-    .from("positions")
-    .select(`
-      id, title, item_number, salary_grade, is_filled,
-      departments!positions_department_id_fkey(name, code),
-      employees!employees_position_id_fkey(id, first_name, last_name, status)
-    `)
-    .order("salary_grade", { ascending: false });
-
-  if (user && roleIsDeptHead(user.role) && user.departmentId) {
-    query = query.eq("department_id", user.departmentId);
-  }
-
-  const { data } = await query;
-  return data ?? [];
-}
-
 export async function getReportNosiSummary(startDate?: string, endDate?: string) {
   const user = await getCurrentUser();
   const supabase = createAdminClient();
