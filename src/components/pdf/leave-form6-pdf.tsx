@@ -6,6 +6,7 @@ import {
   Image,
   StyleSheet,
 } from "@react-pdf/renderer";
+import { formatGroupedLeaveDates } from "@/lib/leave-dates-format";
 
 const BORDER = "1pt solid #000";
 const HAIR = "0.7pt solid #000";
@@ -336,8 +337,8 @@ export function LeaveForm6Pdf({
 
   const inclusiveDates =
     leaveDates.length > 0
-      ? leaveDates.length <= 5
-        ? leaveDates.map(fmtDate).join(", ")
+      ? leaveDates.length <= 14
+        ? formatGroupedLeaveDates(leaveDates)
         : `${fmtDate(startDate)} to ${fmtDate(endDate)} (${leaveDates.length} dates)`
       : `${fmtDate(startDate)} to ${fmtDate(endDate)}`;
 
