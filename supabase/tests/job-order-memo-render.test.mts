@@ -14,7 +14,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { renderJobOrderMemo } from "../../src/lib/pdf/generateJobOrderMemo.ts";
+import {
+  renderJobOrderMemo,
+  sortJobOrderMemoRows,
+} from "../../src/lib/pdf/generateJobOrderMemo.ts";
 import {
   jobOrderMemoCreateSchema,
   jobOrderMemoDuplicateSchema,
@@ -350,4 +353,28 @@ test("signatories from Job Orders → Signatories replace the defaults, escaped"
   assert.match(html, /Office of the City Administrator/);
   assert.doesNotMatch(html, /SAM NORMAN G\. FUENTES/);
   assert.doesNotMatch(html, /RUTHEZA/);
+});
+
+test("rows print sorted by office assignment, then name; blank office last", () => {
+  const sorted = sortJobOrderMemoRows([
+    { full_name: "ZAMORA, ANA", office_assignment: "CITY ENGINEERING OFFICE", daily_rate: 480 },
+    { full_name: "NO OFFICE, PEDRO", office_assignment: null, daily_rate: 480 },
+    { full_name: "BAUTISTA, JUAN", office_assignment: "OFFICE OF THE CITY MAYOR", daily_rate: 480 },
+    { full_name: "ABAD, MARIA", office_assignment: "office of the city mayor", daily_rate: 480 },
+    { full_name: "CRUZ, LEO", office_assignment: "CITY ENGINEERING OFFICE", daily_rate: 480 },
+  ]);
+  assert.deepEqual(
+    sorted.map((r) => r.full_name),
+    ["CRUZ, LEO", "ZAMORA, ANA", "ABAD, MARIA", "BAUTISTA, JUAN", "NO OFFICE, PEDRO"],
+  );
+
+  const html = renderJobOrderMemo({
+    memoType: "new",
+    memoNo: "X",
+    subject: "S",
+    memoDate: "2026-07-22",
+    periodCovered: "July 2026",
+    rows: ROWS,
+  });
+  assert.ok(html.indexOf("INTO, ARCHIEANN") < html.indexOf("TAGACTAC, KELLA GRACE A."));
 });

@@ -568,10 +568,27 @@ function planTailHeightPt(
   return height > tailHeight ? height : null;
 }
 
+/**
+ * Print order: alphabetical by office assignment (the JO's department/area),
+ * then by name. Rows with no office assignment sink to the bottom.
+ */
+export function sortJobOrderMemoRows(
+  rows: JobOrderMemoPrintRow[],
+): JobOrderMemoPrintRow[] {
+  const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+  return [...rows].sort((a, b) => {
+    const da = a.office_assignment?.trim() ?? "";
+    const db = b.office_assignment?.trim() ?? "";
+    if (!da !== !db) return da ? -1 : 1;
+    return collator.compare(da, db) || collator.compare(a.full_name, b.full_name);
+  });
+}
+
 export function renderJobOrderMemo(
   params: GenerateJobOrderMemoPrintParams,
 ): string {
-  const { memoType, memoNo, subject, memoDate, periodCovered, rows } = params;
+  const { memoType, memoNo, subject, memoDate, periodCovered } = params;
+  const rows = sortJobOrderMemoRows(params.rows);
   const signatories = params.signatories ?? DEFAULT_JOB_ORDER_SIGNATORIES;
   const mayor = signatories.city_mayor;
 
