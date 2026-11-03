@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2 } from "lucide-react";
@@ -30,6 +30,7 @@ import {
   removeJobOrderMemoMember,
   updateJobOrderMemoMember,
 } from "@/lib/actions/job-order-memo-actions";
+import { sortJobOrderMemoRows } from "@/lib/pdf/generateJobOrderMemo";
 import type { JobOrderMemoMember } from "@/lib/types";
 
 interface JobOrderMemoMembersTableProps {
@@ -44,6 +45,8 @@ export function JobOrderMemoMembersTable({
   editable,
 }: JobOrderMemoMembersTableProps) {
   const router = useRouter();
+  // Same order as the printout: office assignment, then name.
+  const sortedMembers = useMemo(() => sortJobOrderMemoRows(members), [members]);
   const [addOpen, setAddOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<JobOrderMemoMember | null>(
     null,
@@ -103,7 +106,7 @@ export function JobOrderMemoMembersTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {members.map((m, i) => (
+              {sortedMembers.map((m, i) => (
                 <MemberRow
                   key={m.id}
                   index={i}

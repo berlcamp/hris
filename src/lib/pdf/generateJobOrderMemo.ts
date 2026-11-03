@@ -570,11 +570,13 @@ function planTailHeightPt(
 
 /**
  * Print order: alphabetical by office assignment (the JO's department/area),
- * then by name. Rows with no office assignment sink to the bottom.
+ * then by name. Rows with no office assignment sink to the bottom. The memo
+ * detail page's members table uses the same order, so the No. on screen
+ * matches the No. on paper.
  */
-export function sortJobOrderMemoRows(
-  rows: JobOrderMemoPrintRow[],
-): JobOrderMemoPrintRow[] {
+export function sortJobOrderMemoRows<T extends JobOrderMemoPrintRow>(
+  rows: T[],
+): T[] {
   const collator = new Intl.Collator("en", { sensitivity: "base", numeric: true });
   return [...rows].sort((a, b) => {
     const da = a.office_assignment?.trim() ?? "";
