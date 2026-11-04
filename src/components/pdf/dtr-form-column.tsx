@@ -1,5 +1,9 @@
 import { Image, StyleSheet, Text, View } from "@react-pdf/renderer";
-import { dtrSpanFor, isWeekendDayName } from "@/lib/dtr-span-label";
+import {
+  dtrSpanFor,
+  isDtrPendingCorrection,
+  isWeekendDayName,
+} from "@/lib/dtr-span-label";
 import type {
   DtrEntry,
   DtrScheduleInfo,
@@ -198,6 +202,15 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 1.5,
   },
+  // Merged Hours + Minutes box on a day with blank cells to settle. 6pt is what
+  // keeps "PENDING CORRECTION" on one line in the two cells' combined width.
+  utPendingCell: {
+    width: w(W_UT_GROUP),
+    fontSize: 6,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "center",
+    paddingVertical: 1.5,
+  },
   // Spanning row (weekend/leave/absent/full holiday). Covers the AM+PM groups
   // only; the Undertime Hours/Minutes cells render to its right so an absent
   // day can still show its 8-hour undertime.
@@ -368,6 +381,30 @@ function SlotCell({
   );
 }
 
+// The Undertime columns of a day: its hours and minutes, or one merged box when
+// the day still has blank cells to settle.
+function UndertimeCells({
+  minutes,
+  pending,
+}: {
+  minutes: number;
+  pending: boolean;
+}) {
+  if (pending) {
+    return <Text style={styles.utPendingCell}>PENDING CORRECTION</Text>;
+  }
+  return (
+    <>
+      <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
+        {minutes > 0 ? String(Math.floor(minutes / 60)) : ""}
+      </Text>
+      <Text style={[styles.utCellLast, { width: w(W_UT_MIN) }]}>
+        {minutes > 0 ? pad2(minutes % 60) : ""}
+      </Text>
+    </>
+  );
+}
+
 // 0.125 leave-credit days per hour (8 hours = 1.0 day). Minute granularity is
 // prorated linearly: 1 min = 0.125 / 60 days.
 function convertMinsToLeaveCredits(totalMins: number): string {
@@ -413,8 +450,12 @@ export function DtrFormColumn({
       span?.kind === "reason" ? GREEN : span?.kind === "absent" ? RED : undefined;
 
     const totalUtForDay = entry.late_minutes + entry.undertime_minutes;
-    const utH = Math.floor(totalUtForDay / 60);
-    const utM = totalUtForDay % 60;
+    const undertimeCells = (
+      <UndertimeCells
+        minutes={totalUtForDay}
+        pending={isDtrPendingCorrection(entry, span)}
+      />
+    );
 
     return (
       <View
@@ -431,12 +472,7 @@ export function DtrFormColumn({
             {/* Undertime still prints alongside the span label — an absent day
                 carries a full 8-hour undertime; other spans (weekend / leave /
                 holiday) carry none, so the cells stay blank. */}
-            <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
-              {totalUtForDay > 0 ? String(utH) : ""}
-            </Text>
-            <Text style={[styles.utCellLast, { width: w(W_UT_MIN) }]}>
-              {totalUtForDay > 0 ? pad2(utM) : ""}
-            </Text>
+            {undertimeCells}
           </>
         ) : hasBreak ? (
           <>
@@ -478,12 +514,7 @@ export function DtrFormColumn({
                 />
               </>
             )}
-            <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
-              {totalUtForDay > 0 ? String(utH) : ""}
-            </Text>
-            <Text style={[styles.utCellLast, { width: w(W_UT_MIN) }]}>
-              {totalUtForDay > 0 ? pad2(utM) : ""}
-            </Text>
+            {undertimeCells}
           </>
         ) : (
           <>
@@ -510,12 +541,7 @@ export function DtrFormColumn({
                 width={NB_OUT}
               />
             )}
-            <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
-              {totalUtForDay > 0 ? String(utH) : ""}
-            </Text>
-            <Text style={[styles.utCellLast, { width: w(W_UT_MIN) }]}>
-              {totalUtForDay > 0 ? pad2(utM) : ""}
-            </Text>
+            {undertimeCells}
           </>
         )}
       </View>
