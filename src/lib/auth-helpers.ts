@@ -161,7 +161,7 @@ export function canManageHrRecords(
 // Roles allowed to state a leave application's Date of Filing instead of taking
 // today's date (see src/lib/leave-date-filed.ts).
 export function canChangeLeaveDateFiled(role: RoleInput): boolean {
-  return hasAnyRole(role, "hr_admin", "ocm_admin");
+  return hasAnyRole(role, "super_admin", "hr_admin", "ocm_admin");
 }
 
 // Roles allowed to EDIT the salary grade table. The HR Record Manager reaches

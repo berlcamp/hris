@@ -562,7 +562,7 @@ export async function createLeaveApplication(input: {
   const { date_filed: dateFiled, ...application } = input;
   if (dateFiled) {
     if (!canChangeLeaveDateFiled(user.roles)) {
-      return { error: "Only an HR Admin or OCM Admin can change the date of filing" };
+      return { error: "Only a Super Admin, HR Admin or OCM Admin can change the date of filing" };
     }
     const dateError = dateFiledError(dateFiled, manilaToday());
     if (dateError) return { error: dateError };

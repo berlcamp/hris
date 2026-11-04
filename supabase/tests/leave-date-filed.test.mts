@@ -1,4 +1,4 @@
-// The Date of Filing an HR or OCM Admin can state on a leave application.
+// The Date of Filing a Super, HR or OCM Admin can state on a leave application.
 //
 // Run: npm run test:dtr
 
@@ -10,7 +10,8 @@ import { dateFiledError, leaveFiledOn } from "../../src/lib/leave-date-filed.ts"
 
 const TODAY = "2026-11-04";
 
-test("HR Admin and OCM Admin can change the filing date", () => {
+test("Super Admin, HR Admin and OCM Admin can change the filing date", () => {
+  assert.equal(canChangeLeaveDateFiled("super_admin"), true);
   assert.equal(canChangeLeaveDateFiled("hr_admin"), true);
   assert.equal(canChangeLeaveDateFiled("ocm_admin"), true);
   assert.equal(canChangeLeaveDateFiled(["employee", "hr_admin"]), true);
@@ -18,7 +19,6 @@ test("HR Admin and OCM Admin can change the filing date", () => {
 
 test("no other role can change the filing date", () => {
   for (const role of [
-    "super_admin",
     "hr_record_manager",
     "department_head",
     "department_admin",

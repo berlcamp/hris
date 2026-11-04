@@ -1,6 +1,6 @@
 // The Date of Filing on a leave application.
 //
-// HR and OCM Admins may state one when encoding a paper form (migration 097).
+// Super, HR and OCM Admins may state one when encoding a paper form (migration 097).
 // Otherwise the application was filed the day it was entered.
 
 /** What to show as the filing date. Pass the result to formatManilaLongDate. */
