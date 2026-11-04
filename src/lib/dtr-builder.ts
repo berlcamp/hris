@@ -82,7 +82,8 @@ export interface DtrEntry {
   reason_in_pm: string | null;
   reason_out_pm: string | null;
   // Blank cells the employee still has to settle (unsettledSlots). They print
-  // blank and cost nothing until settled. Absent on non-worked rows.
+  // blank, with PENDING CORRECTION in the Undertime box, and one blank in a
+  // session costs nothing until settled. Absent on non-worked rows.
   unsettled_slots?: SlotKey[];
   // Whether the employee's schedule makes this a rest day (rotation, override,
   // else Saturday/Sunday). Drives the REST DAY / weekday label (dtrSpanFor).

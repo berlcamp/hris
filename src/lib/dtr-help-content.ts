@@ -47,7 +47,7 @@ export const DTR_STEPS: Record<DtrAudience, DtrStep[]> = {
     },
     {
       title: "Generate and print the DTR",
-      body: "Download the month's DTRs. If any days still have blank punches, a warning lists them — blanks print blank and cost nothing until settled, except a fully blank morning or afternoon, which is a 4:00 half day.",
+      body: "Download the month's DTRs. If any days still have blank punches, a warning lists them, and each prints PENDING CORRECTION in its Undertime box. Blanks cost nothing until settled, except a fully blank morning or afternoon, which is a 4:00 half day.",
       href: "/dtr",
       cta: "Open DTR",
     },
