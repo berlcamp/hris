@@ -14,6 +14,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { formatManilaLongDate } from "@/lib/format-date";
+import { leaveFiledOn } from "@/lib/leave-date-filed";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { hasAnyRole, isDeptScoped } from "@/lib/auth-helpers";
 import {
@@ -98,7 +99,7 @@ export default async function LeaveLedgerPage({
             days_with_pay: daysWithPay,
             days_without_pay: daysWithoutPay,
             status: entry.status,
-            created_at: entry.created_at,
+            created_at: leaveFiledOn(entry),
           };
         })}
       />
@@ -324,7 +325,7 @@ export default async function LeaveLedgerPage({
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {formatManilaLongDate(entry.created_at)}
+                            {formatManilaLongDate(leaveFiledOn(entry))}
                           </TableCell>
                         </TableRow>
                       );

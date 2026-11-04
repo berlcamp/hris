@@ -19,6 +19,7 @@ import { LeaveForm6Pdf } from "@/components/pdf/leave-form6-pdf";
 import type { LeaveApplicationWithRelations, LeaveCreditRow } from "@/lib/actions/leave-actions";
 import { getEffectivePosition } from "@/lib/employee-position";
 import { formatManilaLongDate } from "@/lib/format-date";
+import { leaveFiledOn } from "@/lib/leave-date-filed";
 
 interface LeavePdfButtonProps {
   leave: LeaveApplicationWithRelations;
@@ -113,7 +114,7 @@ export function LeavePdfButton({ leave, credits, priorPaidUsage }: LeavePdfButto
           position={emp ? getEffectivePosition(emp) ?? "" : ""}
           department={emp?.departments?.name ?? ""}
           salaryGrade={emp?.salary_grade ?? 0}
-          dateOfFiling={formatManilaLongDate(leave.created_at)}
+          dateOfFiling={formatManilaLongDate(leaveFiledOn(leave))}
           leaveType={leave.leave_types?.name ?? ""}
           leaveTypeCode={leave.leave_types?.code ?? ""}
           startDate={leave.start_date}

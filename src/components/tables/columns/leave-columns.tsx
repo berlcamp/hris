@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTableColumnHeader } from "@/components/tables/data-table-column-header";
 import { formatManilaLongDate } from "@/lib/format-date";
+import { leaveFiledOn } from "@/lib/leave-date-filed";
 import { AlertTriangle, Eye } from "lucide-react";
 import type { LeaveApplicationWithRelations } from "@/lib/actions/leave-actions";
 
@@ -79,7 +80,7 @@ export const leaveColumns: ColumnDef<LeaveApplicationWithRelations>[] = [
     header: ({ column }) => <DataTableColumnHeader column={column} title="Leave Type" />,
     cell: ({ row }) => {
       const lt = row.original.leave_types;
-      const appliedAt = row.original.created_at;
+      const appliedAt = leaveFiledOn(row.original);
       return lt ? (
         <div>
           <p className="font-medium">{lt.name}</p>

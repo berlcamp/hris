@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
-import { hasAnyRole, hasRole, isCompositeDeptAdminHead, isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
+import { canChangeLeaveDateFiled, hasAnyRole, hasRole, isCompositeDeptAdminHead, isDeptHead, isDeptScoped } from "@/lib/auth-helpers";
+import { manilaToday } from "@/lib/format-date";
+import { dateFiledError } from "@/lib/leave-date-filed";
 import type { RoleInput } from "@/lib/auth-helpers";
 import {
   ocmFilingBlocks,
@@ -77,6 +79,7 @@ export interface LeaveApplicationWithRelations {
   hr_approved_at: string | null;
   rejection_reason: string | null;
   created_by: string | null;
+  date_filed: string | null;
   created_at: string;
   updated_at: string;
   employees: {
@@ -551,9 +554,19 @@ export async function createLeaveApplication(input: {
   details_of_leave?: string | null;
   commutation_requested?: boolean;
   leave_dates?: string[];
+  date_filed?: string | null;
 }) {
   const user = await getCurrentUser();
   if (!user) return { error: "Unauthorized" };
+
+  const { date_filed: dateFiled, ...application } = input;
+  if (dateFiled) {
+    if (!canChangeLeaveDateFiled(user.roles)) {
+      return { error: "Only an HR Admin or OCM Admin can change the date of filing" };
+    }
+    const dateError = dateFiledError(dateFiled, manilaToday());
+    if (dateError) return { error: dateError };
+  }
 
   const supabase = createAdminClient();
   const year = new Date(input.start_date).getFullYear();
@@ -662,7 +675,13 @@ export async function createLeaveApplication(input: {
   const { data, error } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .insert({ ...input, days_with_pay: daysWithPay, status: "pending", created_by: user.id })
+    .insert({
+      ...application,
+      ...(dateFiled ? { date_filed: dateFiled } : {}),
+      days_with_pay: daysWithPay,
+      status: "pending",
+      created_by: user.id,
+    })
     .select()
     .single();
 
@@ -685,6 +704,7 @@ export async function createLeaveApplication(input: {
       days_without_pay: Math.max(0, input.days_applied - daysWithPay),
       commutation_requested: input.commutation_requested ?? false,
       reason: input.reason,
+      date_filed: dateFiled ?? null,
       filed_by_role: user.role,
       filed_by_roles: user.roles,
     },
@@ -1294,6 +1314,7 @@ export interface LeaveLedgerEntry {
   days_applied: number;
   days_with_pay: number;
   status: string;
+  date_filed: string | null;
   created_at: string;
   leave_types: { code: string; name: string } | null;
 }
@@ -1325,7 +1346,7 @@ export async function getLeaveLedger(employeeId: string, year: number) {
   const { data, error } = await supabase
     .schema("hris")
     .from("leave_applications")
-    .select("id, employee_id, leave_type_id, start_date, end_date, days_applied, days_with_pay, status, created_at, leave_types(code, name)")
+    .select("id, employee_id, leave_type_id, start_date, end_date, days_applied, days_with_pay, status, date_filed, created_at, leave_types(code, name)")
     .eq("employee_id", employeeId)
     .gte("start_date", startOfYear)
     .lte("start_date", endOfYear)

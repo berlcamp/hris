@@ -35,6 +35,7 @@ interface LeaveApplicationFormProps {
   leaveTypes: LeaveTypeRow[];
   currentEmployeeId: string | null;
   isEmployee: boolean;
+  canChangeDateFiled: boolean;
 }
 
 const VACATION_CODES = ["VL", "SPL"];
@@ -45,9 +46,14 @@ export function LeaveApplicationForm({
   leaveTypes,
   currentEmployeeId,
   isEmployee,
+  canChangeDateFiled,
 }: LeaveApplicationFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+
+  // Null until an admin picks a date: the application is then filed today.
+  const [dateFiled, setDateFiled] = useState<Date | null>(null);
+  const [dateFiledOpen, setDateFiledOpen] = useState(false);
 
   const [empOpen, setEmpOpen] = useState(false);
   const [selectedEmpId, setSelectedEmpId] = useState<string | null>(currentEmployeeId);
@@ -153,6 +159,7 @@ export function LeaveApplicationForm({
       details_of_leave: detailsOfLeave || null,
       commutation_requested: commutationRequested,
       leave_dates: leaveDateStrings,
+      date_filed: dateFiled ? format(dateFiled, "yyyy-MM-dd") : null,
     });
 
     if ("error" in result && result.error) {
@@ -240,7 +247,32 @@ export function LeaveApplicationForm({
             <div className="grid grid-cols-3 divide-x">
               <div className="px-4 py-3">
                 <Label className="text-xs text-muted-foreground">3. DATE OF FILING</Label>
-                <p className="text-sm font-medium mt-0.5">{format(new Date(), "MMMM d, yyyy")}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-sm font-medium">{format(dateFiled ?? new Date(), "MMMM d, yyyy")}</p>
+                  {canChangeDateFiled && (
+                    <Popover open={dateFiledOpen} onOpenChange={setDateFiledOpen}>
+                      <PopoverTrigger render={<Button type="button" variant="outline" size="xs" />}>
+                        Change
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={dateFiled ?? new Date()}
+                          defaultMonth={dateFiled ?? new Date()}
+                          onSelect={(day) => {
+                            if (!day) return;
+                            setDateFiled(day);
+                            setDateFiledOpen(false);
+                          }}
+                          disabled={{ after: new Date() }}
+                          captionLayout="dropdown"
+                          fromYear={new Date().getFullYear() - 1}
+                          toYear={new Date().getFullYear()}
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                </div>
               </div>
               <div className="px-4 py-3">
                 <Label className="text-xs text-muted-foreground">4. POSITION</Label>

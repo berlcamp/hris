@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { format } from "date-fns";
 import Link from "next/link";
 import { formatManilaLongDate, formatManilaShortDate } from "@/lib/format-date";
+import { leaveFiledOn } from "@/lib/leave-date-filed";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -131,7 +132,7 @@ export default async function LeaveDetailPage({
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
-            Filed {formatManilaLongDate(leave.created_at)}
+            Filed {formatManilaLongDate(leaveFiledOn(leave))}
           </p>
         </div>
         <div className="flex gap-2">

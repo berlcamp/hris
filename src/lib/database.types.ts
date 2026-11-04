@@ -1627,6 +1627,7 @@ export type Database = {
           commutation_requested: boolean | null
           created_at: string | null
           created_by: string | null
+          date_filed: string | null
           days_applied: number
           days_with_pay: number
           department_head_id: string | null
@@ -1649,6 +1650,7 @@ export type Database = {
           commutation_requested?: boolean | null
           created_at?: string | null
           created_by?: string | null
+          date_filed?: string | null
           days_applied: number
           days_with_pay?: number
           department_head_id?: string | null
@@ -1671,6 +1673,7 @@ export type Database = {
           commutation_requested?: boolean | null
           created_at?: string | null
           created_by?: string | null
+          date_filed?: string | null
           days_applied?: number
           days_with_pay?: number
           department_head_id?: string | null

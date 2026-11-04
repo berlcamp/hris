@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getEmployees, type EmployeeWithRelations } from "@/lib/actions/employee-actions";
 import { getLeaveTypes } from "@/lib/actions/leave-actions";
 import { LeaveApplicationForm } from "@/components/leaves/leave-application-form";
-import { isCompositeDeptAdminHead, isDeptHead } from "@/lib/auth-helpers";
+import { canChangeLeaveDateFiled, isCompositeDeptAdminHead, isDeptHead } from "@/lib/auth-helpers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export default async function LeaveApplyPage() {
@@ -69,6 +69,7 @@ export default async function LeaveApplyPage() {
         leaveTypes={leaveTypes}
         currentEmployeeId={currentEmployeeId}
         isEmployee={isEmployee}
+        canChangeDateFiled={canChangeLeaveDateFiled(user.roles)}
       />
     </div>
   );

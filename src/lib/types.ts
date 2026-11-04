@@ -231,6 +231,7 @@ export interface LeaveApplication {
   dept_approved_at: string | null;
   hr_approved_at: string | null;
   rejection_reason: string | null;
+  date_filed: string | null;
   created_at: string;
   updated_at: string;
 }
