@@ -20,17 +20,18 @@ test("arrival re-scans collapse to the earliest; a blank afternoon is 4:00", () 
   assert.deepEqual(r.unsettled, ["in_pm", "out_pm"]);
 });
 
-test("in and out with no lunch punches costs nothing and is unsettled", () => {
+test("in and out with no lunch punches is one half day and unsettled", () => {
   const r = row("no-lunch");
   assert.deepEqual(r.cells, ["8:00 AM", null, null, "5:02 PM"]);
-  assert.equal(r.ut, "0:00");
+  assert.equal(r.ut, "4:00");
+  assert.equal(r.halfDay, true);
   assert.deepEqual(r.unsettled, ["out_am", "in_pm"]);
 });
 
 test("a re-scan after lunch is not the PM out", () => {
   const r = row("pm-rescan");
   assert.deepEqual(r.cells, ["7:58 AM", "12:01 PM", "12:58 PM", null]);
-  assert.equal(r.ut, "0:00");
+  assert.equal(r.ut, "4:00");
 });
 
 test("a complete late day is measured to the minute", () => {

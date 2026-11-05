@@ -15,7 +15,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   dtrSpanFor,
-  isDtrPendingCorrection,
   isWeekendDayName,
   type DtrSpanInput,
 } from "../../src/lib/dtr-span-label.ts";
@@ -126,21 +125,3 @@ test("an unrostered weekend still prints its day name", () => {
   });
 });
 
-test("a time row with a blank cell to settle is pending correction", () => {
-  assert.equal(isDtrPendingCorrection({ unsettled_slots: ["out_pm"] }, null), true);
-});
-
-test("a fully settled row is not pending correction", () => {
-  assert.equal(isDtrPendingCorrection({ unsettled_slots: [] }, null), false);
-  assert.equal(isDtrPendingCorrection({}, null), false);
-});
-
-test("a spanned row shows no time cells, so it is not pending correction", () => {
-  assert.equal(
-    isDtrPendingCorrection(
-      { unsettled_slots: ["out_pm"] },
-      { label: "ON LEAVE", kind: "leave" },
-    ),
-    false,
-  );
-});

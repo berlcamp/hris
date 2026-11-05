@@ -1,8 +1,8 @@
 // The warning a DTR screen shows when some days still have blank punches.
 //
-// A blank cell is unsettled, not charged (migration 092): it prints blank on
-// the CSC Form 48 and costs nothing until the employee settles it through a
-// correction. The officer printing the DTR should know which days those are.
+// A blank cell prints blank on the CSC Form 48, and the day is charged 4 hours
+// until the employee settles it through a correction (migration 100). The
+// officer printing the DTR should know which days those are.
 
 interface UnsettledInput {
   employee: { first_name: string; last_name: string };

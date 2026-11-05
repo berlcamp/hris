@@ -71,7 +71,7 @@ const RULES = [
   {
     icon: CircleDashed,
     title: "Blank cells",
-    body: "One blank in a session costs nothing until settled. A whole blank session (morning or afternoon) is a 4:00 half day.",
+    body: "A day with a blank is a 4:00 half day, once, until it is settled through a correction. A whole day with no punches is an absence.",
   },
 ] as const;
 
@@ -152,7 +152,7 @@ function ReadingTab() {
       </span>
       <span className="flex items-center gap-2">
         <span className="font-mono font-semibold text-destructive">4:00</span>
-        half day for a fully blank session
+        half day for a blank
       </span>
       <span className="flex items-center gap-2">
         <span className="text-muted-foreground">—</span>

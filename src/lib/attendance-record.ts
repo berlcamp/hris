@@ -7,6 +7,7 @@
 
 import {
   ABSENT_REASON,
+  UNDERTIME_CAP_MINUTES,
   dayLateUndertime,
   excusesSlot,
   slotReasonOpts,
@@ -129,7 +130,8 @@ export function computeAttendanceFlags(
     is_late: lateMinutes > 0,
     late_minutes: lateMinutes,
     is_undertime: undertimeMinutes > 0,
-    undertime_minutes: undertimeMinutes,
+    // Capped as the DTR caps it, so the attendance list reads what the DTR prints.
+    undertime_minutes: Math.min(undertimeMinutes, UNDERTIME_CAP_MINUTES),
     is_absent: !hasAnyLog,
   };
 }

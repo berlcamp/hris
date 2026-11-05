@@ -37,18 +37,6 @@ export function isWeekendDayName(dayOfWeek: string): boolean {
 }
 
 /**
- * Whether a row prints PENDING CORRECTION across its Undertime Hours/Minutes
- * cells: it still has blank cells to settle, and those cells are on the page. A
- * row under a span label (ON LEAVE) shows no time cells, so it has none to flag.
- */
-export function isDtrPendingCorrection(
-  entry: { unsettled_slots?: readonly string[] },
-  span: DtrSpan | null,
-): boolean {
-  return !span && (entry.unsettled_slots?.length ?? 0) > 0;
-}
-
-/**
  * Returns the spanning label for a row, or null to print the punch times.
  *
  * Branch order is the rule, most specific first:

@@ -1,6 +1,5 @@
-// Stack tests for the day-charging rule: migration 070's half-day rule, replaced
-// by migration 093 — a fully blank session is a flat half day, a session with
-// one blank cell is unsettled and costs nothing.
+// Stack tests for the day-charging rule, migration 100: a blank cell is one flat
+// half day, once a day on any schedule, until a correction settles it.
 //
 // The rule exists twice on purpose: once in TypeScript (dayLateUndertime,
 // src/lib/attendance-schedule.ts), which every app path reads it from, and once
@@ -184,6 +183,20 @@ const CASES: Case[] = [
     sched: NIGHT_NB, punches: ["22:00", null, null, null],
   },
   {
+    name: "night, no break, no clock-in",
+    sched: NIGHT_NB, punches: [null, null, null, "06:00"],
+    nextDay: [false, false, false, true],
+  },
+  {
+    name: "night, no break, late with no clock-out",
+    sched: NIGHT_NB, punches: ["22:30", null, null, null],
+  },
+  {
+    name: "no-break clock-out explained by a reason",
+    sched: NIGHT_NB, punches: ["22:00", null, null, null],
+    reasons: { out_pm: "official_business" },
+  },
+  {
     name: "night with a break, complete",
     sched: NIGHT_BREAK, punches: ["22:00", "02:00", "03:00", "06:00"],
     nextDay: [false, true, true, true],
@@ -277,14 +290,23 @@ test("the SQL rule and the TypeScript rule agree on every shape of day", async (
 // The headline numbers, asserted against the SQL directly. If the two
 // implementations ever agree on the WRONG answer, the test above stays green —
 // these do not.
-test("the SQL rule: 4 hours for a blank session, nothing for one blank cell", async () => {
+test("the SQL rule: 4 hours, once, for a day with a blank", async () => {
   const byName = (n: string) => CASES.find((c) => c.name === n)!;
 
   assert.deepEqual(await inSql(byName("complete day")), {
     lateMinutes: 0, undertimeMinutes: 0,
   });
   assert.deepEqual(await inSql(byName("no PM arrival")), {
-    lateMinutes: 0, undertimeMinutes: 0,
+    lateMinutes: 0, undertimeMinutes: 240,
+  });
+  assert.deepEqual(await inSql(byName("no PM departure")), {
+    lateMinutes: 0, undertimeMinutes: 240,
+  });
+  assert.deepEqual(await inSql(byName("no AM departure")), {
+    lateMinutes: 0, undertimeMinutes: 240,
+  });
+  assert.deepEqual(await inSql(byName("no AM arrival")), {
+    lateMinutes: 0, undertimeMinutes: 240,
   });
   assert.deepEqual(await inSql(byName("no morning at all")), {
     lateMinutes: 0, undertimeMinutes: 240,
@@ -296,12 +318,15 @@ test("the SQL rule: 4 hours for a blank session, nothing for one blank cell", as
     lateMinutes: 0, undertimeMinutes: 240,
   });
   assert.deepEqual(await inSql(byName("through lunch, untagged")), {
-    lateMinutes: 0, undertimeMinutes: 0,
+    lateMinutes: 0, undertimeMinutes: 240,
   });
   assert.deepEqual(await inSql(byName("night, no break, no clock-out")), {
-    lateMinutes: 0, undertimeMinutes: 0,
+    lateMinutes: 0, undertimeMinutes: 240,
   });
-  // The punches that are there are still measured.
+  assert.deepEqual(await inSql(byName("night, no break, no clock-in")), {
+    lateMinutes: 0, undertimeMinutes: 240,
+  });
+  // A complete session is still measured.
   assert.deepEqual(await inSql(byName("late in and late lunch")), {
     lateMinutes: 30, undertimeMinutes: 85,
   });
@@ -319,7 +344,7 @@ test("the SQL rule: 4 hours for a blank session, nothing for one blank cell", as
     lateMinutes: 0, undertimeMinutes: 0,
   });
   assert.deepEqual(await inSql(byName("offset schedule, no PM arrival")), {
-    lateMinutes: 0, undertimeMinutes: 0,
+    lateMinutes: 0, undertimeMinutes: 240,
   });
   // The timezone trap: a 06:00 clock-out stored on the FOLLOWING calendar day
   // is on time for a 22:00-06:00 shift, not eight hours of undertime.
@@ -339,7 +364,7 @@ test("the backfill statement recomputes a stored row", async () => {
   const DATE = "2026-03-09";
 
   // A day with a departure but no arrival in the afternoon, carrying the
-  // numbers migration 070's rule produced (a flat 240).
+  // numbers migration 093's rule produced (nothing).
   const { error: seedErr } = await admin.from("attendance_logs").upsert(
     {
       employee_id: EMPLOYEE,
@@ -350,8 +375,8 @@ test("the backfill statement recomputes a stored row", async () => {
       time_out_pm: `${DATE}T17:00:00`,
       late_minutes: 0,
       is_late: false,
-      undertime_minutes: 240,
-      is_undertime: true,
+      undertime_minutes: 0,
+      is_undertime: false,
       is_absent: false,
       source: "biometric",
     },
@@ -383,7 +408,7 @@ test("the backfill statement recomputes a stored row", async () => {
   });
   assert.equal(error, null);
   const row = Array.isArray(data) ? data[0] : data;
-  assert.equal(row.undertime_minutes, 0, "the blank PM arrival is unsettled, not charged");
+  assert.equal(row.undertime_minutes, 240, "the blank PM arrival is a half day");
   assert.equal(row.late_minutes, 0);
 
   const { error: updErr } = await admin
@@ -404,8 +429,8 @@ test("the backfill statement recomputes a stored row", async () => {
     .eq("employee_id", EMPLOYEE)
     .eq("date", DATE)
     .single();
-  assert.equal(after!.undertime_minutes, 0);
-  assert.equal(after!.is_undertime, false);
+  assert.equal(after!.undertime_minutes, 240);
+  assert.equal(after!.is_undertime, true);
   assert.equal(after!.is_absent, false, "the backfill must not touch is_absent");
 
   await admin

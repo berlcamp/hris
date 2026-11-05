@@ -172,8 +172,8 @@ test("a no-break weekend shift is charged nothing", () => {
   assert.equal(
     dayLateUndertime(MON, NO_BREAK, slots("08:00", null, null, null))
       .undertimeMinutes,
-    0,
-    "a weekday no-break shift with no clock-out is unsettled, not charged",
+    240,
+    "a weekday no-break shift with no clock-out is a half day",
   );
   assert.equal(
     dayLateUndertime(SAT, NO_BREAK, slots("08:00", null, null, null))

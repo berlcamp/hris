@@ -286,12 +286,11 @@ export function bucketPunchesForDuty(
   return out;
 }
 
-// A half day. An LGU workday is two sessions — morning and afternoon. A session
-// with BOTH cells blank (dayLateUndertime), or with no attendance at all on a
+// A half day. An LGU workday is two sessions — morning and afternoon. A day with
+// punches and a blank cell (dayLateUndertime), or with no attendance at all on a
 // day that has no row (a half-day holiday's other half, unrecordedDayCharge),
-// is charged as a whole half day, flat, whatever the schedule's actual shape.
-// A session with only ONE blank cell is never charged this: that cell is
-// unsettled (see unsettledSlots).
+// is charged one half day, flat, whatever the schedule's actual shape, until a
+// correction settles it (see unsettledSlots).
 export const HALF_DAY_UNDERTIME_MINUTES = 4 * 60; // 240
 
 export interface DaySlotTimes {
@@ -360,18 +359,19 @@ export interface DayMinutes {
 //
 // For a schedule with a break, a day is two sessions — morning (AM in/out) and
 // afternoon (PM in/out):
-//   * a session with BOTH cells blank rendered no service and is charged a
-//     flat half day (HALF_DAY_UNDERTIME_MINUTES), unless excused or explained;
-//   * a session with ONE blank cell costs nothing — the cell is unsettled (see
-//     unsettledSlots) and the employee settles it through a correction.
-// Migration 070 charged the flat half day for ONE blank cell too, which billed
-// eight hours to an employee who came in at 8:00 and left at 17:00 but skipped
-// the lunch scans, and printed the day ABSENT. A day with no punches at all is
-// an absence and is charged by the DTR, not here.
+//   * a session with EITHER cell blank owes a flat half day
+//     (HALF_DAY_UNDERTIME_MINUTES), unless excused or explained. The blank is
+//     also unsettled (see unsettledSlots): a correction removes the charge.
+//   * the flat charge replaces that session's per-minute charges, so a four-hour
+//     session never costs more than four hours.
+//   * the half day is charged ONCE a day, however many sessions have blanks: in
+//     at 8:00, out at 17:00 with no lunch scans is four hours, not eight.
+// A schedule with no break is one session: a missing clock-in or clock-out is the
+// same flat half day, in place of the minutes the other punch would measure. A
+// day with no punches at all is an absence and is charged by the DTR, not here.
 //
-// The punches that ARE there are still measured: lateness against time_in, a
-// late return from lunch against break_end, an early departure against
-// time_out. A slot reason (OB / FW / TRAVEL / NO BREAK / …) excuses the punch it
+// A complete session is still measured: lateness against time_in, a late return
+// from lunch against break_end, an early departure against time_out. A slot reason (OB / FW / TRAVEL / NO BREAK / …) excuses the punch it
 // sits on; excuseAm / excusePm (a holiday half, or a day-level reason like OFF)
 // excuse that session's charges wholesale.
 //
@@ -387,7 +387,7 @@ export interface DayMinutes {
 // employee's schedule's call (opts.restDay, from resolveDaySchedule); without
 // it, Saturday and Sunday (isRestDay).
 //
-// hris.day_late_undertime (migration 098) mirrors this clause for clause for
+// hris.day_late_undertime (migration 100) mirrors this clause for clause for
 // the stored columns and the VL auto-deduction. Change both together.
 export function dayLateUndertime(
   dutyDate: string,
@@ -425,8 +425,24 @@ export function dayLateUndertime(
     if (!halfAbsent) return { lateMinutes: 0, undertimeMinutes: 0 };
   }
 
+  const withBreak = hasBreak(sched);
+  const shiftHalfDay =
+    !withBreak &&
+    ((!slots.time_in_am && !(excuseAm || r.in_am)) ||
+      (!slots.time_out_pm && !(excusePm || r.out_pm)));
+  const amHalfDay =
+    shiftHalfDay ||
+    (withBreak &&
+      (!slots.time_in_am || !slots.time_out_am) &&
+      !(excuseAm || r.in_am || r.out_am));
+  const pmHalfDay =
+    shiftHalfDay ||
+    (withBreak &&
+      (!slots.time_in_pm || !slots.time_out_pm) &&
+      !(excusePm || r.in_pm || r.out_pm));
+
   const lateMinutes =
-    excuseAm || r.in_am
+    excuseAm || r.in_am || amHalfDay
       ? 0
       : lateMinutesFor(
           dutyDate,
@@ -435,18 +451,8 @@ export function dayLateUndertime(
           slots.time_in_am_next_day ?? false,
         );
 
-  let undertimeMinutes = 0;
-  if (hasBreak(sched)) {
-    const amBlank = !slots.time_in_am && !slots.time_out_am;
-    const pmBlank = !slots.time_in_pm && !slots.time_out_pm;
-    if (amBlank && !(excuseAm || r.in_am || r.out_am)) {
-      undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
-    }
-    if (pmBlank && !(excusePm || r.in_pm || r.out_pm)) {
-      undertimeMinutes += HALF_DAY_UNDERTIME_MINUTES;
-    }
-  }
-  if (!excusePm) {
+  let undertimeMinutes = amHalfDay || pmHalfDay ? HALF_DAY_UNDERTIME_MINUTES : 0;
+  if (!excusePm && !pmHalfDay) {
     // Early departure, measured only when there is a departure to measure.
     if (!r.out_pm && slots.time_out_pm) {
       undertimeMinutes += undertimeMinutesFor(
@@ -533,11 +539,10 @@ export const UNDERTIME_ABSENT_MINUTES = 8 * 60; // 480
 // Applies the cap to a day's already-excused late + undertime minutes.
 //
 // This used to reclassify any day reaching 8 hours of undertime as ABSENT and
-// hide its punches. A day with punches has at most one fully blank session (4
-// hours), so the only days that still measure that much are real punches
-// scored against the wrong schedule — a night shift on a day schedule — and
-// those must print so the officer can pin the right schedule. A day with punches is never an absence; only a row
-// already marked absent (no punches) stays one.
+// hide its punches. A day that measures that much is real punches scored against
+// the wrong schedule — a night shift on a day schedule — and must print so the
+// officer can pin the right schedule. A day with punches is never an absence; only
+// a row already marked absent (no punches) stays one.
 export function applyUndertimeAbsenceRule(
   lateMins: number,
   undertimeMins: number,

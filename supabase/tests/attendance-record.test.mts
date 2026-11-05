@@ -53,11 +53,10 @@ test("an on-time regular day is neither late nor undertime", () => {
   assert.equal(r.time_in_am, `${D}T08:00:00`);
 });
 
-// The 8-5-no-lunch case. Migration 070 charged each incomplete session a flat
-// half day, so this read as eight hours of undertime and printed ABSENT. Under
-// the unsettled rule (Oct 2026) a blank cell costs nothing: the lunch cells are
-// unsettled until the employee settles them (NO BREAK, or the real times).
-test("working straight through lunch is not charged; the blanks are unsettled", () => {
+// The 8-5-no-lunch case. Each session is missing a cell, but the half day is
+// charged once: four hours until the employee settles them (NO BREAK, or the real
+// times). The day is never marked absent.
+test("working straight through lunch untagged is charged one half day", () => {
   const r = buildAttendanceRecord(
     EMP,
     D,
@@ -65,7 +64,9 @@ test("working straight through lunch is not charged; the blanks are unsettled", 
     REGULAR,
   );
   assert.equal(r.late_minutes, 0);
-  assert.equal(r.undertime_minutes, 0, "a blank cell is unsettled, not charged");
+  assert.equal(r.undertime_minutes, 240);
+  assert.equal(r.is_undertime, true);
+  assert.equal(r.is_absent, false);
 });
 
 test("NO BREAK on the lunch slots explains the missing punches", () => {
@@ -96,16 +97,15 @@ test("NO BREAK on the lunch slots explains the missing punches", () => {
   assert.equal(late.undertime_minutes, 0);
 });
 
-// Each of these was a flat half day under migration 070. Now every blank is
-// unsettled and costs nothing until it is settled.
-test("a session missing one of its two punches is not charged for the blank", () => {
+// Migration 099: a blank in a session is a flat half day until it is settled.
+test("a session missing one of its two punches is charged a half day", () => {
   const pmArrivalMissing = buildAttendanceRecord(
     EMP,
     D,
     { time_in_am: "08:00", time_out_am: "12:49", time_in_pm: null, time_out_pm: "17:00", ...noReasons },
     REGULAR,
   );
-  assert.equal(pmArrivalMissing.undertime_minutes, 0);
+  assert.equal(pmArrivalMissing.undertime_minutes, 240);
   assert.equal(pmArrivalMissing.late_minutes, 0);
 
   const pmDepartureMissing = buildAttendanceRecord(
@@ -114,7 +114,7 @@ test("a session missing one of its two punches is not charged for the blank", ()
     { time_in_am: "08:00", time_out_am: "12:00", time_in_pm: "13:00", time_out_pm: null, ...noReasons },
     REGULAR,
   );
-  assert.equal(pmDepartureMissing.undertime_minutes, 0);
+  assert.equal(pmDepartureMissing.undertime_minutes, 240);
 
   const amDepartureMissing = buildAttendanceRecord(
     EMP,
@@ -122,10 +122,9 @@ test("a session missing one of its two punches is not charged for the blank", ()
     { time_in_am: "08:00", time_out_am: null, time_in_pm: "13:00", time_out_pm: "17:00", ...noReasons },
     REGULAR,
   );
-  assert.equal(amDepartureMissing.undertime_minutes, 0);
+  assert.equal(amDepartureMissing.undertime_minutes, 240);
 
-  // No morning at all, a complete afternoon: a fully blank session is a flat
-  // half day.
+  // No morning at all, a complete afternoon: the same flat half day.
   const morningAbsent = buildAttendanceRecord(
     EMP,
     D,
@@ -135,8 +134,8 @@ test("a session missing one of its two punches is not charged for the blank", ()
   assert.equal(morningAbsent.undertime_minutes, 240);
 });
 
-// Whatever shape the schedule is, a blank cell costs nothing.
-test("a blank costs nothing on an offset schedule either", () => {
+// Whatever shape the schedule is, the charge is the same flat half day.
+test("a blank costs the same half day on an offset schedule", () => {
   const OFFSET = {
     id: "offset", time_in: "07:30", time_out: "16:30",
     break_start: "12:00", break_end: "13:00",
@@ -147,19 +146,19 @@ test("a blank costs nothing on an offset schedule either", () => {
     { time_in_am: "07:30", time_out_am: "12:00", time_in_pm: null, time_out_pm: "16:30", ...noReasons },
     OFFSET,
   );
-  assert.equal(r.undertime_minutes, 0);
+  assert.equal(r.undertime_minutes, 240);
 });
 
 // A no-break shift's missing clock-out used to bill the whole shift. It is
 // unsettled now, like any other blank.
-test("a no-break shift with no clock-out is not charged until settled", () => {
+test("a no-break shift with no clock-out is 4 hours until settled", () => {
   const r = buildAttendanceRecord(
     EMP,
     D,
     { time_in_am: "22:00", time_out_am: null, time_in_pm: null, time_out_pm: null, ...noReasons },
     NIGHT,
   );
-  assert.equal(r.undertime_minutes, 0);
+  assert.equal(r.undertime_minutes, 240);
   assert.equal(r.late_minutes, 0);
 });
 
@@ -257,11 +256,10 @@ test("a per-date schedule pin is written and drives that day's late math", () =>
     { time_in_am: "21:55", time_out_am: null, time_in_pm: null, time_out_pm: "06:05" },
     REGULAR,
   );
-  // Scored against a day schedule this is nonsense: a 21:55 arrival is
-  // nearly fourteen hours late and a same-day 06:05 departure eleven hours
-  // early. The un-pinned day is wrong; the pin below is the fix.
-  assert.equal(inherited.late_minutes, 835);
-  assert.equal(inherited.undertime_minutes, 655);
+  // Scored against a day schedule both sessions have a blank, so this is one flat
+  // half day. The un-pinned day is wrong; the pin below is the fix.
+  assert.equal(inherited.late_minutes, 0);
+  assert.equal(inherited.undertime_minutes, 240);
 
   const pinned = buildAttendanceRecord(
     "emp-1", "2026-09-21",

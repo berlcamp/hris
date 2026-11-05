@@ -65,28 +65,28 @@ const EXAMPLES: GuideExample[] = [
     title: "Scanned several times on arrival",
     schedule: "regular",
     punches: ["07:30", "07:57", "08:01", "12:01"],
-    note: "Repeat scans within an hour of arriving are one arrival; the earliest is kept. 8:01 is not a departure. The afternoon is fully blank, so it is a half day.",
+    note: "Repeat scans within an hour of arriving are one arrival; the earliest is kept. 8:01 is not a departure. The blank afternoon is a half day.",
   },
   {
     id: "forgot-noon",
     title: "Forgot the noon punch",
     schedule: "regular",
     punches: ["07:50", "07:59"],
-    note: "7:59 is a repeat of the arrival, not AM Out. AM Out stays blank to settle; the blank afternoon is a half day.",
+    note: "7:59 is a repeat of the arrival, not AM Out. AM Out and the afternoon stay blank, so the day is one half day until settled.",
   },
   {
     id: "no-lunch",
     title: "In and out, no lunch punches",
     schedule: "regular",
     punches: ["08:00", "17:02"],
-    note: "Each session is missing one cell. Nothing is charged until the employee settles the two lunch cells (real times, or NO BREAK).",
+    note: "Each session is missing one cell. The day is one half day until the employee settles the two lunch cells (real times, or NO BREAK).",
   },
   {
     id: "pm-rescan",
     title: "Scanned again after lunch, forgot to clock out",
     schedule: "regular",
     punches: ["07:58", "12:01", "12:58", "13:05"],
-    note: "1:05 PM is a repeat of the lunch return, not the PM Out. PM Out stays blank to settle.",
+    note: "1:05 PM is a repeat of the lunch return, not the PM Out. PM Out stays blank, so the day is a half day until settled.",
   },
   {
     id: "lunch-rescan",
@@ -100,7 +100,7 @@ const EXAMPLES: GuideExample[] = [
     title: "Only one lunch punch",
     schedule: "regular",
     punches: ["08:00", "12:58", "17:02"],
-    note: "A single lunch punch goes to the nearer scheduled time — 12:58 is nearer 1:00 PM, so it is the PM In.",
+    note: "A single lunch punch goes to the nearer scheduled time — 12:58 is nearer 1:00 PM, so it is the PM In. AM Out stays blank, so the day is a half day until settled.",
   },
   {
     id: "left-sick",
@@ -151,7 +151,7 @@ export interface GuideRow {
   /** Late + undertime as H:MM, the DTR's UT column. */
   ut: string;
   utMinutes: number;
-  /** Whether the UT includes a flat half day for a fully blank session. */
+  /** Whether the UT includes the flat half day for a blank cell. */
   halfDay: boolean;
   unsettled: SlotKey[];
   /** True when the schedule has no noon break (AM Out / PM In unused). */
@@ -188,8 +188,8 @@ export function buildGuideRows(): GuideRow[] {
     const cell = (t: string | null, next: boolean) =>
       t ? `${to12h(t)}${next ? " (+1)" : ""}` : null;
     const noBreak = !sched.break_start;
-    const amBlank = !b.time_in_am && !b.time_out_am;
-    const pmBlank = !b.time_in_pm && !b.time_out_pm;
+    const amBlank = !b.time_in_am || !b.time_out_am;
+    const pmBlank = !b.time_in_pm || !b.time_out_pm;
     return {
       id: ex.id,
       title: ex.title,
@@ -204,7 +204,9 @@ export function buildGuideRows(): GuideRow[] {
       ],
       ut: hm(utMinutes),
       utMinutes,
-      halfDay: !noBreak && (amBlank || pmBlank),
+      halfDay: noBreak
+        ? !b.time_in_am || !b.time_out_pm
+        : amBlank || pmBlank,
       unsettled: unsettledSlots(DUTY, sched, b),
       noBreak,
       note: ex.note,

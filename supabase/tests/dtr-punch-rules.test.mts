@@ -12,13 +12,13 @@
 //     and out at another gets "Check In" on both.
 //
 // Charging (dayLateUndertime / unsettledSlots):
-//   * A session (morning = AM in/out, afternoon = PM in/out) with BOTH cells
-//     blank is charged a flat half day, 4 hours, unless excused or explained.
-//   * A session with ONE blank cell costs nothing. That cell is UNSETTLED — the
-//     employee settles it through a correction.
+//   * A session (morning = AM in/out, afternoon = PM in/out) with EITHER cell
+//     blank owes a flat half day, 4 hours, unless excused or explained, in place
+//     of that session's per-minute charges, and it is charged once a day. The
+//     blank is UNSETTLED: a correction removes the charge.
 //   * A day with no punches at all is an absence (charged elsewhere).
-//   * The punches that are there are still measured (lateness, a late return
-//     from lunch, an early departure).
+//   * A complete session is still measured (lateness, a late return from lunch,
+//     an early departure).
 //   * On a schedule with no noon break, the AM-out and PM-in cells are blank by
 //     design and are not unsettled; a missing in or out is.
 //
@@ -240,38 +240,87 @@ const day = (s: [string | null, string | null, string | null, string | null]) =>
   time_out_pm: s[3],
 });
 
-test("in and out with no lunch punches charges nothing", () => {
+test("one blank in both sessions is 4 hours, not 8", () => {
   assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:00", null, null, "17:02"])), {
     lateMinutes: 0,
-    undertimeMinutes: 0,
+    undertimeMinutes: 240,
+  });
+  // Neither session's minutes are added on top.
+  assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:30", null, null, "16:00"])), {
+    lateMinutes: 0,
+    undertimeMinutes: 240,
   });
 });
 
-test("a forgotten PM out (one blank cell) charges nothing", () => {
+test("a forgotten PM out (one blank cell) is 4 hours", () => {
   assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:00", "12:00", "13:00", null])), {
     lateMinutes: 0,
-    undertimeMinutes: 0,
+    undertimeMinutes: 240,
   });
 });
 
-test("an incomplete morning still measures the lateness it has", () => {
-  assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:30", null, null, "17:00"])), {
-    lateMinutes: 30,
-    undertimeMinutes: 0,
+test("a forgotten PM in (one blank cell) is 4 hours", () => {
+  assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:00", "12:00", null, "17:00"])), {
+    lateMinutes: 0,
+    undertimeMinutes: 240,
   });
+});
+
+test("a forgotten AM out (one blank cell) is 4 hours", () => {
+  assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:00", null, "13:00", "17:00"])), {
+    lateMinutes: 0,
+    undertimeMinutes: 240,
+  });
+});
+
+test("a forgotten AM in (one blank cell) is 4 hours", () => {
+  assert.deepEqual(dayLateUndertime(D, REGULAR, day([null, "12:00", "13:00", "17:00"])), {
+    lateMinutes: 0,
+    undertimeMinutes: 240,
+  });
+});
+
+test("the flat half day replaces the session's minutes, not the other session's", () => {
+  // Late arrival on an incomplete morning: the morning is 4 hours, not 4:30.
+  assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:30", null, "13:10", "16:50"])), {
+    lateMinutes: 0,
+    undertimeMinutes: 240 + 10 + 10,
+  });
+  // Early departure on an incomplete afternoon: the afternoon is 4 hours, and the
+  // complete morning's lateness still counts.
+  assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:30", "12:00", null, "16:00"])), {
+    lateMinutes: 30,
+    undertimeMinutes: 240,
+  });
+});
+
+test("settling the blank with a reason removes the 4 hours", () => {
+  assert.deepEqual(
+    dayLateUndertime(D, REGULAR, day(["08:00", null, null, "17:00"]), {
+      reasons: { out_am: true, in_pm: true },
+    }),
+    { lateMinutes: 0, undertimeMinutes: 0 },
+  );
+});
+
+test("a blank on a half-day holiday's excused session is not charged", () => {
+  assert.deepEqual(
+    dayLateUndertime(D, REGULAR, day(["08:00", null, "13:00", "17:00"]), { excuseAm: true }),
+    { lateMinutes: 0, undertimeMinutes: 0 },
+  );
+});
+
+test("a blank on a rest day costs nothing", () => {
+  assert.deepEqual(
+    dayLateUndertime(D, REGULAR, day(["08:00", null, "13:00", "17:00"]), { restDay: true }),
+    { lateMinutes: 0, undertimeMinutes: 0 },
+  );
 });
 
 test("a complete day is charged exactly as before", () => {
   assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:15", "12:00", "13:10", "16:50"])), {
     lateMinutes: 15,
     undertimeMinutes: 20,
-  });
-});
-
-test("an early departure is measured even when lunch is blank", () => {
-  assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:00", null, null, "16:30"])), {
-    lateMinutes: 0,
-    undertimeMinutes: 30,
   });
 });
 
@@ -289,9 +338,9 @@ test("a fully blank morning is charged 4 hours, plus what the afternoon shows", 
   });
 });
 
-test("an arrival only: the morning is unsettled, the blank afternoon is 4 hours", () => {
+test("an arrival only is one half day, and the arrival is not also measured", () => {
   assert.deepEqual(dayLateUndertime(D, REGULAR, day(["08:15", null, null, null])), {
-    lateMinutes: 15,
+    lateMinutes: 0,
     undertimeMinutes: 240,
   });
 });
@@ -326,17 +375,40 @@ test("a blank session on a rest day costs nothing", () => {
   });
 });
 
-test("a no-break shift has no half to charge", () => {
+test("a no-break shift with no clock-out is 4 hours", () => {
   assert.deepEqual(dayLateUndertime(D, DAY_NO_BREAK, day(["08:00", null, null, null])), {
     lateMinutes: 0,
-    undertimeMinutes: 0,
+    undertimeMinutes: 240,
   });
 });
 
-test("a no-break shift with no clock-out is not charged the whole shift", () => {
+test("a no-break shift with no clock-in is 4 hours", () => {
+  assert.deepEqual(dayLateUndertime(D, DAY_NO_BREAK, day([null, null, null, "17:00"])), {
+    lateMinutes: 0,
+    undertimeMinutes: 240,
+  });
+});
+
+test("a no-break shift's half day replaces the minutes the other punch measures", () => {
   assert.deepEqual(dayLateUndertime(D, NIGHT_NO_BREAK, day(["22:10", null, null, null])), {
+    lateMinutes: 0,
+    undertimeMinutes: 240,
+  });
+});
+
+test("a reason on a no-break shift's missing punch removes the 4 hours", () => {
+  assert.deepEqual(
+    dayLateUndertime(D, DAY_NO_BREAK, day(["08:00", null, null, null]), {
+      reasons: { out_pm: true },
+    }),
+    { lateMinutes: 0, undertimeMinutes: 0 },
+  );
+});
+
+test("a complete no-break shift is measured to the minute", () => {
+  assert.deepEqual(dayLateUndertime(D, DAY_NO_BREAK, day(["08:10", null, null, "15:50"])), {
     lateMinutes: 10,
-    undertimeMinutes: 0,
+    undertimeMinutes: 10,
   });
 });
 

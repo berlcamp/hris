@@ -237,9 +237,9 @@ test("pinning a night schedule clears a misread night shift", () => {
   const wrong = buildCorrectionRecord(EMP2, item({
     schedule: REGULAR, time_in_am: "21:55",
   }));
-  // Read against a day schedule the 21:55 arrival is 13h55m late and the
-  // afternoon is fully blank (a flat half day).
-  assert.equal(wrong.late_minutes, 835);
+  // Read against a day schedule both sessions have a blank, so the day is one
+  // flat half day in place of the minutes it would measure.
+  assert.equal(wrong.late_minutes, 0);
   assert.equal(wrong.undertime_minutes, 240);
 
   const right = buildCorrectionRecord(EMP2, item({

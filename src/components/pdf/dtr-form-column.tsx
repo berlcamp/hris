@@ -2,7 +2,6 @@ import { Image, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { NO_TIME_REASON_SHORT } from "@/lib/constants";
 import {
   dtrSpanFor,
-  isDtrPendingCorrection,
   isWeekendDayName,
 } from "@/lib/dtr-span-label";
 import type {
@@ -203,15 +202,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 1.5,
   },
-  // Merged Hours + Minutes box on a day with blank cells to settle. 6pt is what
-  // keeps "PENDING CORRECTION" on one line in the two cells' combined width.
-  utPendingCell: {
-    width: w(W_UT_GROUP),
-    fontSize: 6,
-    fontFamily: "Helvetica-Bold",
-    textAlign: "center",
-    paddingVertical: 1.5,
-  },
   // Spanning row (weekend/leave/absent/full holiday). Covers the AM+PM groups
   // only; the Undertime Hours/Minutes cells render to its right so an absent
   // day can still show its 8-hour undertime.
@@ -393,18 +383,8 @@ function SlotCell({
   );
 }
 
-// The Undertime columns of a day: its hours and minutes, or one merged box when
-// the day still has blank cells to settle.
-function UndertimeCells({
-  minutes,
-  pending,
-}: {
-  minutes: number;
-  pending: boolean;
-}) {
-  if (pending) {
-    return <Text style={styles.utPendingCell}>PENDING CORRECTION</Text>;
-  }
+// The Undertime columns of a day: its hours and minutes.
+function UndertimeCells({ minutes }: { minutes: number }) {
   return (
     <>
       <Text style={[styles.utCell, { width: w(W_UT_HR) }]}>
@@ -462,12 +442,7 @@ export function DtrFormColumn({
       span?.kind === "reason" ? GREEN : span?.kind === "absent" ? RED : undefined;
 
     const totalUtForDay = entry.late_minutes + entry.undertime_minutes;
-    const undertimeCells = (
-      <UndertimeCells
-        minutes={totalUtForDay}
-        pending={isDtrPendingCorrection(entry, span)}
-      />
-    );
+    const undertimeCells = <UndertimeCells minutes={totalUtForDay} />;
 
     return (
       <View

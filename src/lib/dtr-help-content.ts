@@ -47,7 +47,7 @@ export const DTR_STEPS: Record<DtrAudience, DtrStep[]> = {
     },
     {
       title: "Generate and print the DTR",
-      body: "Download the month's DTRs. If any days still have blank punches, a warning lists them, and each prints PENDING CORRECTION in its Undertime box. Blanks cost nothing until settled, except a fully blank morning or afternoon, which is a 4:00 half day.",
+      body: "Download the month's DTRs. If any days still have blank punches, a warning lists them. A day with a blank punch is charged 4:00 of undertime until it is settled, so settle them first.",
       href: "/dtr",
       cta: "Open DTR",
     },
@@ -91,7 +91,7 @@ export const DTR_STEPS: Record<DtrAudience, DtrStep[]> = {
     },
     {
       title: "Settle any blank cell",
-      body: "Give your department admin the reason and proof (OB, travel order, leave, or that you worked through lunch). They file the correction and HR approves it. A single blank costs nothing until settled; a whole blank morning or afternoon is a 4:00 half day until settled.",
+      body: "Give your department admin the reason and proof (OB, travel order, leave, or that you worked through lunch). They file the correction and HR approves it. A day with a blank punch is charged 4:00 until it is settled.",
     },
   ],
 };
@@ -112,15 +112,15 @@ export const DTR_FAQ: DtrFaq[] = [
   },
   {
     q: "I forgot my lunch scans. Am I charged?",
-    a: "No. AM Out and PM In stay blank and cost nothing until settled. Settle them with your real times, or NO BREAK if you worked through lunch.",
+    a: "Yes, until it is settled. AM Out and PM In stay blank, so the day is charged 4:00. Settle them with your real times, or NO BREAK if you worked through lunch, and the charge is removed.",
   },
   {
-    q: "My whole afternoon is blank. Why does it show 4:00?",
-    a: "A morning or afternoon with no punches at all is a half day. Settle it with leave, OB, travel or the real times and the 4:00 is removed.",
+    q: "My day has a blank. Why does it show 4:00?",
+    a: "A day missing a punch is charged a half day, once, however many punches are missing. Settle it with leave, OB, travel or the real times and the 4:00 is removed.",
   },
   {
     q: "I scanned right after coming back from lunch and forgot to clock out. What shows?",
-    a: "The second scan is a repeat of your lunch return, not your time-out. PM Out stays blank to settle.",
+    a: "The second scan is a repeat of your lunch return, not your time-out. PM Out stays blank, and the day is charged 4:00 until it is settled.",
   },
   {
     q: "I work night shifts or rotate between days and nights. How are my punches read?",
