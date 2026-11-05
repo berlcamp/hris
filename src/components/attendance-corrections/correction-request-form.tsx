@@ -258,14 +258,13 @@ export function CorrectionRequestForm({
   // Hours only, in 12-hour time. `scheduleItems` is what a Select resolves its
   // current value's label from, so a day pinned to a schedule the list collapsed
   // as a duplicate still shows its hours. `scheduleChoices` is what the list
-  // offers. Inherit keeps its word: it is not a schedule but "no pin", and without
-  // it the entry would read the same as the schedule it inherits.
+  // offers. Default keeps its word: it is not a schedule but "no pin", and without
+  // it the entry would read the same as the schedule it falls back to. Its hours
+  // are what scheduleFor measures an unpinned day against.
   const { scheduleItems, scheduleChoices } = useMemo(() => {
     const inherit = {
       value: INHERIT,
-      label: employeeSchedule
-        ? `Inherit (${scheduleHoursLabel(employeeSchedule)})`
-        : "Inherit (employee's schedule)",
+      label: `Default (${scheduleHoursLabel(employeeSchedule ?? DEFAULT_SCHEDULE)})`,
     };
     const { all, choices } = scheduleOptions(schedules);
     return {
