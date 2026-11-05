@@ -1,4 +1,5 @@
 import { Image, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { NO_TIME_REASON_SHORT } from "@/lib/constants";
 import {
   dtrSpanFor,
   isDtrPendingCorrection,
@@ -353,7 +354,8 @@ function formatTime(t: string | null): string {
 }
 
 // A single AM/PM time cell. Prints the official-duty shortcut (FW / OB /
-// TRAVEL) when the slot is excused, otherwise the punched time.
+// TRAVEL) when the slot is excused, otherwise the punched time. ABSENT prints in
+// the same cell but in red: green would read as excused, and it is charged.
 function SlotCell({
   time,
   reason,
@@ -366,7 +368,17 @@ function SlotCell({
   late?: boolean;
 }) {
   if (reason) {
-    return <Text style={[styles.reasonCell, { width: w(width) }]}>{reason}</Text>;
+    return (
+      <Text
+        style={[
+          styles.reasonCell,
+          { width: w(width) },
+          reason === NO_TIME_REASON_SHORT.absent ? { color: RED } : {},
+        ]}
+      >
+        {reason}
+      </Text>
+    );
   }
   return (
     <Text

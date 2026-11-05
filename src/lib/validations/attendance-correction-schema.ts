@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CORRECTION_REASONS } from "../constants.ts";
+import { ABSENT_REASON } from "../attendance-schedule.ts";
 
 /**
  * YYYY-MM-DD that is also a real calendar date (rejects 2026-02-30).
@@ -27,6 +28,41 @@ const hhmm = z
 
 const reason = z.enum(CORRECTION_REASONS).nullable();
 
+type ItemSlots = Record<
+  `time_${"in_am" | "out_am" | "in_pm" | "out_pm"}` | `reason_${"in_am" | "out_am" | "in_pm" | "out_pm"}`,
+  string | null
+>;
+
+// A slot states a time or a reason, never both.
+function everySlotHasOneValue(i: ItemSlots): boolean {
+  return (
+    !(i.time_in_am && i.reason_in_am) &&
+    !(i.time_out_am && i.reason_out_am) &&
+    !(i.time_in_pm && i.reason_in_pm) &&
+    !(i.time_out_pm && i.reason_out_pm)
+  );
+}
+
+// ABSENT covers a pair: AM In with AM Out, PM In with PM Out, or on a no-break
+// schedule, where the two middle slots are unused, AM In with PM Out. The schedule
+// is not known here, so the no-break shape is recognised by those empty slots.
+function absentComesInPairs(i: ItemSlots): boolean {
+  const absent = (r: string | null) => r === ABSENT_REASON;
+  const inAm = absent(i.reason_in_am);
+  const outAm = absent(i.reason_out_am);
+  const inPm = absent(i.reason_in_pm);
+  const outPm = absent(i.reason_out_pm);
+  if (inAm === outAm && inPm === outPm) return true;
+  return (
+    inAm &&
+    outPm &&
+    !i.time_out_am &&
+    !i.reason_out_am &&
+    !i.time_in_pm &&
+    !i.reason_in_pm
+  );
+}
+
 export const correctionItemSchema = z.object({
   duty_date: isoDate,
   // NULL means "this date has no attendance row" — the item CREATES the day
@@ -42,7 +78,13 @@ export const correctionItemSchema = z.object({
   reason_out_am: reason,
   reason_in_pm: reason,
   reason_out_pm: reason,
-});
+})
+  .refine(everySlotHasOneValue, {
+    message: "A time slot takes either a time or a reason, not both",
+  })
+  .refine(absentComesInPairs, {
+    message: "ABSENT must be set on both slots of a pair",
+  });
 
 export const correctionRequestSchema = z
   .object({

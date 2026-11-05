@@ -26,6 +26,7 @@ import {
   unsettledSlots,
   type ScheduleLike,
   type SlotKey,
+  slotReasonOpts,
 } from "@/lib/attendance-schedule";
 import { getHolidayMap } from "@/lib/holiday-helpers";
 import { loadScheduleContext } from "@/lib/schedule-context";
@@ -566,12 +567,12 @@ export async function buildDtrResults(
           time_out_pm_next_day: timestampOnNextDay(tOutPmRaw, day.date),
         };
         const dayOpts = {
-          reasons: {
-            in_am: !!reasonInAm,
-            out_am: !!reasonOutAm,
-            in_pm: !!reasonInPm,
-            out_pm: !!reasonOutPm,
-          },
+          ...slotReasonOpts({
+            in_am: log.time_in_am_reason as string | null,
+            out_am: log.time_out_am_reason as string | null,
+            in_pm: log.time_in_pm_reason as string | null,
+            out_pm: log.time_out_pm_reason as string | null,
+          }),
           // A day-level reason (OFF, a declared rest day) states the whole
           // day, so neither session is charged.
           excuseAm: holidayExcusesAm || !!log.no_time_reason,

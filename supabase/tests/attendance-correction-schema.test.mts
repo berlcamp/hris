@@ -73,3 +73,49 @@ test("a malformed time is rejected rather than coerced", () => {
   });
   assert.equal(r.success, false);
 });
+
+test("a slot cannot carry both a time and a reason", () => {
+  const r = correctionRequestSchema.safeParse({
+    ...valid,
+    items: [{ ...validItem, reason_in_am: "official_business" }],
+  });
+  assert.match(firstError(r), /either a time or a reason/i);
+});
+
+test("ABSENT on a pair is accepted, with times on the other session", () => {
+  const r = correctionRequestSchema.safeParse({
+    ...valid,
+    items: [{
+      ...validItem,
+      time_in_am: null, time_out_am: null, time_in_pm: "13:00", time_out_pm: "17:00",
+      reason_in_am: "absent", reason_out_am: "absent",
+    }],
+  });
+  assert.equal(r.success, true);
+});
+
+test("ABSENT on one slot of a session is rejected", () => {
+  const r = correctionRequestSchema.safeParse({
+    ...valid,
+    items: [{
+      ...validItem,
+      time_in_am: null, time_out_am: "12:00", time_in_pm: null, time_out_pm: null,
+      reason_in_am: "absent",
+    }],
+  });
+  assert.match(firstError(r), /both slots/i);
+});
+
+test("a no-break shift pairs ABSENT across In and Out", () => {
+  const noBreak = {
+    ...validItem,
+    time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+    reason_in_am: "absent", reason_out_pm: "absent",
+  };
+  assert.equal(correctionRequestSchema.safeParse({ ...valid, items: [noBreak] }).success, true);
+  const r = correctionRequestSchema.safeParse({
+    ...valid,
+    items: [{ ...noBreak, reason_in_pm: "official_business" }],
+  });
+  assert.match(firstError(r), /both slots/i);
+});

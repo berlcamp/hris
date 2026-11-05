@@ -537,6 +537,58 @@ test("direct-apply writes the day and leaves no live request holding the range",
   assert.ok(second, "an applied request releases the overlap claim on its dates");
 });
 
+// --- Migration 098: ABSENT -----------------------------------------------------
+
+test("ABSENT on all four slots applies as a locked absence with no day reason", async () => {
+  const date = "2026-11-09"; // a Monday, with no attendance row
+  SEEDED_DATES.push(date);
+  const requestId = await seedRequest(date, date);
+  const { error: itemError } = await admin.from("attendance_correction_items").insert({
+    request_id: requestId, duty_date: date, attendance_log_id: null, disposition: "update",
+    proposed_in_am_reason: "absent", proposed_out_am_reason: "absent",
+    proposed_in_pm_reason: "absent", proposed_out_pm_reason: "absent",
+    before: {},
+  });
+  assert.equal(itemError, null, "the proposal columns must admit absent");
+
+  const DAY: ScheduleLike = {
+    id: "day", time_in: "08:00", time_out: "17:00",
+    break_start: "12:00", break_end: "13:00",
+  };
+  const record = buildCorrectionRecord(EMPLOYEE, {
+    duty_date: date, disposition: "update", schedule: DAY, scheduleId: null,
+    time_in_am: null, time_out_am: null, time_in_pm: null, time_out_pm: null,
+    reason_in_am: "absent", reason_out_am: "absent",
+    reason_in_pm: "absent", reason_out_pm: "absent",
+  });
+  const { data: outcome, error } = await admin.rpc("apply_attendance_correction", {
+    p_request_id: requestId, p_reviewer_id: REVIEWER,
+    p_reviewer_email: "hr@example.gov",
+    p_rows: [{ duty_date: date, attendance_log_id: null, record }],
+  });
+  assert.equal(error, null);
+  assert.equal(outcome, "applied");
+
+  const { data: log } = await admin.from("attendance_logs")
+    .select("time_in_am_reason, time_out_pm_reason, no_time_reason, is_absent, correction_locked")
+    .eq("employee_id", EMPLOYEE).eq("date", date).single();
+  assert.equal(log!.time_in_am_reason, "absent");
+  assert.equal(log!.time_out_pm_reason, "absent");
+  assert.equal(log!.no_time_reason, null);
+  assert.equal(log!.is_absent, true);
+  assert.equal(log!.correction_locked, true);
+});
+
+test("no_time_reason still refuses absent: a day-level reason excuses both sessions", async () => {
+  const date = "2026-11-10";
+  SEEDED_DATES.push(date);
+  const { error } = await admin.from("attendance_logs").insert({
+    employee_id: EMPLOYEE, date, source: "manual", no_time_reason: "absent",
+  });
+  assert.ok(error, "expected the CHECK constraint to reject it");
+  assert.match(error!.message, /no_time_reason/);
+});
+
 // --- Migration 095: blank CREATE rows ---------------------------------------
 
 test("migration 095 removes only the blank locked rows a correction created", async () => {

@@ -63,7 +63,14 @@ import {
   type TrailingDraft,
 } from "@/lib/attendance-corrections";
 import {
-  crossesMidnight,
+  NO_REASON,
+  scheduleHoursLabel,
+  scheduleOptions,
+  setSlotReason,
+  settleAbsentPairs,
+  type SlotName,
+} from "@/lib/correction-draft";
+import {
   hasBreak,
   DEFAULT_SCHEDULE,
   type ScheduleLike,
@@ -83,10 +90,9 @@ import {
 import { formatManilaShortDate } from "@/lib/format-date";
 import { cn } from "@/lib/utils";
 
-// Sentinel values for the Select components — base-ui Select cannot hold null,
-// and "" is reserved for its own empty state.
+// Sentinel value for the schedule Select — base-ui Select cannot hold null, and
+// "" is reserved for its own empty state. See NO_REASON for the slot Selects.
 const INHERIT = "__inherit__";
-const NO_REASON = "__none__";
 
 // Indexed by CorrectionDraftDay.day_of_week, which the server computes so the
 // weekday shown never depends on the browser's timezone.
@@ -100,11 +106,8 @@ const DAY_NAMES = [
   "Saturday",
 ];
 
-type Disposition = "update" | "clear_as_off";
-
 interface DayDraft {
   include: boolean;
-  disposition: Disposition;
   scheduleId: string;
   time_in_am: string;
   time_out_am: string;
@@ -127,21 +130,29 @@ function draftFor(day: CorrectionDraftDay): DayDraft {
   const weekend = weekendReasonFor(day.date);
   const fallback = blank && weekend ? weekend : NO_REASON;
 
+  // A slot holds a time or a reason. A row saved before that rule can carry both;
+  // the reason wins because it is what the DTR already prints for that slot.
+  const reasonInAm = day.time_in_am_reason ?? fallback;
+  const reasonOutAm = day.time_out_am_reason ?? fallback;
+  const reasonInPm = day.time_in_pm_reason ?? fallback;
+  const reasonOutPm = day.time_out_pm_reason ?? fallback;
+  const timeUnless = (reason: string, time: string | null) =>
+    reason === NO_REASON ? (time ?? "") : "";
+
   return {
     // Unchecked by default: an included day writes an attendance row and locks
     // its date against further requests, so inclusion is an explicit act. The
     // "Include all" control covers the common whole-range case.
     include: false,
-    disposition: "update",
     scheduleId: day.schedule_id ?? INHERIT,
-    time_in_am: day.time_in_am ?? "",
-    time_out_am: day.time_out_am ?? "",
-    time_in_pm: day.time_in_pm ?? "",
-    time_out_pm: day.time_out_pm ?? "",
-    reason_in_am: day.time_in_am_reason ?? fallback,
-    reason_out_am: day.time_out_am_reason ?? fallback,
-    reason_in_pm: day.time_in_pm_reason ?? fallback,
-    reason_out_pm: day.time_out_pm_reason ?? fallback,
+    time_in_am: timeUnless(reasonInAm, day.time_in_am),
+    time_out_am: timeUnless(reasonOutAm, day.time_out_am),
+    time_in_pm: timeUnless(reasonInPm, day.time_in_pm),
+    time_out_pm: timeUnless(reasonOutPm, day.time_out_pm),
+    reason_in_am: reasonInAm,
+    reason_out_am: reasonOutAm,
+    reason_in_pm: reasonInPm,
+    reason_out_pm: reasonOutPm,
   };
 }
 
@@ -156,9 +167,10 @@ const asReason = (v: string) =>
   nullIfSentinel(v, NO_REASON) as CorrectionReason | null;
 
 // CORRECTION_REASONS is a subset of NO_TIME_REASONS (it drops 'holiday'), so
-// the existing DTR labels apply unchanged.
+// the existing DTR labels apply unchanged. The first option is the slot's other
+// state: no reason, so it takes a time.
 const REASON_ITEMS: { value: string; label: string }[] = [
-  { value: NO_REASON, label: "—" },
+  { value: NO_REASON, label: "Set time" },
   ...CORRECTION_REASONS.map((r) => ({
     value: r,
     label: NO_TIME_REASON_LABELS[r],
@@ -243,44 +255,47 @@ export function CorrectionRequestForm({
     [employeeSchedule, schedules],
   );
 
-  const scheduleItems = useMemo(
-    () => [
-      {
-        value: INHERIT,
-        label: employeeSchedule
-          ? `Inherit (${employeeSchedule.time_in}–${employeeSchedule.time_out})`
-          : "Inherit (employee's schedule)",
-      },
-      ...schedules.map((s) => ({
-        value: s.id,
-        // A midnight-crossing shift is called out by name: "(22:00–06:00)" alone
-        // reads as a typo, and picking one changes which calendar day the
-        // morning punches land on.
-        label:
-          `${s.name} (${s.time_in}–${s.time_out}` +
-          `${crossesMidnight(s) ? ", next day" : ""})` +
-          `${hasBreak(s) ? "" : " · no break"}`,
-      })),
-    ],
-    [schedules, employeeSchedule],
-  );
+  // Hours only, in 12-hour time. `scheduleItems` is what a Select resolves its
+  // current value's label from, so a day pinned to a schedule the list collapsed
+  // as a duplicate still shows its hours. `scheduleChoices` is what the list
+  // offers. Inherit keeps its word: it is not a schedule but "no pin", and without
+  // it the entry would read the same as the schedule it inherits.
+  const { scheduleItems, scheduleChoices } = useMemo(() => {
+    const inherit = {
+      value: INHERIT,
+      label: employeeSchedule
+        ? `Inherit (${scheduleHoursLabel(employeeSchedule)})`
+        : "Inherit (employee's schedule)",
+    };
+    const { all, choices } = scheduleOptions(schedules);
+    return {
+      scheduleItems: [inherit, ...all],
+      scheduleChoices: [inherit, ...choices],
+    };
+  }, [schedules, employeeSchedule]);
 
-  // Drops the two break punches from a day whose schedule has no break window.
-  // The grid hides those inputs, but a value can already be sitting in the draft
-  // — seeded from the attendance row, typed before the schedule was switched, or
-  // defaulted to SATURDAY/SUNDAY on a blank weekend — and submitting it would
-  // write a lunch-out onto a shift that has no lunch.
-  const clearUnusedBreakSlots = useCallback(
-    (d: DayDraft): DayDraft =>
-      hasBreak(scheduleFor(d.scheduleId))
-        ? d
-        : {
-            ...d,
-            time_out_am: "",
-            time_in_pm: "",
-            reason_out_am: NO_REASON,
-            reason_in_pm: NO_REASON,
-          },
+  // Fits a day's slots to its schedule. Drops the two break punches from a day
+  // whose schedule has no break window: the grid hides those inputs, but a value
+  // can already be sitting in the draft — seeded from the attendance row, typed
+  // before the schedule was switched, or defaulted to SATURDAY/SUNDAY on a blank
+  // weekend — and submitting it would write a lunch-out onto a shift that has no
+  // lunch. Then re-pairs ABSENT, since the schedule decides which slots pair up.
+  const fitToSchedule = useCallback(
+    (d: DayDraft): DayDraft => {
+      const withBreak = hasBreak(scheduleFor(d.scheduleId));
+      return settleAbsentPairs(
+        withBreak
+          ? d
+          : {
+              ...d,
+              time_out_am: "",
+              time_in_pm: "",
+              reason_out_am: NO_REASON,
+              reason_in_pm: NO_REASON,
+            },
+        withBreak,
+      );
+    },
     [scheduleFor],
   );
 
@@ -336,11 +351,22 @@ export function CorrectionRequestForm({
     );
 
   // Switching a day's schedule can turn its break slots meaningless, so the
-  // punches sitting in them go with it — see clearUnusedBreakSlots.
+  // punches sitting in them go with it — see fitToSchedule.
   const setRowSchedule = (date: string, scheduleId: string) =>
     setDrafts((prev) => ({
       ...prev,
-      [date]: clearUnusedBreakSlots({ ...prev[date], scheduleId }),
+      [date]: fitToSchedule({ ...prev[date], scheduleId }),
+    }));
+
+  const setSlotChoice = (date: string, slot: SlotName, value: string) =>
+    setDrafts((prev) => ({
+      ...prev,
+      [date]: setSlotReason(
+        prev[date],
+        slot,
+        value,
+        hasBreak(scheduleFor(prev[date].scheduleId)),
+      ),
     }));
 
   const applyBulkSchedule = () => {
@@ -353,7 +379,7 @@ export function CorrectionRequestForm({
         Object.entries(prev).map(([date, d]) => [
           date,
           d.include
-            ? clearUnusedBreakSlots({ ...d, scheduleId: bulkSchedule })
+            ? fitToSchedule({ ...d, scheduleId: bulkSchedule })
             : d,
         ]),
       ),
@@ -368,7 +394,6 @@ export function CorrectionRequestForm({
   // buildAttendanceRecord dates the early-morning punches to the next calendar
   // day before measuring them.
   const previewFor = (date: string, d: DayDraft) => {
-    if (d.disposition === "clear_as_off") return "OFF";
     const fields = {
       time_in_am: nullIfBlank(d.time_in_am),
       time_out_am: nullIfBlank(d.time_out_am),
@@ -379,7 +404,7 @@ export function CorrectionRequestForm({
       reason_in_pm: asReason(d.reason_in_pm),
       reason_out_pm: asReason(d.reason_out_pm),
     };
-    // A day with no punches at all states itself through its reason — SATURDAY,
+    // A day with no punches states itself through its reason — SATURDAY,
     // OFFICIAL BUSINESS, LEAVE. Running it through the late/undertime wording
     // would print "on time" for a rest day, since a reason suppresses both.
     //
@@ -389,16 +414,7 @@ export function CorrectionRequestForm({
     // day-level reason at all, which is how a day corrected to LEAVE on a
     // declared holiday printed HOLIDAY.
     const dayReason = dayReasonFor(fields);
-    const hasNoPunch =
-      !fields.time_in_am &&
-      !fields.time_out_am &&
-      !fields.time_in_pm &&
-      !fields.time_out_pm;
-    if (hasNoPunch) {
-      return dayReason
-        ? NO_TIME_REASON_LABELS[dayReason as CorrectionReason]
-        : "absent";
-    }
+    if (dayReason) return NO_TIME_REASON_LABELS[dayReason as CorrectionReason];
     const sched = scheduleFor(d.scheduleId);
     const record = buildAttendanceRecord("preview", date, fields, sched);
     if (record.is_absent) return "absent";
@@ -430,7 +446,7 @@ export function CorrectionRequestForm({
     for (const [date, d] of Object.entries(drafts)) {
       reduced[date] = {
         schedule: scheduleFor(d.scheduleId),
-        disposition: d.disposition,
+        disposition: "update",
         include: d.include,
         hasTime: [
           d.time_in_am,
@@ -468,13 +484,13 @@ export function CorrectionRequestForm({
     // Cleared again at the boundary rather than trusting the draft: the grid
     // hides the break inputs for a no-break schedule, but nothing about the
     // state guarantees they were emptied on the way in.
-    const d = clearUnusedBreakSlots(drafts[date]);
+    const d = fitToSchedule(drafts[date]);
     const day = (days ?? []).find((x) => x.date === date)!;
     return {
       duty_date: date,
       // Null for a date with no attendance row — the item creates the day.
       attendance_log_id: day.id,
-      disposition: d.disposition,
+      disposition: "update",
       proposed_schedule_id: nullIfSentinel(d.scheduleId, INHERIT),
       time_in_am: nullIfBlank(d.time_in_am),
       time_out_am: nullIfBlank(d.time_out_am),
@@ -532,7 +548,7 @@ export function CorrectionRequestForm({
       .filter((item) => !isBlankCreateItem(item));
     if (items.length === 0) {
       toast.error(
-        "None of the included days has a time, a reason, or Clear as off — there is nothing to correct.",
+        "None of the included days has a time or a reason — there is nothing to correct.",
       );
       return;
     }
@@ -786,7 +802,7 @@ export function CorrectionRequestForm({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {scheduleItems.map((s) => (
+                          {scheduleChoices.map((s) => (
                             <SelectItem key={s.value} value={s.value}>
                               {s.label}
                             </SelectItem>
@@ -855,7 +871,7 @@ export function CorrectionRequestForm({
                           <strong>{listDates(trailingWarning.inRange)}</strong>{" "}
                           below and set{" "}
                           {trailingWarning.inRange.length === 1 ? "it" : "them"}{" "}
-                          to <em>Clear as off</em>.{" "}
+                          to <em>OFF</em>.{" "}
                         </>
                       )}
                       {trailingWarning.outOfRange.length > 0 && (
@@ -876,13 +892,12 @@ export function CorrectionRequestForm({
                 )}
 
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1100px] text-sm">
+                  <table className="w-full min-w-[1000px] text-sm">
                     <thead>
                       <tr className="border-b text-left text-xs text-muted-foreground">
                         <th className="w-10 py-2" />
                         <th className="py-2 pr-3">Date</th>
                         <th className="py-2 pr-3">Currently → after</th>
-                        <th className="py-2 pr-3">Disposition</th>
                         <th className="py-2 pr-3">Schedule</th>
                         <th className="py-2 pr-2">AM In</th>
                         <th className="py-2 pr-2">AM Out</th>
@@ -894,7 +909,6 @@ export function CorrectionRequestForm({
                       {days.map((day) => {
                         const d = drafts[day.date];
                         if (!d) return null;
-                        const cleared = d.disposition === "clear_as_off";
                         const isWeekend =
                           day.day_of_week === 0 || day.day_of_week === 6;
                         // The two middle slots exist only for a shift with a
@@ -903,10 +917,10 @@ export function CorrectionRequestForm({
                         // bucketPunchesForDuty and undertimeMinutesFor read.
                         const rowHasBreak = hasBreak(scheduleFor(d.scheduleId));
                         const slots = [
-                          ["time_in_am", "reason_in_am"],
-                          ["time_out_am", "reason_out_am"],
-                          ["time_in_pm", "reason_in_pm"],
-                          ["time_out_pm", "reason_out_pm"],
+                          ["in_am", "time_in_am", "reason_in_am"],
+                          ["out_am", "time_out_am", "reason_out_am"],
+                          ["in_pm", "time_in_pm", "reason_in_pm"],
+                          ["out_pm", "time_out_pm", "reason_out_pm"],
                         ] as const;
                         return (
                           <tr
@@ -968,34 +982,6 @@ export function CorrectionRequestForm({
                             </td>
                             <td className="py-3 pr-3">
                               <Select
-                                value={d.disposition}
-                                items={[
-                                  { value: "update", label: "Update" },
-                                  {
-                                    value: "clear_as_off",
-                                    label: "Clear as off",
-                                  },
-                                ]}
-                                onValueChange={(v) =>
-                                  patch(day.date, {
-                                    disposition: v as Disposition,
-                                  })
-                                }
-                                disabled={!d.include}
-                              >
-                                <SelectTrigger className="w-[130px]">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="update">Update</SelectItem>
-                                  <SelectItem value="clear_as_off">
-                                    Clear as off
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </td>
-                            <td className="py-3 pr-3">
-                              <Select
                                 value={d.scheduleId}
                                 items={scheduleItems}
                                 onValueChange={(v) =>
@@ -1003,11 +989,11 @@ export function CorrectionRequestForm({
                                 }
                                 disabled={!d.include}
                               >
-                                <SelectTrigger className="w-[200px]">
+                                <SelectTrigger className="w-[230px]">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {scheduleItems.map((s) => (
+                                  {scheduleChoices.map((s) => (
                                     <SelectItem key={s.value} value={s.value}>
                                       {s.label}
                                     </SelectItem>
@@ -1015,7 +1001,7 @@ export function CorrectionRequestForm({
                                 </SelectContent>
                               </Select>
                             </td>
-                            {slots.map(([timeKey, reasonKey], slotIndex) => {
+                            {slots.map(([slot, timeKey, reasonKey], slotIndex) => {
                               const isBreakSlot =
                                 slotIndex === 1 || slotIndex === 2;
                               if (isBreakSlot && !rowHasBreak) {
@@ -1039,26 +1025,30 @@ export function CorrectionRequestForm({
                                       {slotIndex === 0 ? "In" : "Out"}
                                     </div>
                                   )}
-                                  <Input
-                                    type="time"
-                                    className="w-[110px]"
-                                    value={d[timeKey]}
-                                    disabled={!d.include || cleared}
-                                    onChange={(e) =>
-                                      patch(day.date, {
-                                        [timeKey]: e.target.value,
-                                      } as Partial<DayDraft>)
-                                    }
-                                  />
+                                  {/* A slot holds a time or a reason. The time
+                                      box exists only while no reason is set, so
+                                      the two can never both be filled. */}
+                                  {d[reasonKey] === NO_REASON && (
+                                    <Input
+                                      type="time"
+                                      className="w-[110px]"
+                                      value={d[timeKey]}
+                                      disabled={!d.include}
+                                      aria-label={`${slot} time, ${day.date}`}
+                                      onChange={(e) =>
+                                        patch(day.date, {
+                                          [timeKey]: e.target.value,
+                                        } as Partial<DayDraft>)
+                                      }
+                                    />
+                                  )}
                                   <Select
                                     value={d[reasonKey]}
                                     items={REASON_ITEMS}
                                     onValueChange={(v) =>
-                                      patch(day.date, {
-                                        [reasonKey]: v as string,
-                                      } as Partial<DayDraft>)
+                                      setSlotChoice(day.date, slot, v as string)
                                     }
-                                    disabled={!d.include || cleared}
+                                    disabled={!d.include}
                                   >
                                     <SelectTrigger className="w-[110px] h-7 text-xs">
                                       <SelectValue />
@@ -1085,17 +1075,20 @@ export function CorrectionRequestForm({
                   </table>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  <strong>Clear as off</strong> discards the day&apos;s punches
-                  and marks it OFF — use it for the day a night-shift pin
-                  empties out. Per-slot reasons print in a slot the layout
-                  leaves blank; <strong>NO BREAK</strong> is for a day worked
-                  straight through lunch. A schedule with no break window hides
-                  its two middle slots and takes the arrival from{" "}
-                  <strong>In</strong> and the departure from <strong>Out</strong>
-                  ; one marked <em>next day</em> crosses midnight, so an
-                  early-morning punch is measured against the following calendar
-                  day. The <strong>→</strong> line shows what each included day
-                  will read as once applied.
+                  Each slot takes either a time or a reason: pick a reason and
+                  the time box goes away, pick <strong>Set time</strong> to bring
+                  it back. <strong>ABSENT</strong> fills its pair as well (AM In
+                  with AM Out, PM In with PM Out) and that session is charged as
+                  an absence. <strong>OFF</strong> on a day&apos;s slots marks it
+                  off — use it for the day a night shift empties out.{" "}
+                  <strong>NO BREAK</strong> is for a day worked straight through
+                  lunch. A schedule with no break window hides its two middle
+                  slots and takes the arrival from <strong>In</strong> and the
+                  departure from <strong>Out</strong>. A schedule that ends
+                  earlier than it starts crosses midnight, so an early-morning
+                  punch is measured against the following calendar day. The{" "}
+                  <strong>→</strong> line shows what each included day will read
+                  as once applied.
                 </p>
               </>
             )}

@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import {
   dayLateUndertime,
+  slotReasonOpts,
   type ScheduleLike,
 } from "../../src/lib/attendance-schedule.ts";
 
@@ -131,6 +132,38 @@ const CASES: Case[] = [
     reasons: { in_am: "saturday", out_am: "saturday", in_pm: "saturday", out_pm: "saturday" },
   },
 
+  // --- ABSENT states a session was not served: charged, never excused ---
+  {
+    name: "ABSENT morning, afternoon worked",
+    sched: REGULAR, punches: [null, null, "13:00", "17:00"],
+    reasons: { in_am: "absent", out_am: "absent" },
+  },
+  {
+    name: "ABSENT afternoon, morning worked late",
+    sched: REGULAR, punches: ["08:30", "12:00", null, null],
+    reasons: { in_pm: "absent", out_pm: "absent" },
+  },
+  {
+    name: "ABSENT morning, OB afternoon, no punches",
+    sched: REGULAR, punches: [null, null, null, null],
+    reasons: { in_am: "absent", out_am: "absent", in_pm: "official_business", out_pm: "official_business" },
+  },
+  {
+    name: "OB morning, ABSENT afternoon, no punches",
+    sched: REGULAR, punches: [null, null, null, null],
+    reasons: { in_am: "official_business", out_am: "official_business", in_pm: "absent", out_pm: "absent" },
+  },
+  {
+    name: "ABSENT all day is left to the DTR",
+    sched: REGULAR, punches: [null, null, null, null],
+    reasons: { in_am: "absent", out_am: "absent", in_pm: "absent", out_pm: "absent" },
+  },
+  {
+    name: "ABSENT on a no-break shift is left to the DTR",
+    sched: NIGHT_NB, punches: [null, null, null, null],
+    reasons: { in_am: "absent", out_pm: "absent" },
+  },
+
   // --- an off-shape schedule: the charge is a flat half day either way ---
   { name: "offset schedule, no PM arrival", sched: OFFSET, punches: ["07:30", "12:00", null, "16:30"] },
   { name: "offset schedule, no AM departure", sched: OFFSET, punches: ["07:30", null, "13:00", "16:30"] },
@@ -185,10 +218,7 @@ function inTypeScript(c: Case) {
       time_out_pm_next_day: nOutPm,
     },
     {
-      reasons: {
-        in_am: !!r.in_am, out_am: !!r.out_am,
-        in_pm: !!r.in_pm, out_pm: !!r.out_pm,
-      },
+      ...slotReasonOpts(r),
       excuseAm: !!r.day,
       excusePm: !!r.day,
     },

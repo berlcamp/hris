@@ -304,12 +304,51 @@ export interface DaySlotTimes {
   time_out_pm_next_day?: boolean;
 }
 
-/** Which slots carry a reason (OB / FW / TRAVEL / NO BREAK / leave / off). */
+/** Which slots carry a reason that excuses them (OB / FW / TRAVEL / NO BREAK /
+ *  leave / off) — never ABSENT, see excusesSlot. */
 export interface SlotReasonFlags {
   in_am?: boolean;
   out_am?: boolean;
   in_pm?: boolean;
   out_pm?: boolean;
+}
+
+/** Which sessions somebody explicitly stated were not served. */
+export interface AbsentSessions {
+  am?: boolean;
+  pm?: boolean;
+}
+
+// The slot code for "this was not served". Every other reason explains a missing
+// punch; this one confirms it, so it must never excuse the charge.
+export const ABSENT_REASON = "absent";
+
+export function excusesSlot(code: string | null | undefined): boolean {
+  return !!code && code !== ABSENT_REASON;
+}
+
+// A row's four stored slot reasons as the options dayLateUndertime and
+// unsettledSlots take. Every caller goes through this, so "a reason excuses"
+// and "except ABSENT" cannot come apart between the DTR, the stored columns and
+// the reports.
+export function slotReasonOpts(codes: {
+  in_am?: string | null;
+  out_am?: string | null;
+  in_pm?: string | null;
+  out_pm?: string | null;
+}): { reasons: SlotReasonFlags; absentSessions: AbsentSessions } {
+  return {
+    reasons: {
+      in_am: excusesSlot(codes.in_am),
+      out_am: excusesSlot(codes.out_am),
+      in_pm: excusesSlot(codes.in_pm),
+      out_pm: excusesSlot(codes.out_pm),
+    },
+    absentSessions: {
+      am: codes.in_am === ABSENT_REASON || codes.out_am === ABSENT_REASON,
+      pm: codes.in_pm === ABSENT_REASON || codes.out_pm === ABSENT_REASON,
+    },
+  };
 }
 
 export interface DayMinutes {
@@ -336,13 +375,19 @@ export interface DayMinutes {
 // sits on; excuseAm / excusePm (a holiday half, or a day-level reason like OFF)
 // excuse that session's charges wholesale.
 //
+// ABSENT on a session is not an excuse: the session stays charged its half day,
+// and the cells are settled rather than pending. The one punchless day charged
+// here is a mixed one — one session ABSENT, the other explained by a reason. It
+// is not an absence (the row is not is_absent, so the DTR will not charge it),
+// but the absent half is still owed.
+//
 // On a REST DAY NOTHING is charged at all: no hours are owed, so there is no
 // schedule for a punch to be measured against. The times still print on the
 // DTR; only the deduction is dropped. Which days are rest days is the
 // employee's schedule's call (opts.restDay, from resolveDaySchedule); without
 // it, Saturday and Sunday (isRestDay).
 //
-// hris.day_late_undertime (migration 094) mirrors this clause for clause for
+// hris.day_late_undertime (migration 098) mirrors this clause for clause for
 // the stored columns and the VL auto-deduction. Change both together.
 export function dayLateUndertime(
   dutyDate: string,
@@ -350,6 +395,7 @@ export function dayLateUndertime(
   slots: DaySlotTimes,
   opts: {
     reasons?: SlotReasonFlags;
+    absentSessions?: AbsentSessions;
     /** The morning is excused wholesale — a full/AM holiday, or a day-level
      *  reason like OFF. */
     excuseAm?: boolean;
@@ -371,7 +417,12 @@ export function dayLateUndertime(
     !slots.time_in_pm &&
     !slots.time_out_pm
   ) {
-    return { lateMinutes: 0, undertimeMinutes: 0 };
+    const absent = opts.absentSessions ?? {};
+    const halfAbsent =
+      hasBreak(sched) &&
+      ((absent.am && (r.in_pm || r.out_pm)) ||
+        (absent.pm && (r.in_am || r.out_am)));
+    if (!halfAbsent) return { lateMinutes: 0, undertimeMinutes: 0 };
   }
 
   const lateMinutes =
@@ -428,7 +479,8 @@ export type SlotKey = "in_am" | "out_am" | "in_pm" | "out_pm";
 // Only a day with at least one punch can be unsettled — a day with none is an
 // absence — and never a rest day, which owes nothing. A session is explained
 // wholesale by excuseAm / excusePm or by a reason on either of its slots (NO
-// BREAK on the two lunch slots settles a day worked straight through). On a
+// BREAK on the two lunch slots settles a day worked straight through; ABSENT
+// settles it too, though it is still charged). On a
 // schedule with no break the AM-out and PM-in cells are blank by design; only a
 // missing clock-in or clock-out is unsettled there.
 export function unsettledSlots(
@@ -437,12 +489,14 @@ export function unsettledSlots(
   slots: DaySlotTimes,
   opts: {
     reasons?: SlotReasonFlags;
+    absentSessions?: AbsentSessions;
     excuseAm?: boolean;
     excusePm?: boolean;
     restDay?: boolean;
   } = {},
 ): SlotKey[] {
   const r = opts.reasons ?? {};
+  const absent = opts.absentSessions ?? {};
   const { excuseAm = false, excusePm = false } = opts;
   if (opts.restDay ?? isRestDay(dutyDate)) return [];
   const has: Record<SlotKey, boolean> = {
@@ -459,11 +513,11 @@ export function unsettledSlots(
     if (!has.out_pm && !excusePm && !r.out_pm) missing.push("out_pm");
     return missing;
   }
-  if (!(excuseAm || r.in_am || r.out_am)) {
+  if (!(excuseAm || r.in_am || r.out_am || absent.am)) {
     if (!has.in_am) missing.push("in_am");
     if (!has.out_am) missing.push("out_am");
   }
-  if (!(excusePm || r.in_pm || r.out_pm)) {
+  if (!(excusePm || r.in_pm || r.out_pm || absent.pm)) {
     if (!has.in_pm) missing.push("in_pm");
     if (!has.out_pm) missing.push("out_pm");
   }

@@ -6,7 +6,10 @@
 // unchanged — attendance-actions.ts now re-exports from here.
 
 import {
+  ABSENT_REASON,
   dayLateUndertime,
+  excusesSlot,
+  slotReasonOpts,
   timeOnNextDayForNightShift,
   type ScheduleLike,
 } from "./attendance-schedule.ts";
@@ -43,6 +46,10 @@ export interface AttendanceTimeFields {
 // First non-null wins, which is exactly the rule the correction form's own
 // preview shows the requester. The two used to be independent re-derivations of
 // the same idea; this is the one copy.
+//
+// ABSENT never becomes the day's reason, and a day with any ABSENT slot has none:
+// a day-level reason excuses both sessions, which would erase the very absence
+// the slot states.
 export function dayReasonFor(fields: AttendanceTimeFields): string | null {
   if (
     fields.time_in_am ||
@@ -52,13 +59,14 @@ export function dayReasonFor(fields: AttendanceTimeFields): string | null {
   ) {
     return null;
   }
-  return (
-    fields.reason_in_am ??
-    fields.reason_out_am ??
-    fields.reason_in_pm ??
-    fields.reason_out_pm ??
-    null
-  );
+  const slots = [
+    fields.reason_in_am,
+    fields.reason_out_am,
+    fields.reason_in_pm,
+    fields.reason_out_pm,
+  ];
+  if (slots.includes(ABSENT_REASON)) return null;
+  return slots.find((r) => r != null) ?? null;
 }
 
 function toTimestamp(date: string, time: string | null): string | null {
@@ -105,12 +113,12 @@ export function computeAttendanceFlags(
     sched,
     entry,
     {
-      reasons: {
-        in_am: !!entry.reason_in_am,
-        out_am: !!entry.reason_out_am,
-        in_pm: !!entry.reason_in_pm,
-        out_pm: !!entry.reason_out_pm,
-      },
+      ...slotReasonOpts({
+        in_am: entry.reason_in_am,
+        out_am: entry.reason_out_am,
+        in_pm: entry.reason_in_pm,
+        out_pm: entry.reason_out_pm,
+      }),
       excuseAm: dayExcused,
       excusePm: dayExcused,
       restDay: opts.restDay,
@@ -169,8 +177,14 @@ export function buildAttendanceRecord(
   const reasonOutAm = fields.reason_out_am ?? null;
   const reasonInPm = fields.reason_in_pm ?? null;
   const reasonOutPm = fields.reason_out_pm ?? null;
+  // ABSENT does not count: a day with no punches and nothing but ABSENT slots is
+  // exactly what is_absent means.
   const hasAnyReason =
-    !!noTimeReason || !!reasonInAm || !!reasonOutAm || !!reasonInPm || !!reasonOutPm;
+    !!noTimeReason ||
+    excusesSlot(reasonInAm) ||
+    excusesSlot(reasonOutAm) ||
+    excusesSlot(reasonInPm) ||
+    excusesSlot(reasonOutPm);
 
   return {
     employee_id: employeeId,

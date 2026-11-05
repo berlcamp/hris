@@ -11,6 +11,7 @@ import {
 import { logAudit } from "@/lib/audit";
 import {
   dayLateUndertime,
+  slotReasonOpts,
   unrecordedDayCharge,
   type ScheduleLike,
 } from "@/lib/attendance-schedule";
@@ -1025,12 +1026,12 @@ export async function getAttendanceReport(
                 time_out_pm_next_day: timestampOnNextDay(tOut, day.date),
               },
               {
-                reasons: {
-                  in_am: !!log.time_in_am_reason,
-                  out_am: !!log.time_out_am_reason,
-                  in_pm: !!log.time_in_pm_reason,
-                  out_pm: !!log.time_out_pm_reason,
-                },
+                ...slotReasonOpts({
+                  in_am: log.time_in_am_reason as string | null,
+                  out_am: log.time_out_am_reason as string | null,
+                  in_pm: log.time_in_pm_reason as string | null,
+                  out_pm: log.time_out_pm_reason as string | null,
+                }),
                 excuseAm: holidayExcuses.am || !!log.no_time_reason,
                 excusePm: holidayExcuses.pm || !!log.no_time_reason,
                 restDay,
