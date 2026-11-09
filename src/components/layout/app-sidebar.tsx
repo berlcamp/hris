@@ -362,7 +362,7 @@ const navGroups: NavGroup[] = [
     // DTR Manager sees Work Schedules, Holidays and Departments within this
     // group; OCM Admin only sees Departments; HR Admin only sees CSC Team
     // Members; Department Admins only see Work Schedules (their department's
-    // rotations and per-day schedules); every other item stays super_admin-only.
+    // per-day schedules); every other item stays super_admin-only.
     roles: [
       "super_admin",
       "hr_admin",

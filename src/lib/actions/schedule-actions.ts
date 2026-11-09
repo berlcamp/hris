@@ -234,7 +234,7 @@ export async function deleteSchedule(
     return {
       error:
         error.code === "23503"
-          ? "This schedule is still used by a rotation, a per-date override or a pending correction, so it cannot be deleted."
+          ? "This schedule is still used by a Calendar entry or a pending correction, so it cannot be deleted."
           : error.message,
     };
   }

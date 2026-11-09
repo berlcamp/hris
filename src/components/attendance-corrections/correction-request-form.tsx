@@ -1108,7 +1108,7 @@ export function CorrectionRequestForm({
                 rows={3}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. Assigned to night rotation per Office Order 2026-114"
+                placeholder="e.g. Assigned to night shift per Office Order 2026-114"
               />
             </div>
             <div className="space-y-2">

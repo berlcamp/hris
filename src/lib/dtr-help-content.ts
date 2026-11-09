@@ -29,7 +29,7 @@ export const DTR_STEPS: Record<DtrAudience, DtrStep[]> = {
     },
     {
       title: "Set schedules for anyone not on regular hours",
-      body: "In Work Schedules, build rotations (day/night weeks, rostered Saturdays), assign them from a date, and use the Calendar for one-off changes or rest days. Punches already saved are re-sorted automatically; hand-corrected days are never touched.",
+      body: "In Work Schedules, give each employee their regular shift under Schedules, and use the Calendar for days that differ: a different shift, a rostered Saturday or a rest day. Punches already saved are re-sorted automatically; hand-corrected days are never touched.",
       href: "/admin/schedules",
       cta: "Open Work Schedules",
     },
@@ -67,7 +67,7 @@ export const DTR_STEPS: Record<DtrAudience, DtrStep[]> = {
     },
     {
       title: "Keep your staff's schedules right",
-      body: "In Work Schedules, assign a rotation to staff who work shifts or rostered weekends, and use the Calendar for one-off swaps or rest days. A wrong schedule puts punches in the wrong cells.",
+      body: "In Work Schedules, use the Calendar to set a different shift, a rostered weekend day or a rest day for any of your staff on a given date. A wrong schedule puts punches in the wrong cells.",
       href: "/admin/schedules",
       cta: "Open Work Schedules",
     },
@@ -124,11 +124,11 @@ export const DTR_FAQ: DtrFaq[] = [
   },
   {
     q: "I work night shifts or rotate between days and nights. How are my punches read?",
-    a: "Ask your officer to put you on a rotation in Work Schedules. A morning scan after a night shift is filed under the night it began; on a day-shift day it stays on its own date.",
+    a: "Ask your officer to set your night shifts in Work Schedules. A morning scan after a night shift is filed under the night it began; on a day-shift day it stays on its own date.",
   },
   {
     q: "Why does my DTR say REST DAY on a weekday?",
-    a: "Your rotation or a one-off change makes that day a rest day. No hours are owed; any punches still print.",
+    a: "Your schedule for that date was set as a rest day in Work Schedules. No hours are owed; any punches still print.",
   },
   {
     q: "I worked on a Saturday. Is it counted?",

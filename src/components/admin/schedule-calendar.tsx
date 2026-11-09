@@ -8,7 +8,6 @@ import {
   ChevronsUpDown,
   Loader2,
   Pin,
-  Repeat,
   Shuffle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -48,20 +47,41 @@ import {
   setScheduleOverride,
   type AssignableEmployee,
   type CalendarDay,
-} from "@/lib/actions/rotation-actions";
+  type ResortSummary,
+} from "@/lib/actions/schedule-override-actions";
 import type { ScheduleRow } from "@/lib/actions/schedule-actions";
 import { cn } from "@/lib/utils";
-import { WEEKDAYS, scheduleLabel, shortTime } from "./rotation-manager";
-import { resortMessage } from "./rotation-assigner";
 
 // One employee's month: the schedule each day resolves to (a correction's pin,
-// a per-date override, the rotation, else the base schedule Mon–Fri) and REST
-// days. Clicking a day sets or clears a one-off override for that date.
+// a per-date override, else the base schedule Mon–Fri) and REST days. Clicking
+// a day sets or clears a one-off override for that date.
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+function shortTime(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  const suffix = h >= 12 ? "p" : "a";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${m ? `:${String(m).padStart(2, "0")}` : ""}${suffix}`;
+}
+
+function scheduleLabel(s: Pick<ScheduleRow, "time_in" | "time_out">) {
+  return `${shortTime(s.time_in)}–${shortTime(s.time_out)}`;
+}
+
+function resortMessage(r: ResortSummary): string {
+  const parts = [`${r.written} day${r.written === 1 ? "" : "s"} re-sorted from saved punches`];
+  if (r.cleared > 0) parts.push(`${r.cleared} moved to the night before`);
+  if (r.protectedSkipped > 0) {
+    parts.push(`${r.protectedSkipped} hand-corrected day${r.protectedSkipped === 1 ? "" : "s"} left as is`);
+  }
+  return parts.join(" · ");
+}
 
 const SOURCE_META = {
   pin: { icon: Pin, label: "Pinned by a correction" },
   override: { icon: Shuffle, label: "One-off override" },
-  rotation: { icon: Repeat, label: "From the rotation" },
+  rotation: { icon: null, label: "Base schedule" },
   base: { icon: null, label: "Base schedule" },
 } as const;
 
@@ -103,7 +123,6 @@ export function ScheduleCalendar({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [month, setMonth] = useState(today.slice(0, 7));
   const [days, setDays] = useState<CalendarDay[] | null>(null);
-  const [rotation, setRotation] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<CalendarDay | null>(null);
   const [mode, setMode] = useState<"schedule" | "rest">("schedule");
@@ -119,7 +138,6 @@ export function ScheduleCalendar({
     try {
       const res = await getScheduleCalendar(employeeId, month);
       setDays(res.days);
-      setRotation(res.rotation);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not load the calendar");
     } finally {
@@ -236,13 +254,13 @@ export function ScheduleCalendar({
 
         {employee && (
           <div className="ml-auto text-xs text-muted-foreground">
-            Base: {employee.base_schedule ?? "Default"} · Rotation: {rotation ?? "none"}
+            Base: {employee.base_schedule ?? "Default"}
           </div>
         )}
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        {(["rotation", "override", "pin"] as const).map((k) => {
+        {(["override", "pin"] as const).map((k) => {
           const Icon = SOURCE_META[k].icon!;
           return (
             <span key={k} className="flex items-center gap-1">
