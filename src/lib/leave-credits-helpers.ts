@@ -59,6 +59,11 @@ export async function addLedgerEntry(
  * Replace any existing csv_import ledger row for (employee, leave_type, year) with
  * a single new row carrying the supplied total. Used by the bulk CSV importer so
  * that re-imports overwrite the prior baseline cleanly.
+ *
+ * The imported value is the year's TOTAL, so it also supersedes the annual
+ * `seed` (e.g. the automatic 3 days of SPL). Seed rows are zeroed rather than
+ * deleted: `hris.provision_year()` re-seeds any (employee, type, year) that has
+ * no seed row, so a deleted seed would come back and double the credits again.
  */
 export async function replaceCsvImportLedger(
   supabase: SupabaseAdmin,
@@ -86,7 +91,18 @@ export async function replaceCsvImportLedger(
     source: "csv_import",
     month: null,
   });
-  return { error };
+  if (error) return { error };
+
+  const seed = await supabase
+    .schema("hris")
+    .from("leave_credit_accruals")
+    .update({ amount: 0, notes: "Annual seed superseded by CSV import" })
+    .eq("employee_id", input.employee_id)
+    .eq("leave_type_id", input.leave_type_id)
+    .eq("year", input.year)
+    .eq("source", "seed")
+    .neq("amount", 0);
+  return { error: seed.error ? seed.error.message : null };
 }
 
 /**
