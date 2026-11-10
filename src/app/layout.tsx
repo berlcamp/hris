@@ -1,19 +1,27 @@
 import type { Metadata } from "next";
-import { DM_Sans, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-const dmSans = DM_Sans({
+// Self-hosted (src/app/fonts, Latin subset from Fontsource) rather than
+// next/font/google: the Google variant downloads the fonts at build time, and a
+// failed download fails the whole Vercel build.
+const dmSans = localFont({
   variable: "--font-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  src: "./fonts/dm-sans-latin-wght.woff2",
+  weight: "100 1000",
+  style: "normal",
+  display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const jetbrainsMono = localFont({
   variable: "--font-geist-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  src: [
+    { path: "./fonts/jetbrains-mono-latin-400.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/jetbrains-mono-latin-500.woff2", weight: "500", style: "normal" },
+  ],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
