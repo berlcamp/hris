@@ -61,7 +61,7 @@ const RULES = [
   {
     icon: Repeat,
     title: "Repeat scans are ignored",
-    body: "A punch within an hour of arriving, before mid-session, is the same arrival — not a time-out. The return from lunch must be at least 20 minutes after the lunch departure; anything sooner is the same departure.",
+    body: "A punch within an hour of arriving, before mid-session, is the same arrival — not a time-out. From November 2026, the return from lunch must be at least 20 minutes after the lunch departure; anything sooner is the same departure.",
   },
   {
     icon: Utensils,

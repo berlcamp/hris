@@ -168,7 +168,13 @@ export const ARRIVAL_RESCAN_MINUTES = 60;
 // The least time between the lunch departure (AM out) and the return (PM in).
 // Scans closer together than this are one departure, kept at the latest; one
 // exactly this long after it is already the return.
+//
+// In force for duty dates from MIN_LUNCH_GAP_FROM. Earlier days keep the rule
+// they were first sorted by (LEGACY_DEPARTURE_RESCAN_MINUTES), so re-importing
+// or re-sorting an old day cannot change a DTR already issued.
 export const MIN_LUNCH_GAP_MINUTES = 20;
+export const MIN_LUNCH_GAP_FROM = "2026-11-01";
+export const LEGACY_DEPARTURE_RESCAN_MINUTES = 10;
 
 // Sorts one duty date's raw punches into the four DTR cells.
 //
@@ -184,7 +190,9 @@ export const MIN_LUNCH_GAP_MINUTES = 20;
 //           the lunch midpoint) — the lunch departure, or an early departure
 //           for the day. Scans less than MIN_LUNCH_GAP_MINUTES after it are its
 //           re-scans; it keeps the latest one that still leaves that gap
-//           before the PM in.
+//           before the PM in. (Duty dates before MIN_LUNCH_GAP_FROM: each
+//           re-scan within LEGACY_DEPARTURE_RESCAN_MINUTES of the last, before
+//           break end, extends it.)
 //   PM in   the first remaining punch, unless it is already past the
 //           afternoon's midpoint — then there was no return from lunch and it
 //           is a departure.
@@ -263,16 +271,28 @@ export function bucketPunchesForDuty(
       i++;
     }
     if (i < punches.length && punches[i].ms < lunchMidMs) {
-      // Measured from the first departure scan, not from each re-scan in turn,
-      // so a string of scans cannot push the return out indefinitely.
-      const gapMs = MIN_LUNCH_GAP_MINUTES * MINUTE_MS;
-      const firstOut = punches[i];
-      const start = i;
-      while (i < punches.length && punches[i].ms - firstOut.ms < gapMs) i++;
-      const returnMs = i < punches.length ? punches[i].ms : Infinity;
-      const amOut =
-        punches.slice(start, i).findLast((p) => returnMs - p.ms >= gapMs) ??
-        firstOut;
+      let amOut = punches[i];
+      if (dutyDate >= MIN_LUNCH_GAP_FROM) {
+        // Measured from the first departure scan, not from each re-scan in turn,
+        // so a string of scans cannot push the return out indefinitely.
+        const gapMs = MIN_LUNCH_GAP_MINUTES * MINUTE_MS;
+        const firstOut = amOut;
+        const start = i;
+        while (i < punches.length && punches[i].ms - firstOut.ms < gapMs) i++;
+        const returnMs = i < punches.length ? punches[i].ms : Infinity;
+        amOut =
+          punches.slice(start, i).findLast((p) => returnMs - p.ms >= gapMs) ??
+          firstOut;
+      } else {
+        i++;
+        while (
+          i < punches.length &&
+          punches[i].ms < breakEndMs &&
+          punches[i].ms - amOut.ms <= LEGACY_DEPARTURE_RESCAN_MINUTES * MINUTE_MS
+        ) {
+          amOut = punches[i++];
+        }
+      }
       set("out_am", amOut);
     }
   }

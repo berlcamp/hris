@@ -126,9 +126,14 @@ test("the AM out keeps the latest punch of the lunch-out re-scans", () => {
   );
 });
 
-test("AM out and PM in are at least 20 minutes apart", () => {
+test("from November 2026, AM out and PM in are at least 20 minutes apart", () => {
+  const NOV = "2026-11-02"; // Monday
   const day = (...lunch: string[]) =>
-    sort(REGULAR, [at("07:58"), ...lunch.map((t) => at(t)), at("17:02")]);
+    sort(
+      REGULAR,
+      ["07:58", ...lunch, "17:02"].map((t) => at(t, "", NOV)),
+      NOV,
+    );
   // Under 20 minutes: one departure, kept at the latest.
   assert.deepEqual(day("12:01", "12:20"), ["07:58", "12:20", null, "17:02"]);
   // Exactly 20 is the return.
@@ -137,6 +142,13 @@ test("AM out and PM in are at least 20 minutes apart", () => {
   assert.deepEqual(day("12:25", "12:40", "12:55"), ["07:58", "12:25", "12:55", "17:02"]);
   // Re-scans do not chain the return away.
   assert.deepEqual(day("12:01", "12:03", "12:15", "12:58"), ["07:58", "12:15", "12:58", "17:02"]);
+});
+
+test("the 20-minute lunch gap starts on 2026-11-01; earlier days keep the old rule", () => {
+  const on = (duty: string) =>
+    sort(REGULAR, ["07:58", "12:01", "12:14", "17:02"].map((t) => at(t, "", duty)), duty);
+  assert.deepEqual(on("2026-10-31"), ["07:58", "12:01", "12:14", "17:02"]);
+  assert.deepEqual(on("2026-11-01"), ["07:58", "12:14", null, "17:02"]);
 });
 
 test("an early return from lunch is the PM arrival", () => {
