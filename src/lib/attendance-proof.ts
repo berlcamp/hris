@@ -14,6 +14,8 @@
 
 export const PROOF_BUCKET = "attendance-proofs";
 export const MAX_PROOF_BYTES = 10 * 1024 * 1024;
+/** Documents per correction request; each may be up to MAX_PROOF_BYTES. */
+export const MAX_PROOF_FILES = 10;
 export const ALLOWED_PROOF_TYPES = [
   "application/pdf",
   "image/jpeg",
@@ -43,7 +45,8 @@ export function proofRejection(
 }
 
 /**
- * Where a request's proof is stored: `<employee>/<request>/<file>`.
+ * Where a request's proof is stored: `<employee>/<request>/<n>-<file>`. The
+ * number keeps two files that share a name apart.
  *
  * The request id is in the path so the server can prove an uploaded object
  * belongs to the filing that claims it — see createCorrectionRequest, which
@@ -54,8 +57,9 @@ export function proofObjectPath(
   employeeId: string,
   requestId: string,
   filename: string,
+  index: number,
 ): string {
-  return `${employeeId}/${requestId}/${sanitizeProofFilename(filename)}`;
+  return `${employeeId}/${requestId}/${index + 1}-${sanitizeProofFilename(filename)}`;
 }
 
 /**

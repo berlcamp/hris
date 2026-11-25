@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -47,11 +47,11 @@ import {
   type CorrectionProofRef,
 } from "@/lib/actions/attendance-correction-actions";
 import { createClient } from "@/lib/supabase/client";
+import { MAX_PROOF_FILES, PROOF_BUCKET } from "@/lib/attendance-proof";
 import {
-  ALLOWED_PROOF_TYPES,
-  PROOF_BUCKET,
-  proofRejection,
-} from "@/lib/attendance-proof";
+  ProofPicker,
+  type PickedProof,
+} from "@/components/attendance-corrections/proof-picker";
 import { commandSubstringFilter } from "@/lib/command-filter";
 import { employeeSearchKeywords } from "@/lib/employee-name-match";
 import type { ScheduleRow } from "@/lib/actions/schedule-actions";
@@ -226,7 +226,17 @@ export function CorrectionRequestForm({
 
   const [bulkSchedule, setBulkSchedule] = useState(INHERIT);
   const [reason, setReason] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [proofs, setProofs] = useState<PickedProof[]>([]);
+  // Frees the thumbnails' object URLs when the form goes away. The picker frees
+  // each one removed before that.
+  const proofsRef = useRef(proofs);
+  useEffect(() => {
+    proofsRef.current = proofs;
+  }, [proofs]);
+  useEffect(
+    () => () => proofsRef.current.forEach((p) => URL.revokeObjectURL(p.url)),
+    [],
+  );
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -527,21 +537,10 @@ export function CorrectionRequestForm({
     // Only a department filing must justify itself with a document; a
     // reviewer-level role filing directly is the party that would have judged
     // it. The server enforces the same rule, and so does the schema.
-    if (!file && !directApply) {
-      toast.error("Attach the supporting document.");
+    if (proofs.length === 0 && !directApply) {
+      toast.error("Attach at least one supporting document.");
       return;
     }
-    // Judged here as well as on the server, because the server only ever sees
-    // the uploaded object: a file that breaks the rules should be refused
-    // before it is sent anywhere, not after a 10 MB round trip.
-    if (file) {
-      const rejection = proofRejection(file.size, file.type);
-      if (rejection) {
-        toast.error(rejection);
-        return;
-      }
-    }
-
     const items = includedDates
       .map(itemFor)
       .filter((item) => !isBlankCreateItem(item));
@@ -554,35 +553,42 @@ export function CorrectionRequestForm({
 
     setSubmitting(true);
     try {
-      // The document goes straight from this browser into Storage, using a
-      // one-shot URL the server mints for a path it chooses. It deliberately
-      // does NOT ride along as a Server Action argument: Next caps an action's
+      // The documents go straight from this browser into Storage, using a
+      // one-shot URLs the server mints for paths it chooses. They deliberately
+      // do NOT ride along as a Server Action argument: Next caps an action's
       // request body and Vercel caps it again, lower, at the edge — a scan over
       // that cap was rejected before the action ran, and all the user saw was
       // "An unexpected response was received from the server". The action below
-      // then carries only a reference, and re-reads the file's real size and
+      // then carries only a reference, and re-reads each file's real size and
       // type from Storage.
       let proofRef: CorrectionProofRef | null = null;
-      if (file) {
+      if (proofs.length > 0) {
         setUploading(true);
         try {
-          const ticket = await createProofUploadTicket(employeeId, file.name);
+          const ticket = await createProofUploadTicket(
+            employeeId,
+            proofs.map((p) => p.file.name),
+          );
           if ("error" in ticket) throw new Error(ticket.error);
-          const { error: uploadError } = await createClient()
-            .storage.from(PROOF_BUCKET)
-            .uploadToSignedUrl(ticket.path, ticket.token, file, {
-              contentType: file.type,
-            });
-          if (uploadError) {
-            throw new Error(
-              `Could not upload the supporting document: ${uploadError.message}`,
-            );
-          }
-          proofRef = {
-            requestId: ticket.requestId,
-            path: ticket.path,
-            filename: file.name,
-          };
+          const bucket = createClient().storage.from(PROOF_BUCKET);
+          const files = await Promise.all(
+            proofs.map(async ({ file }, i) => {
+              const { path, token } = ticket.uploads[i];
+              const { error: uploadError } = await bucket.uploadToSignedUrl(
+                path,
+                token,
+                file,
+                { contentType: file.type },
+              );
+              if (uploadError) {
+                throw new Error(
+                  `Could not upload ${file.name}: ${uploadError.message}`,
+                );
+              }
+              return { path, filename: file.name };
+            }),
+          );
+          proofRef = { requestId: ticket.requestId, files };
         } finally {
           setUploading(false);
         }
@@ -1113,24 +1119,25 @@ export function CorrectionRequestForm({
             </div>
             <div className="space-y-2">
               <Label htmlFor="proof">
-                Supporting document
+                Supporting documents
                 {directApply && (
                   <span className="ml-1 font-normal text-muted-foreground">
                     (optional)
                   </span>
                 )}
               </Label>
-              <Input
+              <ProofPicker
                 id="proof"
-                type="file"
-                accept={ALLOWED_PROOF_TYPES.join(",")}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                proofs={proofs}
+                onChange={setProofs}
+                disabled={submitting}
               />
               <p className="text-xs text-muted-foreground">
-                PDF, JPEG or PNG, up to 10 MB — the office order, duty roster or
+                PDF, JPEG or PNG, up to {MAX_PROOF_FILES} files of 10 MB each — the
+                office order, duty roster or
                 certification that backs this correction.{" "}
                 {directApply
-                  ? "Attach one where it exists; it is kept with the record either way."
+                  ? "Attach them where they exist; they are kept with the record either way."
                   : "Required."}
               </p>
             </div>
@@ -1145,7 +1152,7 @@ export function CorrectionRequestForm({
               <Button onClick={handleSubmit} disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
                 {uploading
-                  ? "Uploading document…"
+                  ? "Uploading documents…"
                   : directApply
                     ? "Save attendance"
                     : "Submit for review"}

@@ -27,6 +27,7 @@ import {
   loadItemSchedules,
 } from "@/lib/attendance-correction-apply";
 import {
+  MAX_PROOF_FILES,
   PROOF_BUCKET,
   proofObjectPath,
   proofRejection,
@@ -334,20 +335,28 @@ export async function getCorrectionDraftDays(
 export interface ProofUploadTicket {
   /** The id the request row will be created under, and the proof's folder. */
   requestId: string;
-  path: string;
-  /** One-shot upload credential for exactly that path. */
-  token: string;
+  /** One per requested filename, in order; each token is a one-shot upload
+   *  credential for exactly its path. */
+  uploads: { path: string; token: string }[];
 }
 
 /** The reference a filed request carries instead of the file itself. */
 export interface CorrectionProofRef {
   requestId: string;
-  path: string;
-  /** The name to show a reader. Cosmetic — the stored key is sanitized. */
-  filename: string;
+  /** `filename` is the name to show a reader. Cosmetic — the stored key is
+   *  sanitized. */
+  files: { path: string; filename: string }[];
 }
 
-// Mints a one-shot credential the BROWSER uses to put the supporting document
+/** One supporting document as stored in proof_files (migration 112). */
+export interface CorrectionProofFile {
+  path: string;
+  filename: string;
+  mime: string | null;
+  size: number | null;
+}
+
+// Mints one-shot credentials the BROWSER uses to put the supporting documents
 // straight into Storage, so the file never travels through a Server Action body.
 //
 // It cannot: Next caps an action's request body (serverActions.bodySizeLimit)
@@ -362,7 +371,7 @@ export interface CorrectionProofRef {
 // file at all.
 export async function createProofUploadTicket(
   employeeId: string,
-  filename: string,
+  filenames: string[],
 ): Promise<ProofUploadTicket | CorrectionActionError> {
   const user = await getCurrentUser();
   if (!user || !canFileAttendanceCorrection(user)) {
@@ -372,19 +381,32 @@ export async function createProofUploadTicket(
     return { error: "That employee is outside the records you may correct." };
   }
 
-  const requestId = crypto.randomUUID();
-  const path = proofObjectPath(employeeId, requestId, filename);
-  const supabase = createAdminClient();
-  const { data, error } = await supabase.storage
-    .from(PROOF_BUCKET)
-    .createSignedUploadUrl(path);
-  if (error || !data) {
-    logFailure("createProofUploadTicket", error);
-    return {
-      error: `Could not start the upload: ${error?.message ?? "no upload URL was issued"}`,
-    };
+  if (filenames.length === 0 || filenames.length > MAX_PROOF_FILES) {
+    return { error: `Attach between 1 and ${MAX_PROOF_FILES} files.` };
   }
-  return { requestId, path, token: data.token };
+
+  const requestId = crypto.randomUUID();
+  const supabase = createAdminClient();
+  const signed = await Promise.all(
+    filenames.map(async (filename, index) => {
+      const path = proofObjectPath(employeeId, requestId, filename, index);
+      const { data, error } = await supabase.storage
+        .from(PROOF_BUCKET)
+        .createSignedUploadUrl(path);
+      return { path, token: data?.token, error };
+    }),
+  );
+  const uploads: ProofUploadTicket["uploads"] = [];
+  for (const { path, token, error } of signed) {
+    if (error || !token) {
+      logFailure("createProofUploadTicket", error);
+      return {
+        error: `Could not start the upload: ${error?.message ?? "no upload URL was issued"}`,
+      };
+    }
+    uploads.push({ path, token });
+  }
+  return { requestId, uploads };
 }
 
 export async function createCorrectionRequest(
@@ -441,59 +463,68 @@ export async function createCorrectionRequest(
   // reviewer-level role filing directly is the party that would have judged it.
   // Migration 068's acr_proof_unless_direct enforces the same rule in the
   // schema, so this cannot be bypassed by calling the action directly.
-  if (!proof && !directApply) {
+  if (!proof?.files.length && !directApply) {
     return { error: "A supporting document is required" };
   }
 
   const supabase = createAdminClient();
 
-  // The document itself was uploaded by the browser (see createProofUploadTicket);
-  // what arrives here is a claim about an object in the bucket. Verify the claim
-  // rather than record it: the path must sit under the ticket's own folder for
-  // THIS employee, the object must actually exist, and its size and type are
+  // The documents were uploaded by the browser (see createProofUploadTicket);
+  // what arrives here is a claim about objects in the bucket. Verify the claim
+  // rather than record it: each path must sit directly in the ticket's own folder
+  // for THIS employee, the object must actually exist, and its size and type are
   // read back from Storage instead of taken from the client. The request id
   // comes from the ticket too, so a replayed one collides with the primary key
   // of the row it already created.
   const requestId = proof?.requestId ?? crypto.randomUUID();
-  const path = proof?.path ?? null;
-  // Every refusal from here on leaves the uploaded document behind unless it is
-  // cleaned up: the browser put it in the bucket before this action ran, and
-  // nothing else will ever reference it.
+  const claimed = proof?.files ?? [];
+  // Every refusal from here on leaves the uploaded documents behind unless they are
+  // cleaned up: the browser put them in the bucket before this action ran, and
+  // nothing else will ever reference them.
   const discardProof = async () => {
-    if (path) await supabase.storage.from(PROOF_BUCKET).remove([path]);
+    if (claimed.length > 0) {
+      await supabase.storage
+        .from(PROOF_BUCKET)
+        .remove(claimed.map((f) => f.path));
+    }
   };
-  let proofSize: number | null = null;
-  let proofMime: string | null = null;
-  if (proof && path) {
+  const proofFiles: CorrectionProofFile[] = [];
+  if (proof && claimed.length > 0) {
+    const folder = `${parsed.employee_id}/${proof.requestId}`;
+    const names = claimed.map((f) => f.path.slice(folder.length + 1));
     if (
       !UUID_RE.test(proof.requestId) ||
-      !path.startsWith(`${parsed.employee_id}/${proof.requestId}/`)
+      claimed.length > MAX_PROOF_FILES ||
+      new Set(names).size !== names.length ||
+      claimed.some((f) => !f.path.startsWith(`${folder}/`)) ||
+      names.some((n) => !n || n.includes("/"))
     ) {
       return {
-        error: "That supporting document does not belong to this request",
+        error: "Those supporting documents do not belong to this request",
       };
     }
     // list() rather than info(): the latter is a newer Storage endpoint, and a
     // verification step that can 404 on an older project would recreate exactly
     // the failure this rewrite exists to remove.
-    const slash = path.lastIndexOf("/");
-    const objectName = path.slice(slash + 1);
     const { data: objects } = await supabase.storage
       .from(PROOF_BUCKET)
-      .list(path.slice(0, slash), { limit: 100, search: objectName });
-    const object = (objects ?? []).find((o) => o.name === objectName);
-    if (!object) {
-      return {
-        error:
-          "The supporting document did not finish uploading. Attach it again.",
-      };
-    }
-    proofSize = (object.metadata?.size as number | undefined) ?? null;
-    proofMime = (object.metadata?.mimetype as string | undefined) ?? null;
-    const rejection = proofRejection(proofSize, proofMime);
-    if (rejection) {
-      await discardProof();
-      return { error: rejection };
+      .list(folder, { limit: 100 });
+    for (const [i, file] of claimed.entries()) {
+      const object = (objects ?? []).find((o) => o.name === names[i]);
+      if (!object) {
+        await discardProof();
+        return {
+          error: `${file.filename} did not finish uploading. Submit again.`,
+        };
+      }
+      const size = (object.metadata?.size as number | undefined) ?? null;
+      const mime = (object.metadata?.mimetype as string | undefined) ?? null;
+      const rejection = proofRejection(size, mime);
+      if (rejection) {
+        await discardProof();
+        return { error: `${file.filename}: ${rejection}` };
+      }
+      proofFiles.push({ path: file.path, filename: file.filename, mime, size });
     }
   }
 
@@ -604,10 +635,13 @@ export async function createCorrectionRequest(
       date_to: parsed.date_to,
       reason: parsed.reason,
       direct_apply: directApply,
-      proof_path: path,
-      proof_filename: proof?.filename ?? null,
-      proof_mime: proofMime,
-      proof_size: proofSize,
+      // The first document, which acr_proof_unless_direct reads; proof_files
+      // holds all of them (migration 112).
+      proof_path: proofFiles[0]?.path ?? null,
+      proof_filename: proofFiles[0]?.filename ?? null,
+      proof_mime: proofFiles[0]?.mime ?? null,
+      proof_size: proofFiles[0]?.size ?? null,
+      proof_files: proofFiles,
       requested_by: user.id,
       requested_by_email: user.email,
     });
@@ -714,7 +748,8 @@ export async function createCorrectionRequest(
       date_to: parsed.date_to,
       days: parsed.items.length,
       direct_apply: directApply,
-      has_proof: !!proof,
+      proof_count: proofFiles.length,
+      has_proof: proofFiles.length > 0,
       ...(outcome ? { outcome } : {}),
     },
   });
@@ -861,21 +896,40 @@ export async function getCorrectionRequest(id: string) {
 
   // Private bucket — never a public URL. A direct-apply filing may carry no
   // proof at all (migration 068), in which case there is nothing to sign.
-  const proofPath = request.proof_path as string | null;
-  const { data: signed } = proofPath
-    ? await supabase.storage
-        .from(PROOF_BUCKET)
-        .createSignedUrl(proofPath, 60 * 10)
-    : { data: null };
+  // An empty proof_files means a single document in the proof_* columns: filings
+  // from before migration 112, and DTR Creator's.
+  const stored = (request.proof_files ?? []) as CorrectionProofFile[];
+  const files: CorrectionProofFile[] =
+    stored.length > 0
+      ? stored
+      : request.proof_path
+        ? [
+            {
+              path: request.proof_path,
+              filename: request.proof_filename ?? "Document",
+              mime: request.proof_mime ?? null,
+              size: request.proof_size ?? null,
+            },
+          ]
+        : [];
+  const { data: signed } =
+    files.length > 0
+      ? await supabase.storage
+          .from(PROOF_BUCKET)
+          .createSignedUrls(
+            files.map((f) => f.path),
+            60 * 10,
+          )
+      : { data: null };
 
   return {
-    request: request as unknown as CorrectionRequestListRow & {
-      proof_path: string | null;
-      proof_mime: string | null;
-      proof_size: number | null;
-    },
+    request: request as unknown as CorrectionRequestListRow,
     items: (items ?? []) as unknown as CorrectionItemRow[],
-    proofUrl: signed?.signedUrl ?? null,
+    proofs: files.map((f, i) => ({
+      filename: f.filename,
+      mime: f.mime,
+      url: signed?.[i]?.signedUrl || null,
+    })),
   };
 }
 

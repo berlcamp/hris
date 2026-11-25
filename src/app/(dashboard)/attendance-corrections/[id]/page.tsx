@@ -73,7 +73,7 @@ export default async function CorrectionDetailPage({
   // (including a bad id) lands on notFound rather than leaking existence.
   const detail = await getCorrectionRequest(id).catch(() => null);
   if (!detail) notFound();
-  const { request, items, proofUrl } = detail;
+  const { request, items, proofs } = detail;
 
   const summary = await getCorrectionReviewSummary(id);
   const summaryByDate = new Map(summary.days.map((d) => [d.duty_date, d]));
@@ -260,19 +260,45 @@ export default async function CorrectionDetailPage({
             </CardHeader>
             <CardContent>
               <p className="text-sm whitespace-pre-wrap">{request.reason}</p>
-              {proofUrl ? (
+              {proofs.length > 0 ? (
                 <>
-                  <a
-                    href={proofUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
-                  >
-                    <FileText className="h-4 w-4" />
-                    {request.proof_filename}
-                  </a>
+                  <ul className="mt-4 flex flex-wrap gap-3">
+                    {proofs.map((proof, i) => (
+                      <li key={i} className="w-24">
+                        {proof.url ? (
+                          <a
+                            href={proof.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={proof.filename}
+                            className="block text-xs text-primary hover:underline"
+                          >
+                            <span className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-md border bg-muted/40 text-muted-foreground">
+                              {proof.mime?.startsWith("image/") ? (
+                                // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL
+                                <img
+                                  src={proof.url}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <FileText className="h-8 w-8" aria-hidden />
+                              )}
+                            </span>
+                            <span className="mt-1 block truncate">
+                              {proof.filename}
+                            </span>
+                          </a>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            {proof.filename} could not be loaded.
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Link expires in 10 minutes.
+                    Links expire in 10 minutes.
                   </p>
                 </>
               ) : request.direct_apply ? (
