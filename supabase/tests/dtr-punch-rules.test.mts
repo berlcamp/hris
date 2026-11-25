@@ -126,6 +126,19 @@ test("the AM out keeps the latest punch of the lunch-out re-scans", () => {
   );
 });
 
+test("AM out and PM in are at least 20 minutes apart", () => {
+  const day = (...lunch: string[]) =>
+    sort(REGULAR, [at("07:58"), ...lunch.map((t) => at(t)), at("17:02")]);
+  // Under 20 minutes: one departure, kept at the latest.
+  assert.deepEqual(day("12:01", "12:20"), ["07:58", "12:20", null, "17:02"]);
+  // Exactly 20 is the return.
+  assert.deepEqual(day("12:01", "12:21"), ["07:58", "12:01", "12:21", "17:02"]);
+  // A re-scan too close to the return is not the one kept.
+  assert.deepEqual(day("12:25", "12:40", "12:55"), ["07:58", "12:25", "12:55", "17:02"]);
+  // Re-scans do not chain the return away.
+  assert.deepEqual(day("12:01", "12:03", "12:15", "12:58"), ["07:58", "12:15", "12:58", "17:02"]);
+});
+
 test("an early return from lunch is the PM arrival", () => {
   assert.deepEqual(
     sort(REGULAR, [at("07:58"), at("12:01"), at("12:40"), at("17:02")]),

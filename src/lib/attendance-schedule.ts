@@ -165,10 +165,10 @@ const MINUTE_MS = 60_000;
 // at 9:30) is more than an hour after arriving and still counts.
 export const ARRIVAL_RESCAN_MINUTES = 60;
 
-// Re-scans of the lunch departure (12:01, 12:03) are one departure, kept at the
-// latest. Anything further apart is the return from lunch: nobody takes a
-// lunch shorter than this.
-export const DEPARTURE_RESCAN_MINUTES = 10;
+// The least time between the lunch departure (AM out) and the return (PM in).
+// Scans closer together than this are one departure, kept at the latest; one
+// exactly this long after it is already the return.
+export const MIN_LUNCH_GAP_MINUTES = 20;
 
 // Sorts one duty date's raw punches into the four DTR cells.
 //
@@ -182,8 +182,9 @@ export const DEPARTURE_RESCAN_MINUTES = 10;
 //           ARRIVAL_RESCAN_MINUTES of it are re-scans and are dropped.
 //   AM out  the next punch, if it is nearer break start than break end (before
 //           the lunch midpoint) — the lunch departure, or an early departure
-//           for the day. Its re-scans within DEPARTURE_RESCAN_MINUTES extend it,
-//           so it keeps the latest.
+//           for the day. Scans less than MIN_LUNCH_GAP_MINUTES after it are its
+//           re-scans; it keeps the latest one that still leaves that gap
+//           before the PM in.
 //   PM in   the first remaining punch, unless it is already past the
 //           afternoon's midpoint — then there was no return from lunch and it
 //           is a departure.
@@ -262,14 +263,16 @@ export function bucketPunchesForDuty(
       i++;
     }
     if (i < punches.length && punches[i].ms < lunchMidMs) {
-      let amOut = punches[i++];
-      while (
-        i < punches.length &&
-        punches[i].ms < breakEndMs &&
-        punches[i].ms - amOut.ms <= DEPARTURE_RESCAN_MINUTES * MINUTE_MS
-      ) {
-        amOut = punches[i++];
-      }
+      // Measured from the first departure scan, not from each re-scan in turn,
+      // so a string of scans cannot push the return out indefinitely.
+      const gapMs = MIN_LUNCH_GAP_MINUTES * MINUTE_MS;
+      const firstOut = punches[i];
+      const start = i;
+      while (i < punches.length && punches[i].ms - firstOut.ms < gapMs) i++;
+      const returnMs = i < punches.length ? punches[i].ms : Infinity;
+      const amOut =
+        punches.slice(start, i).findLast((p) => returnMs - p.ms >= gapMs) ??
+        firstOut;
       set("out_am", amOut);
     }
   }
