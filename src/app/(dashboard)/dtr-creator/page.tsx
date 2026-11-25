@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth-actions";
 import { getDtrCreatorContext } from "@/lib/actions/dtr-creator-actions";
 import { getSchedules } from "@/lib/actions/schedule-actions";
-import { canCreateDtr } from "@/lib/auth-helpers";
+import { canCreateDtr, DTR_CREATOR_ENABLED } from "@/lib/auth-helpers";
 import { DtrCreatorForm } from "@/components/dtr-creator/dtr-creator-form";
 
 export default async function DtrCreatorPage() {
@@ -11,7 +11,7 @@ export default async function DtrCreatorPage() {
   if (!user) redirect("/login");
   // Same call the sidebar makes to show the item. The actions re-check it on
   // every call; this only turns a refusal into a redirect.
-  if (!canCreateDtr(user)) redirect("/dashboard");
+  if (!DTR_CREATOR_ENABLED || !canCreateDtr(user)) redirect("/dashboard");
 
   const [context, schedules] = await Promise.all([
     getDtrCreatorContext(),

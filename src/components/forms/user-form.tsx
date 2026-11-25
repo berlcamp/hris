@@ -31,7 +31,12 @@ import {
   type AssignableRole,
   type UserFormValues,
 } from "@/lib/validations/user-schema";
-import { hasAnyRole, isDeptAdmin, isScanOnlyAccount } from "@/lib/auth-helpers";
+import {
+  DTR_CREATOR_ENABLED,
+  hasAnyRole,
+  isDeptAdmin,
+  isScanOnlyAccount,
+} from "@/lib/auth-helpers";
 import { createUser, updateUser } from "@/lib/actions/user-actions";
 
 interface Department {
@@ -340,7 +345,7 @@ export function UserForm({ departments, defaultValues, mode }: UserFormProps) {
               </div>
             )}
 
-            {showCorrectionsToggle && (
+            {DTR_CREATOR_ENABLED && showCorrectionsToggle && (
               <div className="flex items-start gap-3 rounded-lg border p-3 mt-3">
                 <Checkbox
                   id="can_access_dtr_creator"

@@ -620,6 +620,10 @@ export function canOpenAttendanceCorrections(actor: CorrectionActor): boolean {
   );
 }
 
+// Hides the DTR Creator for everyone: its sidebar item, its page and its switch
+// in the user form. Saved per-user access is kept. Set to true to bring it back.
+export const DTR_CREATOR_ENABLED: boolean = false;
+
 // ── DTR Creator ───────────────────────────────────────────────────────────
 // Creates attendance for SEVERAL employees of one department at once, for days
 // that have no record yet. Every day it writes goes through the corrections

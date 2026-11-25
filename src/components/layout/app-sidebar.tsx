@@ -70,7 +70,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useUser, type AuthUser } from "@/hooks/use-user";
 import { signOut } from "@/lib/actions/auth-actions";
-import { canCreateDtr, canOpenAttendanceCorrections } from "@/lib/auth-helpers";
+import {
+  canCreateDtr,
+  canOpenAttendanceCorrections,
+  DTR_CREATOR_ENABLED,
+} from "@/lib/auth-helpers";
 import type { UserRole } from "@/lib/types";
 
 interface NavItem {
@@ -294,7 +298,7 @@ const navGroups: NavGroup[] = [
           "department_admin",
           "department_admin_and_department_head",
         ],
-        visible: (user) => !!user && canCreateDtr(user),
+        visible: (user) => DTR_CREATOR_ENABLED && !!user && canCreateDtr(user),
       },
     ],
   },
