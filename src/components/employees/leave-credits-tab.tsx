@@ -338,7 +338,8 @@ export function LeaveCreditsTab({
               Tardiness &amp; Undertime Deductions ({ledgerYear})
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Charged against Vacation Leave once the month is over, at 0.125
+              Charged against Vacation Leave on the 8th of the following month, after
+              the first 7 days for corrections, at 0.125
               day per hour (1 day = 8 hours) — one entry per month, as on the
               CSC leave card.
             </p>

@@ -1,10 +1,12 @@
-// Stack test for migration 108: tardy/undertime is charged to VL only once the
-// month is over (Asia/Manila calendar).
+// Stack test for migrations 108 and 113: tardy/undertime is charged to VL only
+// once the month is over and 7 more days have passed for corrections (Asia/Manila
+// calendar) — November is charged on December 8.
 //
-//   * the current month posts nothing, whatever its minutes;
+//   * the open month posts nothing, whatever its minutes;
 //   * postings already made for it are reversed (history kept) and the VL
 //     balance follows;
-//   * the previous, closed month is charged — including by the daily cron.
+//   * the month before it, closed, is charged — and by the daily cron once it
+//     is the previous calendar month.
 //
 // Uses its own employee because the dates are relative to today and other
 // suites write 2026 attendance for the seeded ones.
@@ -30,12 +32,17 @@ const admin = createClient(status.API_URL, status.SERVICE_ROLE_KEY, {
 const EMP = "00000000-0000-0000-0000-0000000108e1";
 const DEPT = "00000000-0000-0000-0000-0000000000d1";
 
-// Current and previous month on the Manila calendar (UTC+8, no DST).
-const manila = new Date(Date.now() + 8 * 3600 * 1000);
-const CUR = { year: manila.getUTCFullYear(), month: manila.getUTCMonth() + 1 };
+// The earliest open month and the one before it, on the Manila calendar (UTC+8,
+// no DST). A month is open until 7 days into the next one.
+const graceEnd = new Date(Date.now() + 8 * 3600 * 1000 - 7 * 86400 * 1000);
+const CUR = { year: graceEnd.getUTCFullYear(), month: graceEnd.getUTCMonth() + 1 };
 const PREV = CUR.month === 1
   ? { year: CUR.year - 1, month: 12 }
   : { year: CUR.year, month: CUR.month - 1 };
+// The cron charges the previous CALENDAR month, which during the grace days is
+// still open.
+const manilaNow = new Date(Date.now() + 8 * 3600 * 1000);
+const IN_GRACE = manilaNow.getUTCMonth() !== graceEnd.getUTCMonth();
 
 let VL = "";
 
@@ -92,7 +99,25 @@ test.before(async () => {
 
 test.after(cleanup);
 
-test("the current month is not charged, however many minutes it has", async () => {
+test("a month stays open until the 8th of the next month (Manila)", async () => {
+  const cases: [string, string][] = [
+    ["2026-11-27T12:00:00+08:00", "2026-11-01"],
+    ["2026-12-01T00:00:00+08:00", "2026-11-01"],
+    ["2026-12-07T23:59:59+08:00", "2026-11-01"],
+    ["2026-12-08T00:00:00+08:00", "2026-12-01"],
+    // 16:00 UTC on Dec 7 is already Dec 8 in Manila.
+    ["2026-12-07T16:00:00Z", "2026-12-01"],
+    ["2027-01-07T12:00:00+08:00", "2026-12-01"],
+    ["2027-01-08T12:00:00+08:00", "2027-01-01"],
+  ];
+  for (const [now, openFrom] of cases) {
+    const { data, error } = await admin.rpc("attendance_deduction_open_from", { p_now: now });
+    assert.equal(error, null);
+    assert.equal(data, openFrom, now);
+  }
+});
+
+test("the open month is not charged, however many minutes it has", async () => {
   await setExternal(CUR, 240);
   await apply(CUR);
   assert.deepEqual((await posted(CUR)).rows, []);
@@ -134,7 +159,7 @@ test("the previous, closed month is charged", async () => {
   assert.match(p.rows[0].notes, /^External DTR undertime deduction/);
 });
 
-test("the daily cron charges the month that just closed", async () => {
+test("the daily cron charges the month that just closed", { skip: IN_GRACE && "the previous calendar month is still in its grace days" }, async () => {
   await setExternal(PREV, 480);
   const { data, error } = await admin.rpc("cron_run_closed_month_vl_deduction");
   assert.equal(error, null);
